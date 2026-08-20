@@ -466,7 +466,7 @@ Ledger format:
 | Auction increment-shill auto-flag      | `transaction-service.test.ts`                          | risk signal, bid history unchanged      | Closed  | Auto-flag on `bid.place` | Marketplace unit suite | Verified in sandbox |
 | Visible bid history                    | `transaction-service.test.ts` + auction PDP            | visible prices only, no proxy max       | Closed  | Projection reconstruct   | Marketplace unit suite | Verified in sandbox |
 | Offer auto-accept                      | `transaction-service.test.ts` + sell form + vase PDP   | threshold reserves inventory            | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
-| Feature videos                         | recorded walkthroughs                                  | all feature groups                      | Open    | Guest subset recorded    | Signed-in/Bitkit open  | Unverified          |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                      | Open    | Guest subset + two signed-in motion videos (no phrase) | Bitkit + remaining groups | Partial             |
 
 Required gates:
 
