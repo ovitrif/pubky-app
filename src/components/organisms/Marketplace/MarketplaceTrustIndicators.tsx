@@ -36,35 +36,35 @@ export function MarketplaceTrustIndicators({
           <Typography as="h3" className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
             Verified by marketplace
           </Typography>
-          <dl className="mt-2 grid gap-2">
+          <div className="mt-2 grid gap-2">
             {facts.verified.map((fact) => (
               <div key={fact.label}>
-                <Typography as="dt" className="text-xs text-muted-foreground">
+                <Typography as="p" className="text-xs text-muted-foreground">
                   {fact.label}
                 </Typography>
-                <Typography as="dd" className="text-sm">
+                <Typography as="p" className="text-sm">
                   {fact.value}
                 </Typography>
               </div>
             ))}
-          </dl>
+          </div>
         </div>
         <div>
           <Typography as="h3" className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
             Self-declared by seller
           </Typography>
-          <dl className="mt-2 grid gap-2">
+          <div className="mt-2 grid gap-2">
             {facts.selfDeclared.map((fact) => (
               <div key={fact.label}>
-                <Typography as="dt" className="text-xs text-muted-foreground">
+                <Typography as="p" className="text-xs text-muted-foreground">
                   {fact.label}
                 </Typography>
-                <Typography as="dd" className="text-sm">
+                <Typography as="p" className="text-sm">
                   {fact.value}
                 </Typography>
               </div>
             ))}
-          </dl>
+          </div>
         </div>
       </div>
     </section>

@@ -13,35 +13,35 @@ export function MarketplaceGuaranteeTerms({ compact = false }: { compact?: boole
         {sandboxGuaranteeSummary()}
       </Typography>
       {!compact && (
-        <dl className="grid gap-2 text-sm">
+        <div className="grid gap-2 text-sm">
           <div>
-            <Typography as="dt" className="text-xs text-muted-foreground">
+            <Typography as="p" className="text-xs text-muted-foreground">
               Eligibility
             </Typography>
-            <Typography as="dd">{SANDBOX_GUARANTEE_POLICY.eligibility}</Typography>
+            <Typography as="p">{SANDBOX_GUARANTEE_POLICY.eligibility}</Typography>
           </div>
           <div>
-            <Typography as="dt" className="text-xs text-muted-foreground">
+            <Typography as="p" className="text-xs text-muted-foreground">
               Exclusions
             </Typography>
-            <Typography as="dd">{SANDBOX_GUARANTEE_POLICY.exclusions}</Typography>
+            <Typography as="p">{SANDBOX_GUARANTEE_POLICY.exclusions}</Typography>
           </div>
           <div>
-            <Typography as="dt" className="text-xs text-muted-foreground">
+            <Typography as="p" className="text-xs text-muted-foreground">
               Evidence
             </Typography>
-            <Typography as="dd">{SANDBOX_GUARANTEE_POLICY.evidence}</Typography>
+            <Typography as="p">{SANDBOX_GUARANTEE_POLICY.evidence}</Typography>
           </div>
           <div>
-            <Typography as="dt" className="text-xs text-muted-foreground">
+            <Typography as="p" className="text-xs text-muted-foreground">
               Deadlines
             </Typography>
-            <Typography as="dd">
+            <Typography as="p">
               Claim within {SANDBOX_GUARANTEE_POLICY.claimWindowDays} days of delivery or digital access. Seller or
               operator resolution within {SANDBOX_GUARANTEE_POLICY.resolutionDeadlineDays} days after evidence.
             </Typography>
           </div>
-        </dl>
+        </div>
       )}
       <Typography as="p" className="text-sm">
         {SANDBOX_GUARANTEE_POLICY.disclaimer}
