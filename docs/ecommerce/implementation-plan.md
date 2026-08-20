@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (trust labels + guarantee terms + buyer payment status; live Bitkit and remaining signed-in videos remain)
+Stopped at: **T8 — Hardening and parity audit** (trust labels + guarantee terms + buyer payment status; signed-in checkout/digital/moderation videos recorded; live Bitkit remains)
 
 Legend:
 
@@ -27,8 +27,8 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks plus labeled HTTP stub; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, enforced Next nonce CSP, DNS rebinding, restore drill; live Bitkit and remaining videos remain
-- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills plus Locks stub pages; Bitkit and remaining motion demos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, enforced Next nonce CSP, DNS rebinding, restore drill; live Bitkit remains
+- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in checkout, digital-delivery clicks, and operator-moderation videos recorded without the phrase; live Bitkit motion remains
 
 ### Delivery slices
 
@@ -44,13 +44,13 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: enforced Next.js nonce CSP, Node-side commerce DNS-rebinding checks, isolated snapshot restore drills, and marketplace muted-text contrast override.
+Last shipped feature work: trust indicators, versioned guarantee terms, buyer-visible payment labels, and signed-in checkout/digital/moderation videos.
 
 Next required work, in order:
 
-1. Close T8: broader VRT/E2E coverage and keep the verification ledger current.
-2. Prove live Bitkit/Paykit companion flows against the pinned Docker topology. The local stub is not that proof.
-3. Close T9: record and review remaining feature videos without capturing the recovery phrase.
+1. Prove live Bitkit/Paykit companion flows against the pinned Docker topology. The local stub is not that proof.
+2. Close T8: broader VRT/E2E coverage and keep the verification ledger current.
+3. Close T9: record live Bitkit motion and remaining responsive/accessibility videos without capturing the recovery phrase.
 
 ### Reachable routes
 
@@ -434,7 +434,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T9 — Documentation and demonstrations `[ ]`
 
 - [~] Document local sandbox, real Docker topology, runtime configuration, wallet approval, operational limitations, recovery, and threat model. — plan, ADRs, upstream, threat model, service README
-- [ ] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos.
+- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, and operator assign/dismiss; live Bitkit missing
 - [ ] Review every video and retain only successful, minimal demonstrations.
 
 ## Verification loop
@@ -466,7 +466,7 @@ Ledger format:
 | Auction increment-shill auto-flag      | `transaction-service.test.ts`                          | risk signal, bid history unchanged      | Closed  | Auto-flag on `bid.place`                               | Marketplace unit suite    | Verified in sandbox |
 | Visible bid history                    | `transaction-service.test.ts` + auction PDP            | visible prices only, no proxy max       | Closed  | Projection reconstruct                                 | Marketplace unit suite    | Verified in sandbox |
 | Offer auto-accept                      | `transaction-service.test.ts` + sell form + vase PDP   | threshold reserves inventory            | Closed  | Service + catalog                                      | Marketplace unit suite    | Verified in sandbox |
-| Feature videos                         | recorded walkthroughs                                  | all feature groups                      | Open    | Guest subset + two signed-in motion videos (no phrase) | Bitkit + remaining groups | Partial             |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                      | Open    | Guest subset + signed-in checkout, digital clicks, operator moderation (no phrase) | Live Bitkit missing | Partial             |
 
 Required gates:
 
