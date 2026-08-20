@@ -533,6 +533,27 @@ Cypress.Commands.add('findPostInSearchResults', (filterText?: string, postIdx = 
     });
 });
 
+Cypress.Commands.add('marketplaceCurrentUserPubky', () => {
+  return cy.window().then((win) => {
+    const raw = win.localStorage.getItem('auth-store');
+    expect(raw, 'auth-store persist').to.be.a('string');
+    const parsed = JSON.parse(raw as string) as { state?: { currentUserPubky?: string } };
+    const pubky = parsed.state?.currentUserPubky;
+    expect(pubky, 'signed-in pubky').to.have.length(52);
+    return pubky as string;
+  });
+});
+
+Cypress.Commands.add('enableMarketplaceSandboxOperator', () => {
+  cy.window().then((win) => {
+    win.sessionStorage.setItem('pubky.marketplace.sandboxOperator', '1');
+  });
+});
+
+Cypress.Commands.add('marketplaceRequest', (method, path, actor, body) => {
+  return cy.task<{ status: number; json: unknown }>('marketplaceRequest', { method, path, actor, body });
+});
+
 // To prevent Cypress from failing the test when running pubky-app with dev build:
 // `Uncaught SyntaxError: Invalid or unexpected token` on Chrome, and
 // `Uncaught SyntaxError: "" literal not terminated before end of script` on firefox.

@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (guest cart + quantity + IndexedDB timeout, auction standing, live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (signed-in checkout/fulfillment/moderation Cypress landed; live Bitkit and remaining videos remain)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — guest local cart + quantity stepper, DatabaseProvider init timeout, auction status + seeded bid history, buying policies, marketplace unit/hook tests, catalog VRT, Cypress browse/guest-cart/auth/auction/watcher/vacation; live Bitkit and signed-in videos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — signed-in Cypress now places a sandbox order, confirms payment, fulfills pickup, reviews, ships a seller listing, and dismisses a report as sandbox operator; live Bitkit, axe/SSRF, and remaining videos remain
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in/Bitkit feature videos not recorded
 
 ### Delivery slices
@@ -44,13 +44,13 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: staging recovery phrase restores a real session; signed-in cart shows the checkout form; sell studio, seller dashboard, and orders are reachable. Guest cart, quantity steppers, and DatabaseProvider init timeout remain.
+Last shipped feature work: signed-in staging session completes bid/offer/message/report, sandbox checkout + payment confirm, pickup delivery + review, seller tracking, and sandbox-operator moderation. Published listings now register with the transaction service in sandbox.
 
 Next required work, in order:
 
 1. Close T8: broader VRT/E2E/a11y/security/concurrency/migration coverage and keep the verification ledger current.
 2. Prove live Bitkit/Paykit companion flows against the pinned Docker topology.
-3. Close T9: record and review feature videos.
+3. Close T9: record and review remaining feature videos without capturing the recovery phrase.
 
 ### Reachable routes
 

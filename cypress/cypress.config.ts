@@ -139,6 +139,42 @@ export default defineConfig({
           const phrase = typeof process.env.STAGING_RECOVERY_PHRASE === 'string' ? process.env.STAGING_RECOVERY_PHRASE.trim() : '';
           return phrase.split(/\s+/).filter(Boolean).length === 12 ? phrase : null;
         },
+
+        async marketplaceRequest({ method, path, actor, body }) {
+          const marketplaceUrl = process.env.PUBKY_RUNTIME_MARKETPLACE_URL || 'http://127.0.0.1:3100';
+          const payload =
+            body && typeof body === 'object'
+              ? {
+                  version: 1,
+                  expectedRevision: 0,
+                  issuedAt: new Date().toISOString(),
+                  ...body,
+                  commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
+                }
+              : undefined;
+          const response = await fetch(`${marketplaceUrl}${path}`, {
+            method,
+            headers: {
+              ...(actor ? { 'x-pubky-actor': actor } : {}),
+              ...(payload ? { 'content-type': 'application/json' } : {}),
+            },
+            body: payload ? JSON.stringify(payload) : undefined,
+          });
+          const text = await response.text();
+          let json = null;
+          try {
+            json = text ? JSON.parse(text) : null;
+          } catch {
+            json = { error: { code: 'INVALID_JSON', message: text.slice(0, 200) } };
+          }
+          return { status: response.status, json };
+        },
+      });
+
+      on('after:spec', (spec, results) => {
+        if (spec.relative.includes('marketplace-signed-in') && results.video && existsSync(results.video)) {
+          unlink(results.video, () => undefined);
+        }
       });
     },
     experimentalModifyObstructiveThirdPartyCode: true,

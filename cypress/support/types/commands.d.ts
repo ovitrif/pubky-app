@@ -6,6 +6,14 @@ declare global {
       signOut(hasBackedUp: HasBackedUp): Chainable<void>;
       signInWithEncryptedFile(backupFilepath: string, passcode?: string): Chainable<void>;
       signInWithRecoveryPhrase(recoveryPhrase: string): Chainable<void>;
+      marketplaceCurrentUserPubky(): Chainable<string>;
+      enableMarketplaceSandboxOperator(): Chainable<void>;
+      marketplaceRequest(
+        method: string,
+        path: string,
+        actor?: string,
+        body?: Record<string, unknown>,
+      ): Chainable<{ status: number; json: unknown }>;
       completeOnboardingFromInstall(
         profileName: string,
         profileBio?: string,
