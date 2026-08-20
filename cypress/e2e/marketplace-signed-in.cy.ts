@@ -162,6 +162,7 @@ function checkoutBootsAndFulfill() {
   cy.contains('Added to cart').should('be.visible');
   cy.visit('/marketplace/cart');
   cy.contains('Vintage leather boots').should('be.visible');
+  ensureBootsStock();
   cy.contains('Delivery and guarantee').should('be.visible');
   cy.get('#name').clear().type('Ada Buyer');
   cy.get('#line1').clear().type('12 Market Street');

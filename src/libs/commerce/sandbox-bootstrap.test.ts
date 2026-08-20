@@ -17,7 +17,7 @@ describe('sandboxListingNeedsReregister', () => {
     ).toBe(false);
   });
 
-  it('re-registers when catalog quantity drifts from the service projection', () => {
+  it('re-registers only when service quantity is below the catalog', () => {
     const boots = createCommerceSandboxCatalog().listings.find((listing) => listing.listingId === 'leather_boots');
     expect(boots).toBeDefined();
     expect(
@@ -29,6 +29,12 @@ describe('sandboxListingNeedsReregister', () => {
     expect(
       sandboxListingNeedsReregister(
         { autoAcceptAmount: null, availableQuantity: 4, reservedQuantity: 0, soldQuantity: 0 },
+        boots!,
+      ),
+    ).toBe(false);
+    expect(
+      sandboxListingNeedsReregister(
+        { autoAcceptAmount: null, availableQuantity: 2, reservedQuantity: 4, soldQuantity: 0 },
         boots!,
       ),
     ).toBe(false);

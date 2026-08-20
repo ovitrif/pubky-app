@@ -30,7 +30,7 @@ export function sandboxListingNeedsReregister(
   }
   const serviceQuantity =
     (existing.availableQuantity ?? 0) + (existing.reservedQuantity ?? 0) + (existing.soldQuantity ?? 0);
-  return serviceQuantity !== sandboxListingCatalogQuantity(listing);
+  return serviceQuantity < sandboxListingCatalogQuantity(listing);
 }
 
 export function sandboxAuctionSeedPlan(
