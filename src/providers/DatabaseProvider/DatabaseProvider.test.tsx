@@ -28,7 +28,8 @@ describe('DatabaseProvider', () => {
       </DatabaseProvider>,
     );
 
-    expect(screen.getByText('Storage is taking too long. Reload')).toBeInTheDocument();
+    expect(screen.getByText('Loading local storage…')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reload if this takes more than a few seconds' })).toBeInTheDocument();
     expect(screen.queryByText('Test Content')).not.toBeInTheDocument();
   });
 

@@ -12,12 +12,6 @@ body {
   overscroll-behavior-y: contain;
 }
 
-@keyframes db-init-timeout-hint {
-  to {
-    opacity: 1;
-  }
-}
-
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
