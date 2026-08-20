@@ -19,6 +19,28 @@ Runtime defaults live in `src/libs/runtime-config/runtime-config.schema.ts`. Cop
 
 The sandbox adapter is the local default (`PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=sandbox`) and is labeled in the UI. It does not move Bitcoin, custody funds, or issue real refunds. Production deployments should set `locks-paykit` or `unavailable`.
 
+## Native Lock Server / Paykit Server (no Docker)
+
+This cloud environment has no Docker. The pinned `pubky/locks` and `pubky/paykit-server` trees were compiled with their toolchain pins and booted against local PostgreSQL:
+
+```bash
+# locks-server (Rust 1.89.0) — do not bind :3000; Next.js already uses it
+PUBKY_LOCK_DATABASE_URL=postgres://marketplace:marketplace@127.0.0.1:5432/locks \
+  locks-server --config ~/.pubky-lock/config.toml
+# bind_addr = "127.0.0.1:3103"
+
+# paykit-server (Rust 1.91.1)
+PAYKIT_CONFIG=./config.toml \
+PAYKIT_DATABASE_URL=postgres://marketplace:marketplace@127.0.0.1:5432/paykit \
+PAYKIT_MASTER_KEY=<32-byte-base64url> \
+  paykit-server
+# listen_addr = "127.0.0.1:3104"
+```
+
+Verified locally: Lock Server `GET /healthz` → `{"status":"ok"}` and `GET /readyz` → persisted worker ready. Paykit Server `GET /health/live` → live and `GET /health/ready` → postgres / electrum adapter / paykit_delivery / outbox ready. `GET /setup` with an exact allowed `return_to` origin renders a Paykit auth URL and does not embed an xpub.
+
+This is not Bitkit companion approval. Mainline DHT bootstrap fails without `pubky-testnet`. There is no live Electrum/Bitcoin chain. The marketplace app still defaults to `npm run locks:sandbox` on `:3101` / `:3102`. Point `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit` at these processes only after Lock Server creator-authority and Bitkit setup succeed.
+
 ## Docker / companion topology
 
 Use the pins and route contracts in [`upstream-integration.md`](upstream-integration.md) for:
