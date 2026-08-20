@@ -23,6 +23,7 @@ import {
   matchSingleCollectionRoute,
   ONBOARDING_ROUTES,
   PROFILE_ROUTES,
+  PUBLIC_ROUTES,
   SETTINGS_ROUTES,
   UNAUTHENTICATED_ROUTES,
 } from './routes';
@@ -153,6 +154,10 @@ describe('isDynamicPublicRoute', () => {
       expect(isDynamicPublicRoute('/marketplace/orders')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/messages')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/notifications')).toBe(false);
+    });
+
+    it('exposes the catalog index during auth hydration', () => {
+      expect(PUBLIC_ROUTES).toContain('/marketplace');
     });
   });
 

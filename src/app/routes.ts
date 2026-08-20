@@ -98,6 +98,10 @@ export const EXPLORE_ROUTES: string[] = [
 // still finish before app shell routes render for logged-in users.
 export const PUBLIC_ROUTES: string[] = [
   AUTH_ROUTES.LOGOUT,
+  // Public catalog must render during auth hydration. Listing/shop PDPs are
+  // already dynamic public routes; the index is not, and would otherwise stay
+  // on the RouteGuard spinner until persist finishes.
+  APP_ROUTES.MARKETPLACE,
   // Profile is public to prevent RouteGuard redirect during logout.
   // The profile page components handle unauthenticated state gracefully.
   APP_ROUTES.PROFILE,
