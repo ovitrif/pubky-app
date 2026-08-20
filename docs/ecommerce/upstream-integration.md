@@ -278,19 +278,19 @@ What works now without Bitkit, Ring, or Paykit Server:
 1. Sandbox checkout picks a labeled simulated Paykit endpoint (`sandbox_paykit_btc` or `sandbox_labeled_invoice`).
 2. The Marketplace Transaction Service creates the order, posts a balanced ledger, and advances sandbox payment states.
 3. Orders show a labeled sandbox invoice QR. The UI never claims this moved Bitcoin.
-4. Locks client hooks can start a proof lifecycle in `locks-paykit` mode when a Lock Server URL is configured. That path is not proven against a live companion in this environment.
-5. Seller settings expose Lock Server `/connect` and Paykit Server `/setup` launchers. They do not receive xpubs or wallet secrets.
+4. Locks client hooks can start a proof lifecycle against `http://localhost:3101`. `npm run locks:sandbox` implements the browser HTTP contract with empty Paykit proofs and labeled sandbox credentials. It is not `pubky/locks` or Paykit Server.
+5. Seller settings expose Lock Server `/connect` and Paykit Server `/setup` launchers. The sandbox stub serves those pages without collecting xpubs or wallet secrets.
 
 What still blocks a live Bitkit → Paykit Server → Locks confirmation:
 
-- This Cloud VM has no `STAGING_RECOVERY_PHRASE`, so signed-in companion approval cannot be rehearsed here.
+- This Cloud VM has a staging recovery phrase, but Bitkit, Paykit Server, Electrum, and a Bitcoin node are not running here.
 - Locks JS/WASM is unpublished and is not vendored into this Next.js build.
 - Paykit has no browser binding. The browser must not call Paykit Server business routes.
 - Paykit Server is BTC-only, single-process, and cannot spend, refund, or issue receipts.
 - `pubky-docker` does not include Locks, Paykit Server, Electrum, Bitcoin, Ring, or Bitkit.
 - Pubky Ring Simulator is not evidence for Bitkit approval or payment execution.
 
-Until those companions are running against the pinned topology, treat sandbox payment advance as the only verified end-to-end path.
+Until those companions are running against the pinned topology, treat sandbox payment advance plus the labeled Locks HTTP stub as the verified local path — not as live companion approval.
 
 ## Blockers tracked as work
 

@@ -4,11 +4,14 @@
 
 1. Start PostgreSQL and create `marketplace` / `marketplace_test` databases.
 2. Start the Marketplace Transaction Service: `npm run marketplace`
-3. Start the Next.js app: `npm run dev`
-4. Sign in with a Pubky recovery phrase
-5. Open `/marketplace`
+3. Start the labeled Locks / Paykit HTTP stub: `npm run locks:sandbox`
+4. Start the Next.js app: `npm run dev`
+5. Sign in with a Pubky recovery phrase
+6. Open `/marketplace`
 
 `npm run marketplace` sets `MARKETPLACE_MODE=sandbox` and `DATABASE_URL=postgres://marketplace:marketplace@127.0.0.1:5432/marketplace`. Restarting the service must preserve listings, orders, and ledger rows.
+
+`npm run locks:sandbox` listens on `127.0.0.1:3101` (Locks client routes) and `127.0.0.1:3102` (Paykit `/setup`). It is a labeled stub: empty Paykit proofs only, no Bitcoin, no Bitkit, no Ring grant.
 
 Runtime defaults live in `src/libs/runtime-config/runtime-config.schema.ts`. Copy `.env.example` only when you need to override them.
 
@@ -34,5 +37,7 @@ Sign-out clears account-scoped Dexie commerce tables and the commerce Zustand st
 ## Health
 
 The transaction service exposes `/health/live` and `/health/ready`. `/health/ready` reports `storage: postgres` when `DATABASE_URL` is set. Schema is applied from `services/marketplace/schema.sql` on connect.
+
+The Locks / Paykit stub exposes `/health/live` and `/health/ready` on both ports and labels every response `sandbox`.
 
 Operator routes (sandbox moderator only): `/v1/invariants` and `/v1/admin/search?q=`. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.

@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (signed-in checkout/fulfillment/moderation Cypress landed; live Bitkit and remaining videos remain)
+Stopped at: **T8 — Hardening and parity audit** (Locks/Paykit sandbox HTTP stub + buyer order notifications landed; live Bitkit and remaining videos remain)
 
 Legend:
 
@@ -24,11 +24,11 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory tests plus PostgreSQL write-through repository
 - [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
 - [x] **T4 — Messaging, offers, and auctions** — proxy bids, visible bid history, anti-sniping, watcher-only offers, auto-accept thresholds, increment-shill auto-flags
-- [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
+- [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks plus labeled HTTP stub; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — signed-in Cypress now places a sandbox order, confirms payment, fulfills pickup, reviews, ships a seller listing, and dismisses a report as sandbox operator; live Bitkit, axe/SSRF, and remaining videos remain
-- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills recorded; Bitkit and motion demos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — signed-in Cypress covers Paykit stub proof, buyer inbox, digital delivery, pickup, review, seller ship, and sandbox-operator moderation; live Bitkit, axe/SSRF, and remaining videos remain
+- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills plus Locks stub pages; Bitkit and remaining motion demos remain
 
 ### Delivery slices
 
@@ -37,19 +37,19 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 3. Durable transaction service + inventory/ledger foundations — PostgreSQL snapshot + events/ledger/outbox tables
 - [x] 4. Messaging + offers + concurrency-safe auctions
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
-- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle exists; companion approval not proven
+- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub; companion approval not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
 - [~] 8. Seller analytics + moderation + hardening
 - [ ] 9. Full parity audit, documentation, and final videos
 
 ### Where we stopped
 
-Last shipped feature work: signed-in staging session completes bid/offer/message/report, sandbox checkout + payment confirm, pickup delivery + review, seller tracking, and sandbox-operator moderation. Published listings now register with the transaction service in sandbox.
+Last shipped feature work: labeled Locks/Paykit HTTP stub on :3101/:3102, buyer `order_created` / `payment_confirmed` notifications, and signed-in digital delivery / Paykit proof Cypress.
 
 Next required work, in order:
 
 1. Close T8: broader VRT/E2E/a11y/security/concurrency/migration coverage and keep the verification ledger current.
-2. Prove live Bitkit/Paykit companion flows against the pinned Docker topology.
+2. Prove live Bitkit/Paykit companion flows against the pinned Docker topology. The local stub is not that proof.
 3. Close T9: record and review remaining feature videos without capturing the recovery phrase.
 
 ### Reachable routes
@@ -177,14 +177,14 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Paykit, Locks, and payment confirmation
 
-- [~] Seller payment setup launches the Paykit Server/Bitkit companion approval flow and reports setup state without exposing wallet secrets. — settings button + setup URL; live companion unproven
-- [~] Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice. — client hooks exist
+- [~] Seller payment setup launches the Paykit Server/Bitkit companion approval flow and reports setup state without exposing wallet secrets. — settings buttons open labeled `/connect` and `/setup` stubs; live companion unproven
+- [~] Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice. — client hooks + sandbox stub complete empty proofs; live invoice unproven
 - [ ] The real browser flow shows Paykit request/entitlement progress while Bitkit privately receives and executes the payment request; it does not expose or reconstruct the invoice.
 - [~] Real buyer-visible status distinguishes awaiting entitlement, confirmed, marketplace-expired, and manual review. — sandbox states labeled; real status mapping incomplete
 - [x] The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated.
 - [x] Polling is abortable, bounded, resumable after reload, and tolerant of duplicate/reordered responses.
 - [x] A confirmed payment advances the order once; later duplicate confirmations are harmless.
-- [~] Digital goods use a Locks access credential and verify content hashes. — sandbox issue/refresh/access audit + integrity flag; live Bitkit delivery unproven
+- [~] Digital goods use a Locks access credential and verify content hashes. — sandbox issue/refresh/access plus stub credential/content; live Bitkit delivery unproven
 - [x] Real payment criteria use direct on-chain Bitcoin with `minimum_confirmations` constrained to `0..6`; Lightning is not claimed by the current Paykit Server adapter.
 - [x] Marketplace expiry is an order policy, not a terminal Paykit failure. A late payment enters manual reconciliation because Locks v1 keeps upstream/network failures pending.
 - [x] Sandbox mode reproduces all supported statuses deterministically and is visibly labeled.
