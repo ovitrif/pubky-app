@@ -328,7 +328,9 @@ export class LocalCommerceService {
             const existingById = new Map(existingListings.map((listing) => [listing.id, listing]));
             const needsRefresh = listingModels.some((next) => {
               const current = existingById.get(next.id);
-              return !current || current.record.media.length !== next.record.media.length;
+              const currentHashes = current?.record.media.map((item) => item.contentHash).join(':') ?? '';
+              const nextHashes = next.record.media.map((item) => item.contentHash).join(':');
+              return !current || currentHashes !== nextHashes;
             });
             if (!needsRefresh) return false;
           }

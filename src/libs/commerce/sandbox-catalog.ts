@@ -228,7 +228,7 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
         id: `${imageId}_detail`,
         type: 'image',
         url: `pubky://${entry.seller}/pub/pubky.app/marketplace/v1/media/${imageId}_detail`,
-        contentHash: `${entry.colorHash}b`.repeat(32).slice(0, 64),
+        contentHash: ((Number.parseInt(entry.colorHash, 16) + 5) % 16).toString(16).repeat(64),
         mimeType: 'image/jpeg',
         byteSize: 8_000,
         width: 1_200,

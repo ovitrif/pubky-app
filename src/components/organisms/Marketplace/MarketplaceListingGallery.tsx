@@ -7,6 +7,16 @@ import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isDisplayableCommerceMediaUrl } from '@/libs/commerce/media';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { cn } from '@/libs/utils/utils';
+
+const MEDIA_BACKGROUNDS = [
+  'from-brand/45 via-purple-500/20 to-background',
+  'from-cyan-500/40 via-blue-500/20 to-background',
+  'from-amber-500/45 via-orange-500/20 to-background',
+  'from-emerald-500/40 via-teal-500/20 to-background',
+  'from-rose-500/40 via-pink-500/20 to-background',
+  'from-slate-400/35 via-zinc-500/20 to-background',
+] as const;
 
 export function MarketplaceListingGallery({
   media,
@@ -18,10 +28,18 @@ export function MarketplaceListingGallery({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const selected = media[selectedIndex] ?? media[0];
   const displayable = selected ? isDisplayableCommerceMediaUrl(selected.url) : false;
+  const colorIndex =
+    Number.parseInt(selected?.contentHash.charAt(0) ?? String(selectedIndex), 16) % MEDIA_BACKGROUNDS.length;
+  const background = MEDIA_BACKGROUNDS[colorIndex] ?? MEDIA_BACKGROUNDS[0];
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative flex min-h-[440px] items-center justify-center overflow-hidden rounded-2xl border bg-linear-to-br from-brand/35 via-purple-500/15 to-card lg:min-h-[640px]">
+      <div
+        className={cn(
+          'relative flex min-h-[440px] items-center justify-center overflow-hidden rounded-2xl border bg-linear-to-br lg:min-h-[640px]',
+          background,
+        )}
+      >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.18),transparent_32%)]" />
         {displayable && selected ? (
           <img src={selected.url} alt={selected.altText} className="relative z-10 max-h-[640px] w-full object-cover" />
