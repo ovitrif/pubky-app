@@ -62,6 +62,7 @@ describe('useMarketplaceMessages', () => {
           listingAggregateId: `listing:${SELLER}_boots_01`,
           recipientPubky: SELLER,
           text: 'Is this still available?',
+          kind: 'text',
           attachmentIds: [],
         },
       }),
@@ -94,6 +95,36 @@ describe('useMarketplaceMessages', () => {
           listingAggregateId: `listing:${SELLER}_boots_01`,
           peerPubky: SELLER,
         },
+      }),
+    );
+  });
+
+  it('shares a listing card without requiring message text', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000924',
+      aggregateId: `conversation:${SELLER}_${BUYER}_boots_01`,
+      revision: 1,
+      eventIds: ['00000000-0000-4000-8000-000000000925'],
+      result: { kind: 'message' },
+    });
+    const { result } = renderHook(() => useMarketplaceMessages(SELLER, 'boots_01'));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.shareListing();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'message.send',
+        payload: expect.objectContaining({
+          kind: 'listing_card',
+          card: { type: 'listing', listingAggregateId: `listing:${SELLER}_boots_01` },
+        }),
       }),
     );
   });

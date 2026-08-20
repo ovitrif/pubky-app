@@ -977,15 +977,30 @@ describe('MarketplaceTransactionService', () => {
       ),
     ).resolves.toMatchObject({ ok: true, result: { order: { state: 'return_requested', revision: 5 } } });
     await service.execute(SELLER, orderCommand('return.approve', order.id, 5, {}, 1_213));
-    await service.execute(SELLER, orderCommand('return.receive', order.id, 6, {}, 1_214));
+    await expect(
+      service.execute(
+        BUYER,
+        orderCommand('return.ship', order.id, 6, { carrier: 'Sandbox Returns', trackingNumber: 'RET-55' }, 1_214),
+      ),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'return_in_transit' } } });
+    await service.execute(SELLER, orderCommand('return.receive', order.id, 7, {}, 1_215));
+    await expect(
+      service.execute(
+        SELLER,
+        orderCommand('return.inspect', order.id, 8, { outcome: 'pass', notes: 'Item matches listing.' }, 1_216),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { order: { state: 'return_inspection', returnRequest: { inspection: { outcome: 'pass' } } } },
+    });
     const refunded = await service.execute(
       SELLER,
       orderCommand(
         'refund.record_external',
         order.id,
-        7,
+        9,
         { amountMinor: order.total.amountMinor, transactionId: 'bitcoin-tx-evidence-123' },
-        1_215,
+        1_217,
       ),
     );
 
@@ -1401,7 +1416,13 @@ describe('MarketplaceTransactionService', () => {
       ok: true,
       result: {
         kind: 'conversation',
-        conversation: { blockedBy: [BUYER], messages: [{ text: 'Is this still available?' }] },
+        conversation: {
+          blockedBy: [BUYER],
+          messages: [
+            { text: 'Is this still available?', kind: 'text' },
+            { kind: 'system', text: 'Conversation blocked. Existing messages stay visible.' },
+          ],
+        },
       },
     });
     await expect(
@@ -1439,6 +1460,99 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getRiskSignals(BUYER)).toEqual([]);
     expect(service.getRiskSignals(MARKETPLACE_SANDBOX_MODERATOR)).toHaveLength(1);
     expect(service.searchAdmin(MARKETPLACE_SANDBOX_MODERATOR, 'coordinated').riskSignals).toHaveLength(1);
+  });
+
+  it('sends listing and offer cards and records offer system events', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const offer = await service.execute(BUYER, createOfferCommand());
+    if (!offer.ok || offer.result.kind !== 'offer') throw new Error('Offer fixture failed');
+
+    const conversationsAfterOffer = service.getParticipantConversations(BUYER);
+    expect(conversationsAfterOffer[0]?.messages.at(-1)).toMatchObject({
+      kind: 'system',
+      card: { type: 'offer', offerId: offer.result.offer.id },
+    });
+
+    await expect(
+      service.execute(BUYER, {
+        ...messageCommand(BUYER, SELLER, 1, '00000000-0000-4000-8000-000000001520', ''),
+        payload: {
+          listingAggregateId: AGGREGATE_ID,
+          recipientPubky: SELLER,
+          text: '',
+          kind: 'listing_card',
+          card: { type: 'listing', listingAggregateId: AGGREGATE_ID },
+          attachmentIds: [],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { message: { kind: 'listing_card', card: { type: 'listing', listingTitle: 'Marketplace item' } } },
+    });
+
+    await expect(
+      service.execute(BUYER, {
+        ...messageCommand(BUYER, SELLER, 2, '00000000-0000-4000-8000-000000001521', ''),
+        payload: {
+          listingAggregateId: AGGREGATE_ID,
+          recipientPubky: SELLER,
+          text: '',
+          kind: 'offer_card',
+          card: { type: 'offer', listingAggregateId: AGGREGATE_ID, offerId: offer.result.offer.id },
+          attachmentIds: [],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { message: { kind: 'offer_card', card: { type: 'offer', offerAmountMinor: 10_000 } } },
+    });
+  });
+
+  it('issues a sandbox digital credential and audits access hashes', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, {
+      ...registerCommand(),
+      payload: {
+        ...registerCommand().payload,
+        fulfillment: 'digital',
+        digitalLock: {
+          policyUri: `pubky://${SELLER}/pub/locks.app/boots_01.json`,
+          criterionId: 'criterion-1',
+          resourceHash: 'a'.repeat(64),
+          minimumConfirmations: 1,
+        },
+      },
+    });
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+    const order = checkout.result.orders[0];
+    const payment = checkout.result.payments[0];
+    expect(order).toMatchObject({ fulfillment: 'digital', shipping: { amountMinor: 0 } });
+
+    const confirmed = await service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 1, 1_530));
+    if (!confirmed.ok || confirmed.result.kind !== 'payment') throw new Error('Payment fixture failed');
+    expect(confirmed.result.order.digitalDelivery).toMatchObject({
+      resourceHash: 'a'.repeat(64),
+      accessCount: 0,
+      integrityOk: true,
+    });
+
+    await expect(
+      service.execute(
+        BUYER,
+        orderCommand(
+          'fulfillment.record_access',
+          confirmed.result.order.id,
+          confirmed.result.order.revision,
+          { contentHash: 'b'.repeat(64) },
+          1_531,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { order: { state: 'delivered', digitalDelivery: { integrityOk: false, accessCount: 1 } } },
+    });
   });
 
   it('stores the labeled sandbox payment endpoint on checkout', async () => {

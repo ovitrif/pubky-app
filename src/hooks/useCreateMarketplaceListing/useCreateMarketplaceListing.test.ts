@@ -107,6 +107,34 @@ describe('useCreateMarketplaceListing', () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Listing published' }));
   });
 
+  it('publishes a digital listing with a sandbox Locks policy', async () => {
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Sewing pattern pack');
+      result.current.form.setValue('description', 'Downloadable pattern pack.');
+      result.current.form.setValue('price', '24.00');
+      result.current.form.setValue('fulfillment', 'digital');
+      result.current.form.setValue('altText', 'Pattern pack cover');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+    expect(listing).toMatchObject({
+      fulfillmentMethods: ['digital'],
+      digitalLock: {
+        policyUri: `pubky://${OWNER}/pub/locks.app/018f47d26a277c23a49d6b21bb770121.json`,
+        criterionId: 'criterion-1',
+        resourceHash: 'a'.repeat(64),
+        minimumConfirmations: 1,
+      },
+    });
+  });
+
   it('does not publish when media preparation fails', async () => {
     mediaState.prepared = false;
     const { result } = renderHook(() => useCreateMarketplaceListing());

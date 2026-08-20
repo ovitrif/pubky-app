@@ -231,11 +231,12 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 <MapPin className="size-5 text-brand" />
                 <div>
                   <Typography as="p" className="text-sm font-semibold">
-                    Ships from
+                    {record.fulfillmentMethods.includes('digital') ? 'Digital delivery' : 'Ships from'}
                   </Typography>
                   <Typography as="p" className="text-sm text-muted-foreground">
-                    {record.location.region ? `${record.location.region}, ` : ''}
-                    {record.location.countryCode}
+                    {record.fulfillmentMethods.includes('digital')
+                      ? 'Locks credential after payment'
+                      : `${record.location.region ? `${record.location.region}, ` : ''}${record.location.countryCode}`}
                   </Typography>
                 </div>
               </div>

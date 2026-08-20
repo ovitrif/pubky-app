@@ -105,6 +105,19 @@ export function MarketplaceOrders() {
                           {order.returnRequest.offeredAmountMinor
                             ? ` · Partial offer $${(order.returnRequest.offeredAmountMinor / 100).toFixed(2)}`
                             : ''}
+                          {order.returnRequest.returnShipment
+                            ? ` · ${order.returnRequest.returnShipment.carrier} ${order.returnRequest.returnShipment.trackingNumber}`
+                            : ''}
+                          {order.returnRequest.inspection
+                            ? ` · Inspection ${order.returnRequest.inspection.outcome}`
+                            : ''}
+                        </Typography>
+                      )}
+                      {order.digitalDelivery && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                          Sandbox Locks credential {order.digitalDelivery.credentialId.slice(0, 8)}… · access{' '}
+                          {order.digitalDelivery.accessCount} ·{' '}
+                          {order.digitalDelivery.integrityOk ? 'hash verified' : 'integrity failed'}
                         </Typography>
                       )}
                       {isBuyer && payment && payment.state !== 'confirmed' && (

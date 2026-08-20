@@ -26,6 +26,8 @@ export interface UseMarketplaceMessagesResult {
   error: string | null;
   attachment: ReturnType<typeof useMessageAttachmentPicker>;
   submit: () => Promise<boolean>;
+  shareListing: () => Promise<boolean>;
+  shareOffer: (offerId: string) => Promise<boolean>;
   block: () => Promise<boolean>;
   refresh: () => Promise<void>;
 }
@@ -81,6 +83,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
             listingAggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
             recipientPubky: sellerPubky,
             text: data.text,
+            kind: 'text',
             attachmentIds: uploadedAttachment ? [uploadedAttachment.id] : [],
           },
         });
@@ -97,6 +100,55 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
       }
     })();
     return succeeded;
+  };
+
+  const shareListing = async (): Promise<boolean> => {
+    return sendCard('listing_card', {
+      type: 'listing',
+      listingAggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+    });
+  };
+
+  const shareOffer = async (offerId: string): Promise<boolean> => {
+    return sendCard('offer_card', {
+      type: 'offer',
+      listingAggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+      offerId,
+    });
+  };
+
+  const sendCard = async (
+    kind: 'listing_card' | 'offer_card',
+    card: { type: 'listing' | 'offer'; listingAggregateId: string; offerId?: string },
+  ): Promise<boolean> => {
+    if (!currentUserPubky || currentUserPubky === sellerPubky) return false;
+    try {
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: buildMarketplaceConversationAggregateId(sellerPubky, currentUserPubky, listingId),
+        expectedRevision: conversation?.revision ?? 0,
+        issuedAt: new Date().toISOString(),
+        kind: 'message.send',
+        payload: {
+          listingAggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+          recipientPubky: sellerPubky,
+          text: '',
+          kind,
+          card,
+          attachmentIds: [],
+        },
+      });
+      if (!response.ok) {
+        toast({ variant: 'error', description: response.error.message });
+        return false;
+      }
+      await refresh();
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not share this card.' });
+      return false;
+    }
   };
 
   const block = async (): Promise<boolean> => {
@@ -127,7 +179,7 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     }
   };
 
-  return { form, conversation, isLoading, error, attachment, submit, block, refresh };
+  return { form, conversation, isLoading, error, attachment, submit, shareListing, shareOffer, block, refresh };
 }
 
 async function loadConversation(

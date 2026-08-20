@@ -154,6 +154,7 @@ function buildListingRecord(
           acceptsOffers: true,
         };
   const isPhysical = data.fulfillment === 'physical';
+  const isDigital = data.fulfillment === 'digital';
   const returnWindowDays = data.returnDays === 'none' ? undefined : Number(data.returnDays);
 
   return commerceListingRecordSchema.parse({
@@ -220,6 +221,14 @@ function buildListingRecord(
       returnWindowDays,
       buyerPaysReturnShipping: true,
     },
+    digitalLock: isDigital
+      ? {
+          policyUri: `pubky://${ownerPubky}/pub/locks.app/${listingId}.json`,
+          criterionId: 'criterion-1',
+          resourceHash: media[0].contentHash,
+          minimumConfirmations: 1,
+        }
+      : undefined,
     adultOnly: false,
   });
 }

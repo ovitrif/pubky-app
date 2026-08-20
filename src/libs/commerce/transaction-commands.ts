@@ -28,10 +28,32 @@ const registerListingPayloadSchema = z
     quantity: z.number().int().positive().max(1_000_000),
     unitPrice: commercePositiveMoneySchema,
     saleFormat: z.enum(['fixed_price', 'auction']).default('fixed_price'),
+    fulfillment: z.enum(['physical', 'digital', 'pickup']).default('physical'),
+    digitalLock: z
+      .object({
+        policyUri: z
+          .string()
+          .regex(
+            /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/locks\.app\/[A-Za-z0-9_./-]+\.json$/,
+            'Expected a public Locks policy URI',
+          ),
+        criterionId: commerceEntityIdSchema,
+        resourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+        minimumConfirmations: z.number().int().min(0).max(6),
+      })
+      .strict()
+      .optional(),
     auctionTerms: auctionTermsSchema.optional(),
   })
   .strict()
   .superRefine((payload, context) => {
+    if ((payload.fulfillment === 'digital') !== (payload.digitalLock !== undefined)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['digitalLock'],
+        message: 'Digital fulfillment and a Locks policy must be configured together.',
+      });
+    }
     if ((payload.saleFormat === 'auction') !== (payload.auctionTerms !== undefined)) {
       context.addIssue({
         code: 'custom',
@@ -238,6 +260,41 @@ export const requestReturnCommandSchema = createCommerceCommandSchema(
 export const approveReturnCommandSchema = createCommerceCommandSchema('return.approve', orderIdPayload);
 export const receiveReturnCommandSchema = createCommerceCommandSchema('return.receive', orderIdPayload);
 
+export const shipReturnCommandSchema = createCommerceCommandSchema(
+  'return.ship',
+  orderIdPayload
+    .extend({
+      carrier: z.string().trim().min(1).max(100),
+      trackingNumber: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+);
+
+export const inspectReturnCommandSchema = createCommerceCommandSchema(
+  'return.inspect',
+  orderIdPayload
+    .extend({
+      outcome: z.enum(['pass', 'fail', 'partial']),
+      notes: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
+export const issueDigitalCredentialCommandSchema = createCommerceCommandSchema(
+  'fulfillment.issue_credential',
+  orderIdPayload,
+);
+
+export const refreshDigitalCredentialCommandSchema = createCommerceCommandSchema(
+  'fulfillment.refresh_credential',
+  orderIdPayload,
+);
+
+export const recordDigitalAccessCommandSchema = createCommerceCommandSchema(
+  'fulfillment.record_access',
+  orderIdPayload.extend({ contentHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+);
+
 export const offerPartialReturnCommandSchema = createCommerceCommandSchema(
   'return.offer_partial',
   orderIdPayload.extend({ offeredAmountMinor: z.number().int().positive() }).strict(),
@@ -407,10 +464,42 @@ export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
     .object({
       listingAggregateId: z.string().min(1),
       recipientPubky: commercePubkySchema,
-      text: z.string().trim().min(1).max(2_000),
+      text: z.string().trim().max(2_000).default(''),
+      kind: z.enum(['text', 'listing_card', 'offer_card']).default('text'),
+      card: z
+        .object({
+          type: z.enum(['listing', 'offer']),
+          listingAggregateId: z.string().min(1).optional(),
+          offerId: z.uuid().optional(),
+        })
+        .strict()
+        .optional(),
       attachmentIds: z.array(z.uuid()).max(4).default([]),
     })
-    .strict(),
+    .strict()
+    .superRefine((payload, context) => {
+      if (payload.kind === 'text' && !payload.text && payload.attachmentIds.length === 0) {
+        context.addIssue({
+          code: 'custom',
+          path: ['text'],
+          message: 'A text message requires body text or an image attachment.',
+        });
+      }
+      if (payload.kind === 'listing_card' && payload.card?.type !== 'listing') {
+        context.addIssue({
+          code: 'custom',
+          path: ['card'],
+          message: 'A listing card requires a listing card payload.',
+        });
+      }
+      if (payload.kind === 'offer_card' && (payload.card?.type !== 'offer' || !payload.card.offerId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['card'],
+          message: 'An offer card requires an offer id.',
+        });
+      }
+    }),
 );
 
 export const blockMarketplaceConversationCommandSchema = createCommerceCommandSchema(
@@ -467,6 +556,11 @@ export const marketplaceCommandSchema = z.union([
   requestReturnCommandSchema,
   approveReturnCommandSchema,
   receiveReturnCommandSchema,
+  shipReturnCommandSchema,
+  inspectReturnCommandSchema,
+  issueDigitalCredentialCommandSchema,
+  refreshDigitalCredentialCommandSchema,
+  recordDigitalAccessCommandSchema,
   offerPartialReturnCommandSchema,
   recordExternalRefundCommandSchema,
   openDisputeCommandSchema,
@@ -561,6 +655,11 @@ export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCom
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
 export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
 export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;
+export type ShipReturnCommand = z.infer<typeof shipReturnCommandSchema>;
+export type InspectReturnCommand = z.infer<typeof inspectReturnCommandSchema>;
+export type IssueDigitalCredentialCommand = z.infer<typeof issueDigitalCredentialCommandSchema>;
+export type RefreshDigitalCredentialCommand = z.infer<typeof refreshDigitalCredentialCommandSchema>;
+export type RecordDigitalAccessCommand = z.infer<typeof recordDigitalAccessCommandSchema>;
 export type OfferPartialReturnCommand = z.infer<typeof offerPartialReturnCommandSchema>;
 export type RecordExternalRefundCommand = z.infer<typeof recordExternalRefundCommandSchema>;
 export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;

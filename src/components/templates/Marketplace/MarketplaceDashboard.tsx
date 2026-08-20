@@ -18,6 +18,7 @@ import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashb
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { printMarketplacePackingSlip } from '@/libs/commerce/packing-slip';
 import { printMarketplaceShippingLabel } from '@/libs/commerce/shipping-label';
+import { MarketplaceRelistDialog } from '@/organisms/Marketplace/MarketplaceRelistDialog';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 
 export function MarketplaceDashboard() {
@@ -300,15 +301,21 @@ export function MarketplaceDashboard() {
                               })}
                             </td>
                             <td className="p-3">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="rounded-full"
-                                onClick={() => void dashboard.duplicateListing(listing.id)}
-                              >
-                                <Copy className="mr-2 size-4" />
-                                Duplicate
-                              </Button>
+                              <div className="flex flex-wrap gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="rounded-full"
+                                  onClick={() => void dashboard.duplicateListing(listing.id)}
+                                >
+                                  <Copy className="mr-2 size-4" />
+                                  Duplicate
+                                </Button>
+                                <MarketplaceRelistDialog
+                                  record={listing.record}
+                                  defaultPrice={(listing.price_minor / 100).toFixed(2)}
+                                />
+                              </div>
                             </td>
                           </tr>
                         );

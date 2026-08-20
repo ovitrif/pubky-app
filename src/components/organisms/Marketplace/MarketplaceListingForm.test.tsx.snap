@@ -818,6 +818,11 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
             >
               Local pickup
             </option>
+            <option
+              value="digital"
+            >
+              Digital download
+            </option>
           </select>
         </div>
         <div

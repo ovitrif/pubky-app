@@ -54,7 +54,22 @@ const conversationSchema = z
         id: z.uuid(),
         senderPubky: commercePubkySchema,
         recipientPubky: commercePubkySchema,
+        kind: z.enum(['text', 'listing_card', 'offer_card', 'system']).optional(),
         text: z.string(),
+        card: z
+          .object({
+            type: z.enum(['listing', 'offer']),
+            listingAggregateId: z.string(),
+            listingId: z.string(),
+            listingTitle: z.string(),
+            sellerPubky: commercePubkySchema,
+            offerId: z.string().optional(),
+            offerAmountMinor: z.number().int().optional(),
+            offerCurrency: z.string().optional(),
+            offerState: z.string().optional(),
+          })
+          .nullable()
+          .optional(),
         attachments: z.array(
           z.object({
             id: z.uuid(),
@@ -160,6 +175,8 @@ const orderSchema = z
       'cancel_requested',
       'cancelled',
       'return_requested',
+      'return_in_transit',
+      'return_inspection',
       'return_approved',
       'return_received',
       'disputed',
@@ -209,14 +226,52 @@ const orderSchema = z
       })
       .nullable()
       .optional(),
+    fulfillment: z.enum(['physical', 'digital', 'pickup']).optional(),
+    digitalDelivery: z
+      .object({
+        credentialId: z.uuid(),
+        resourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+        issuedAt: z.string(),
+        expiresAt: z.string(),
+        accessCount: z.number().int().nonnegative(),
+        lastAccessAt: z.string().nullable(),
+        integrityOk: z.boolean(),
+      })
+      .nullable()
+      .optional(),
     returnRequest: z
       .object({
-        state: z.enum(['requested', 'approved', 'partial_offered', 'received', 'refunded']),
+        state: z.enum([
+          'requested',
+          'approved',
+          'in_transit',
+          'inspection',
+          'partial_offered',
+          'denied',
+          'received',
+          'refunded',
+        ]),
         reason: z.string(),
         requestedAmountMinor: z.number().int().positive(),
         offeredAmountMinor: z.number().int().nonnegative().nullable().optional(),
         requestedAt: z.string(),
         updatedAt: z.string(),
+        returnShipment: z
+          .object({
+            carrier: z.string(),
+            trackingNumber: z.string(),
+            shippedAt: z.string(),
+          })
+          .nullable()
+          .optional(),
+        inspection: z
+          .object({
+            outcome: z.enum(['pass', 'fail', 'partial']),
+            notes: z.string(),
+            inspectedAt: z.string(),
+          })
+          .nullable()
+          .optional(),
       })
       .nullable()
       .optional(),

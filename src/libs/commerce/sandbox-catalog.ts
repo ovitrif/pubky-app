@@ -24,6 +24,7 @@ type CatalogEntry = {
   amountMinor: number;
   tags: string[];
   saleFormat: CommerceListingRecord['sale']['format'];
+  fulfillment?: CommerceListingRecord['fulfillmentMethods'][number];
   colorHash: string;
 };
 
@@ -131,6 +132,20 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     tags: ['keyboard', 'custom'],
     saleFormat: 'fixed_price',
     colorHash: '1',
+  },
+  {
+    seller: 'k'.repeat(52),
+    shopName: 'Locked Press',
+    listingId: 'pattern_pack',
+    title: 'Sewing pattern pack',
+    description: 'Downloadable pattern pack unlocked with a Locks credential after sandbox payment.',
+    categoryId: 'collectibles',
+    condition: 'new',
+    amountMinor: 2_400,
+    tags: ['digital', 'pattern'],
+    saleFormat: 'fixed_price',
+    fulfillment: 'digital',
+    colorHash: '2',
   },
 ];
 
@@ -246,7 +261,16 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
       },
     ],
     sale,
-    fulfillmentMethods: ['pickup'],
+    fulfillmentMethods: [entry.fulfillment ?? 'pickup'],
+    digitalLock:
+      entry.fulfillment === 'digital'
+        ? {
+            policyUri: `pubky://${entry.seller}/pub/locks.app/${entry.listingId}.json`,
+            criterionId: 'criterion-1',
+            resourceHash: entry.colorHash.repeat(64),
+            minimumConfirmations: 1,
+          }
+        : undefined,
     shippingOptions: [],
     returnPolicy: {
       acceptsReturns: true,

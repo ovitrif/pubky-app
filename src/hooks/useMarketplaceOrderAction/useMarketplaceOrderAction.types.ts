@@ -7,6 +7,8 @@ export const marketplaceOrderActionSchema = z
       'ship',
       'pickup',
       'return',
+      'return_ship',
+      'return_inspect',
       'partial',
       'refund',
       'dispute',
@@ -33,8 +35,11 @@ export const marketplaceOrderActionSchema = z
     if (['cancel', 'return', 'dispute'].includes(data.action) && !data.reason) {
       context.addIssue({ code: 'custom', path: ['reason'], message: 'Reason is required.' });
     }
-    if (data.action === 'ship' && (!data.carrier || !data.trackingNumber)) {
+    if (['ship', 'return_ship'].includes(data.action) && (!data.carrier || !data.trackingNumber)) {
       context.addIssue({ code: 'custom', path: ['trackingNumber'], message: 'Carrier and tracking are required.' });
+    }
+    if (data.action === 'return_inspect' && !data.reason) {
+      context.addIssue({ code: 'custom', path: ['reason'], message: 'Inspection notes are required.' });
     }
     if (data.action === 'refund') {
       if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount) || Number(data.amount) <= 0) {

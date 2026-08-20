@@ -42,12 +42,12 @@ export function MarketplaceOrderActions({
             Cancel order
           </Button>
         )}
-        {!isBuyer && ['paid', 'processing'].includes(order.state) && (
+        {!isBuyer && ['paid', 'processing'].includes(order.state) && order.fulfillment !== 'digital' && (
           <Button size="sm" className="rounded-full" onClick={() => begin('ship')}>
             Add tracking
           </Button>
         )}
-        {!isBuyer && ['paid', 'processing'].includes(order.state) && (
+        {!isBuyer && ['paid', 'processing'].includes(order.state) && order.fulfillment !== 'digital' && (
           <Button
             size="sm"
             variant="secondary"
@@ -76,6 +76,11 @@ export function MarketplaceOrderActions({
             Approve cancellation
           </Button>
         )}
+        {isBuyer && order.state === 'return_in_transit' && (
+          <Button size="sm" className="rounded-full" onClick={() => begin('return_ship')}>
+            Add return tracking
+          </Button>
+        )}
         {!isBuyer && order.state === 'return_requested' && (
           <>
             <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'return.approve', {})}>
@@ -86,19 +91,54 @@ export function MarketplaceOrderActions({
             </Button>
           </>
         )}
-        {!isBuyer && order.state === 'return_approved' && (
+        {!isBuyer && order.state === 'return_in_transit' && (
           <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'return.receive', {})}>
             Mark return received
           </Button>
         )}
-        {!isBuyer && ['return_received', 'disputed', 'cancelled'].includes(order.state) && !order.externalRefund && (
+        {!isBuyer && order.state === 'return_inspection' && (
+          <Button size="sm" className="rounded-full" onClick={() => begin('return_inspect')}>
+            Inspect return
+          </Button>
+        )}
+        {!isBuyer && ['return_inspection', 'disputed', 'cancelled'].includes(order.state) && !order.externalRefund && (
           <Button size="sm" className="rounded-full" onClick={() => begin('refund')}>
             Record external refund
           </Button>
         )}
-        {['paid', 'processing', 'shipped', 'delivered', 'completed', 'return_requested', 'return_approved'].includes(
-          order.state,
-        ) &&
+        {isBuyer && order.digitalDelivery && (
+          <>
+            <Button
+              size="sm"
+              className="rounded-full"
+              onClick={() =>
+                void actOnOrder(order, 'fulfillment.record_access', {
+                  contentHash: order.digitalDelivery?.resourceHash,
+                })
+              }
+            >
+              Open digital delivery
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full"
+              onClick={() => void actOnOrder(order, 'fulfillment.refresh_credential', {})}
+            >
+              Refresh credential
+            </Button>
+          </>
+        )}
+        {[
+          'paid',
+          'processing',
+          'shipped',
+          'delivered',
+          'completed',
+          'return_requested',
+          'return_in_transit',
+          'return_inspection',
+        ].includes(order.state) &&
           !order.dispute && (
             <Button size="sm" variant="ghost" className="rounded-full" onClick={() => begin('dispute')}>
               Open dispute
@@ -168,7 +208,7 @@ export function MarketplaceOrderActions({
               placeholder="Describe what happened"
             />
           )}
-          {actionType === 'ship' && (
+          {['ship', 'return_ship'].includes(actionType) && (
             <>
               <ControlledInputField name="carrier" control={action.form.control} label="Carrier" />
               <ControlledInputField name="trackingNumber" control={action.form.control} label="Tracking number" />
@@ -176,6 +216,9 @@ export function MarketplaceOrderActions({
           )}
           {['return', 'refund', 'partial'].includes(actionType) && (
             <ControlledInputField name="amount" control={action.form.control} label="Amount (USD)" />
+          )}
+          {actionType === 'return_inspect' && (
+            <ControlledTextareaField name="reason" control={action.form.control} label="Inspection notes" />
           )}
           {actionType === 'refund' && (
             <ControlledInputField
@@ -229,6 +272,10 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Mark ready for pickup';
     case 'return':
       return 'Request a return';
+    case 'return_ship':
+      return 'Add return tracking';
+    case 'return_inspect':
+      return 'Inspect returned item';
     case 'partial':
       return 'Offer a partial resolution';
     case 'refund':

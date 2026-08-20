@@ -71,7 +71,11 @@ export function MarketplaceInbox() {
                           {counterpart.slice(0, 10)}…
                         </Typography>
                         <Typography as="p" className="truncate text-sm text-muted-foreground">
-                          {last?.text ?? 'Conversation started'}
+                          {last?.kind === 'listing_card'
+                            ? (last.card?.listingTitle ?? 'Shared a listing')
+                            : last?.kind === 'offer_card'
+                              ? (last.card?.listingTitle ?? 'Shared an offer')
+                              : (last?.text ?? 'Conversation started')}
                         </Typography>
                       </div>
                     </Link>

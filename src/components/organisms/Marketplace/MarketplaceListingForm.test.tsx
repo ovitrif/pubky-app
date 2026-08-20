@@ -61,6 +61,13 @@ describe('MarketplaceListingForm', () => {
     expect(screen.queryByText('Weight (grams)')).not.toBeInTheDocument();
   });
 
+  it('explains sandbox Locks delivery for digital listings', () => {
+    render(<FormHarness fulfillment="digital" />);
+
+    expect(screen.getByText(/Digital listings publish a sandbox Locks policy/)).toBeInTheDocument();
+    expect(screen.queryByText('Flat shipping (USD)')).not.toBeInTheDocument();
+  });
+
   it('reorders and captions gallery photos', async () => {
     const user = userEvent.setup();
     const galleryMedia: UseListingMediaPickerResult = {

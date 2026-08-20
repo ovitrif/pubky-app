@@ -1,24 +1,31 @@
 'use client';
 
 import { useState } from 'react';
-import { ImagePlus, MessageCircle, Send, Trash2 } from 'lucide-react';
+import { ImagePlus, MessageCircle, Send, Share2, Tag, Trash2 } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceMessages } from '@/hooks/useMarketplaceMessages/useMarketplaceMessages';
+import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceMessageAttachment } from './MarketplaceMessageAttachment';
+import { MarketplaceMessageCard } from './MarketplaceMessageCard';
 
 export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPubky: string; listingId: string }) {
   const [open, setOpen] = useState(false);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { requireAuth } = useRequireAuth();
   const messages = useMarketplaceMessages(sellerPubky, listingId);
+  const offers = useMarketplaceOffers();
   const { previewUrl, error: attachmentError, inputRef, onInputChange, choose, remove } = messages.attachment;
   const blocked = Boolean(messages.conversation?.blockedBy?.length);
+  const shareableOffer = offers.offers.find(
+    (offer) =>
+      offer.listingAggregateId.endsWith(`_${listingId}`) && (offer.state === 'pending' || offer.state === 'countered'),
+  );
 
   const submit = async () => {
     await messages.submit();
@@ -53,17 +60,26 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
           {messages.conversation?.messages.length ? (
             messages.conversation.messages.map((message) => {
               const mine = message.senderPubky === currentUserPubky;
+              const system = message.kind === 'system';
               return (
-                <div key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                <div
+                  key={message.id}
+                  className={cn('flex', system ? 'justify-center' : mine ? 'justify-end' : 'justify-start')}
+                >
                   <div
                     className={cn(
                       'max-w-[85%] rounded-2xl px-4 py-2 text-sm',
-                      mine ? 'bg-brand text-primary-foreground' : 'bg-secondary text-secondary-foreground',
+                      system
+                        ? 'bg-muted text-muted-foreground'
+                        : mine
+                          ? 'bg-brand text-primary-foreground'
+                          : 'bg-secondary text-secondary-foreground',
                     )}
                   >
                     <Typography as="p" overrideDefaults className="text-sm">
                       {message.text}
                     </Typography>
+                    {message.card && <MarketplaceMessageCard message={message} />}
                     {message.attachments.map((attachment) => (
                       <div key={attachment.id} className="mt-2">
                         <MarketplaceMessageAttachment attachment={attachment} />
@@ -104,6 +120,30 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
             <ImagePlus className="mr-2 size-4" />
             Add image
           </Button>
+          {!blocked && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="rounded-full"
+              onClick={() => void messages.shareListing()}
+            >
+              <Share2 className="mr-2 size-4" />
+              Share listing
+            </Button>
+          )}
+          {!blocked && shareableOffer && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="rounded-full"
+              onClick={() => void messages.shareOffer(shareableOffer.id)}
+            >
+              <Tag className="mr-2 size-4" />
+              Share offer
+            </Button>
+          )}
           {previewUrl ? (
             <Button type="button" size="icon" variant="ghost" aria-label="Remove attachment" onClick={remove}>
               <Trash2 className="size-4" />

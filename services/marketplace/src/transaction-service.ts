@@ -31,6 +31,8 @@ import {
   type DecideMarketplaceReportCommand,
   type EditReviewCommand,
   type FlagMarketplaceRiskCommand,
+  type InspectReturnCommand,
+  type IssueDigitalCredentialCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
@@ -38,7 +40,9 @@ import {
   type PlaceBidCommand,
   type ReadyForPickupCommand,
   type ReceiveReturnCommand,
+  type RecordDigitalAccessCommand,
   type RecordExternalRefundCommand,
+  type RefreshDigitalCredentialCommand,
   type RegisterListingCommand,
   type RejectOfferCommand,
   type ReleasePayoutCommand,
@@ -50,6 +54,7 @@ import {
   type ReverseMarketplaceReportCommand,
   type SendMarketplaceMessageCommand,
   type ShipOrderCommand,
+  type ShipReturnCommand,
   type UnblockBuyerCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
   type WithdrawOfferCommand,
@@ -75,6 +80,13 @@ export interface MarketplaceListingAggregate {
     exponent: number;
   };
   saleFormat: 'fixed_price' | 'auction';
+  fulfillment: 'physical' | 'digital' | 'pickup';
+  digitalLock: {
+    policyUri: string;
+    criterionId: string;
+    resourceHash: string;
+    minimumConfirmations: number;
+  } | null;
   auction: {
     status: 'scheduled' | 'active' | 'sold' | 'unsold' | 'cancelled';
     startsAt: string;
@@ -155,13 +167,29 @@ interface MarketplaceStoredAttachment extends MarketplaceAttachmentMetadata {
   messageId: string | null;
 }
 
+export type MarketplaceMessageKind = 'text' | 'listing_card' | 'offer_card' | 'system';
+
+export interface MarketplaceMessageCard {
+  type: 'listing' | 'offer';
+  listingAggregateId: string;
+  listingId: string;
+  listingTitle: string;
+  sellerPubky: string;
+  offerId?: string;
+  offerAmountMinor?: number;
+  offerCurrency?: string;
+  offerState?: string;
+}
+
 export interface MarketplaceMessage {
   id: string;
   conversationId: string;
   listingAggregateId: string;
   senderPubky: string;
   recipientPubky: string;
+  kind: MarketplaceMessageKind;
   text: string;
+  card: MarketplaceMessageCard | null;
   attachments: MarketplaceAttachmentMetadata[];
   createdAt: string;
 }
@@ -263,12 +291,14 @@ export interface MarketplaceShipment {
 }
 
 export interface MarketplaceReturn {
-  state: 'requested' | 'approved' | 'partial_offered' | 'received' | 'refunded';
+  state: 'requested' | 'approved' | 'in_transit' | 'inspection' | 'partial_offered' | 'denied' | 'refunded';
   reason: string;
   requestedAmountMinor: number;
   offeredAmountMinor: number | null;
   requestedAt: string;
   updatedAt: string;
+  returnShipment: { carrier: string; trackingNumber: string; shippedAt: string } | null;
+  inspection: { outcome: 'pass' | 'fail' | 'partial'; notes: string; inspectedAt: string } | null;
 }
 
 export interface MarketplaceDispute {
@@ -382,8 +412,8 @@ export interface MarketplaceOrder {
     | 'cancel_requested'
     | 'cancelled'
     | 'return_requested'
-    | 'return_approved'
-    | 'return_received'
+    | 'return_in_transit'
+    | 'return_inspection'
     | 'disputed'
     | 'refunded_external'
     | 'closed';
@@ -405,8 +435,20 @@ export interface MarketplaceOrder {
   dispute: MarketplaceDispute | null;
   externalRefund: MarketplaceExternalRefund | null;
   reviews: MarketplaceReview[];
+  fulfillment: 'physical' | 'digital' | 'pickup';
+  digitalDelivery: MarketplaceDigitalDelivery | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MarketplaceDigitalDelivery {
+  credentialId: string;
+  resourceHash: string;
+  issuedAt: string;
+  expiresAt: string;
+  accessCount: number;
+  lastAccessAt: string | null;
+  integrityOk: boolean;
 }
 
 export interface MarketplacePayment {
@@ -471,8 +513,13 @@ export interface MarketplaceEvent {
     | 'fulfillment.delivered'
     | 'return.requested'
     | 'return.approved'
+    | 'return.shipped'
     | 'return.partial_offered'
     | 'return.received'
+    | 'return.inspected'
+    | 'fulfillment.credential_issued'
+    | 'fulfillment.credential_refreshed'
+    | 'fulfillment.access_recorded'
     | 'refund.recorded_external'
     | 'dispute.opened'
     | 'dispute.resolved'
@@ -904,7 +951,16 @@ export class InMemoryMarketplaceRepository {
   }
 
   hydrateSnapshot(snapshot: MarketplaceRepositorySnapshot): void {
-    this.listings = new Map(snapshot.listings.map((listing) => [listing.aggregateId, listing]));
+    this.listings = new Map(
+      snapshot.listings.map((listing) => [
+        listing.aggregateId,
+        {
+          ...listing,
+          fulfillment: listing.fulfillment ?? 'physical',
+          digitalLock: listing.digitalLock ?? null,
+        },
+      ]),
+    );
     this.reservations = new Map(snapshot.reservations.map((reservation) => [reservation.id, reservation]));
     this.offers = new Map(snapshot.offers.map((offer) => [offer.id, offer]));
     const bids = new Map<string, MarketplaceBid[]>();
@@ -915,7 +971,15 @@ export class InMemoryMarketplaceRepository {
     this.conversations = new Map(
       snapshot.conversations.map((conversation) => [
         conversation.id,
-        { ...conversation, blockedBy: conversation.blockedBy ?? [] },
+        {
+          ...conversation,
+          blockedBy: conversation.blockedBy ?? [],
+          messages: conversation.messages.map((message) => ({
+            ...message,
+            kind: message.kind ?? 'text',
+            card: message.card ?? null,
+          })),
+        },
       ]),
     );
     this.notifications = [...snapshot.notifications];
@@ -938,7 +1002,24 @@ export class InMemoryMarketplaceRepository {
         },
       ]),
     );
-    this.orders = new Map(snapshot.orders.map((order) => [order.id, order]));
+    this.orders = new Map(
+      snapshot.orders.map((order) => [
+        order.id,
+        {
+          ...order,
+          state: normalizeHydratedOrderState(order.state),
+          fulfillment: order.fulfillment ?? 'physical',
+          digitalDelivery: order.digitalDelivery ?? null,
+          returnRequest: order.returnRequest
+            ? {
+                ...order.returnRequest,
+                returnShipment: order.returnRequest.returnShipment ?? null,
+                inspection: order.returnRequest.inspection ?? null,
+              }
+            : null,
+        },
+      ]),
+    );
     this.payments = new Map(snapshot.payments.map((payment) => [payment.id, payment]));
     this.receipts = new Map(snapshot.receipts.map((receipt) => [receipt.id, receipt]));
     this.reports = new Map(snapshot.reports.map((report) => [report.id, report]));
@@ -1346,6 +1427,16 @@ export class MarketplaceTransactionService {
         return this.offerPartialReturn(actorPubky, command);
       case 'return.receive':
         return this.receiveReturn(actorPubky, command);
+      case 'return.ship':
+        return this.shipReturn(actorPubky, command);
+      case 'return.inspect':
+        return this.inspectReturn(actorPubky, command);
+      case 'fulfillment.issue_credential':
+        return this.issueDigitalCredential(actorPubky, command);
+      case 'fulfillment.refresh_credential':
+        return this.refreshDigitalCredential(actorPubky, command);
+      case 'fulfillment.record_access':
+        return this.recordDigitalAccess(actorPubky, command);
       case 'refund.record_external':
         return this.recordExternalRefund(actorPubky, command);
       case 'dispute.open':
@@ -1426,6 +1517,8 @@ export class MarketplaceTransactionService {
       restricted: current?.restricted ?? false,
       unitPrice: payload.unitPrice,
       saleFormat: payload.saleFormat,
+      fulfillment: payload.fulfillment,
+      digitalLock: payload.digitalLock ?? null,
       auction: payload.auctionTerms
         ? {
             ...payload.auctionTerms,
@@ -1556,6 +1649,15 @@ export class MarketplaceTransactionService {
     this.repository.putOffer(offer);
     this.repository.appendEvent(event);
     this.notify(offer.sellerPubky, actorPubky, 'offer_received', offer.aggregateId, occurredAt);
+    this.recordConversationSystemEvent(
+      listing,
+      actorPubky,
+      actorPubky,
+      listing.sellerPubky,
+      `Offer created for ${formatSandboxMoney(offer.amount)}.`,
+      offerCard(listing, offer),
+      occurredAt,
+    );
     return success(command, offer.revision, event.id, { kind: 'offer', offer });
   }
 
@@ -1615,6 +1717,15 @@ export class MarketplaceTransactionService {
     this.repository.putOffer(offer);
     this.repository.appendEvent(event);
     this.notify(offer.buyerPubky, actorPubky, 'offer_received', offer.aggregateId, occurredAt);
+    this.recordConversationSystemEvent(
+      listing,
+      offer.buyerPubky,
+      actorPubky,
+      offer.buyerPubky,
+      `Private offer created for ${formatSandboxMoney(offer.amount)}.`,
+      offerCard(listing, offer),
+      occurredAt,
+    );
     return success(command, offer.revision, event.id, { kind: 'offer', offer });
   }
 
@@ -1673,6 +1784,15 @@ export class MarketplaceTransactionService {
       actorPubky,
       'offer_countered',
       updated.aggregateId,
+      occurredAt,
+    );
+    this.recordConversationSystemEvent(
+      listing,
+      updated.buyerPubky,
+      actorPubky,
+      actorPubky === updated.sellerPubky ? updated.buyerPubky : updated.sellerPubky,
+      `Offer countered to ${formatSandboxMoney(updated.amount)}.`,
+      offerCard(listing, updated),
       occurredAt,
     );
     return success(command, updated.revision, event.id, { kind: 'offer', offer: updated });
@@ -1738,6 +1858,15 @@ export class MarketplaceTransactionService {
       acceptedOffer.aggregateId,
       occurredAt,
     );
+    this.recordConversationSystemEvent(
+      listing,
+      acceptedOffer.buyerPubky,
+      actorPubky,
+      actorPubky === acceptedOffer.sellerPubky ? acceptedOffer.buyerPubky : acceptedOffer.sellerPubky,
+      `Offer accepted at ${formatSandboxMoney(acceptedOffer.amount)}.`,
+      offerCard(listing, acceptedOffer),
+      occurredAt,
+    );
     return success(command, acceptedOffer.revision, [offerEvent.id, inventoryEvent.id], {
       kind: 'accepted_offer',
       offer: acceptedOffer,
@@ -1787,6 +1916,20 @@ export class MarketplaceTransactionService {
         actorPubky,
         'offer_rejected',
         updated.aggregateId,
+        occurredAt,
+      );
+    }
+    const listing = this.repository.getListing(updated.listingAggregateId);
+    if (listing) {
+      this.recordConversationSystemEvent(
+        listing,
+        updated.buyerPubky,
+        actorPubky,
+        actorPubky === updated.sellerPubky ? updated.buyerPubky : updated.sellerPubky,
+        state === 'rejected'
+          ? `Offer rejected at ${formatSandboxMoney(updated.amount)}.`
+          : `Offer withdrawn at ${formatSandboxMoney(updated.amount)}.`,
+        offerCard(listing, updated),
         occurredAt,
       );
     }
@@ -2126,13 +2269,18 @@ export class MarketplaceTransactionService {
     }
 
     const occurredAt = this.now().toISOString();
+    const kind = command.payload.kind ?? 'text';
+    const resolvedCard = this.resolveMessageCard(kind, listing, command.payload.card, actorPubky);
+    if (!resolvedCard.ok) return resolvedCard.failure;
     const message: MarketplaceMessage = {
       id: command.commandId,
       conversationId: command.aggregateId,
       listingAggregateId: listing.aggregateId,
       senderPubky: actorPubky,
       recipientPubky: command.payload.recipientPubky,
-      text: command.payload.text,
+      kind,
+      text: command.payload.text || defaultCardText(kind, resolvedCard.card),
+      card: resolvedCard.card,
       attachments: attachments.map((attachment) => toAttachmentMetadata(attachment!)),
       createdAt: occurredAt,
     };
@@ -2315,7 +2463,8 @@ export class MarketplaceTransactionService {
         subtotal: { ...listing.unitPrice, amountMinor: listing.unitPrice.amountMinor * requested.quantity },
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
-      const shippingMinor = 1_200;
+      const fulfillment = resolveOrderFulfillment(items.map(({ listing }) => listing.fulfillment));
+      const shippingMinor = fulfillment === 'digital' ? 0 : 1_200;
       const couponCode = command.payload.couponCode ?? null;
       const promotion = couponCode ? this.repository.getPromotion(sellerPubky, couponCode) : undefined;
       if (
@@ -2354,6 +2503,8 @@ export class MarketplaceTransactionService {
         dispute: null,
         externalRefund: null,
         reviews: [],
+        fulfillment,
+        digitalDelivery: null,
         createdAt: occurredAt,
         updatedAt: occurredAt,
       };
@@ -2477,6 +2628,12 @@ export class MarketplaceTransactionService {
       this.repository.putReceipt(receipt);
       this.repository.appendEvent(receiptEvent);
       this.notify(order.sellerPubky, actorPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
+      if (updatedOrder.fulfillment === 'digital') {
+        updatedOrder = {
+          ...updatedOrder,
+          digitalDelivery: this.buildDigitalDelivery(updatedOrder, occurredAt),
+        };
+      }
       const sellerNet = order.total.amountMinor - order.tax.amountMinor;
       const cashLedger = this.postBalancedLedger(
         order.id,
@@ -2633,6 +2790,8 @@ export class MarketplaceTransactionService {
         offeredAmountMinor: null,
         requestedAt: occurredAt,
         updatedAt: occurredAt,
+        returnShipment: null,
+        inspection: null,
       },
       updatedAt: occurredAt,
     };
@@ -2656,11 +2815,16 @@ export class MarketplaceTransactionService {
       return failure('INVALID_STATE', 'No return is pending approval.');
     }
     const occurredAt = this.now().toISOString();
+    const nextState = order.fulfillment === 'digital' ? 'return_inspection' : 'return_in_transit';
     const updated: MarketplaceOrder = {
       ...order,
       revision: order.revision + 1,
-      state: 'return_approved',
-      returnRequest: { ...order.returnRequest, state: 'approved', updatedAt: occurredAt },
+      state: nextState,
+      returnRequest: {
+        ...order.returnRequest,
+        state: nextState === 'return_inspection' ? 'inspection' : 'approved',
+        updatedAt: occurredAt,
+      },
       updatedAt: occurredAt,
     };
     return this.persistOrderAction(
@@ -2674,20 +2838,55 @@ export class MarketplaceTransactionService {
     );
   }
 
-  private receiveReturn(actorPubky: string, command: ReceiveReturnCommand): MarketplaceCommandResult {
+  private shipReturn(actorPubky: string, command: ShipReturnCommand): MarketplaceCommandResult {
     const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
     if (!resolved.ok) return resolved.failure;
     const order = resolved.order;
-    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may receive this return.');
-    if (order.state !== 'return_approved' || !order.returnRequest) {
-      return failure('INVALID_STATE', 'The return is not approved.');
+    if (order.buyerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the buyer may ship this return.');
+    if (order.state !== 'return_in_transit' || !order.returnRequest) {
+      return failure('INVALID_STATE', 'The return is not awaiting shipment.');
     }
     const occurredAt = this.now().toISOString();
     const updated: MarketplaceOrder = {
       ...order,
       revision: order.revision + 1,
-      state: 'return_received',
-      returnRequest: { ...order.returnRequest, state: 'received', updatedAt: occurredAt },
+      returnRequest: {
+        ...order.returnRequest,
+        state: 'in_transit',
+        returnShipment: {
+          carrier: command.payload.carrier,
+          trackingNumber: command.payload.trackingNumber,
+          shippedAt: occurredAt,
+        },
+        updatedAt: occurredAt,
+      },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'return.shipped',
+      order.sellerPubky,
+      'return_updated',
+      occurredAt,
+    );
+  }
+
+  private receiveReturn(actorPubky: string, command: ReceiveReturnCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may receive this return.');
+    if (order.state !== 'return_in_transit' || !order.returnRequest) {
+      return failure('INVALID_STATE', 'The return is not in transit.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'return_inspection',
+      returnRequest: { ...order.returnRequest, state: 'inspection', updatedAt: occurredAt },
       updatedAt: occurredAt,
     };
     return this.persistOrderAction(
@@ -2701,13 +2900,150 @@ export class MarketplaceTransactionService {
     );
   }
 
+  private inspectReturn(actorPubky: string, command: InspectReturnCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may inspect this return.');
+    if (order.state !== 'return_inspection' || !order.returnRequest) {
+      return failure('INVALID_STATE', 'The return is not awaiting inspection.');
+    }
+    const occurredAt = this.now().toISOString();
+    const denied = command.payload.outcome === 'fail';
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: denied ? 'completed' : 'return_inspection',
+      returnRequest: {
+        ...order.returnRequest,
+        state: denied ? 'denied' : 'inspection',
+        inspection: {
+          outcome: command.payload.outcome,
+          notes: command.payload.notes,
+          inspectedAt: occurredAt,
+        },
+        updatedAt: occurredAt,
+      },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'return.inspected',
+      order.buyerPubky,
+      'return_updated',
+      occurredAt,
+    );
+  }
+
+  private issueDigitalCredential(actorPubky: string, command: IssueDigitalCredentialCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the seller may issue a digital credential.');
+    }
+    if (order.fulfillment !== 'digital' || order.state !== 'paid') {
+      return failure('INVALID_STATE', 'A digital credential can be issued only after a paid digital order.');
+    }
+    if (order.digitalDelivery) {
+      return failure('INVALID_STATE', 'A digital credential already exists.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      digitalDelivery: this.buildDigitalDelivery(order, occurredAt),
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.credential_issued',
+      order.buyerPubky,
+      'order_delivered',
+      occurredAt,
+    );
+  }
+
+  private refreshDigitalCredential(
+    actorPubky: string,
+    command: RefreshDigitalCredentialCommand,
+  ): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the buyer may refresh this credential.');
+    }
+    if (!order.digitalDelivery) return failure('INVALID_STATE', 'No digital credential exists.');
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      digitalDelivery: {
+        ...order.digitalDelivery,
+        credentialId: randomUUID(),
+        expiresAt: new Date(this.now().getTime() + 24 * 60 * 60 * 1_000).toISOString(),
+      },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.credential_refreshed',
+      order.sellerPubky,
+      'order_delivered',
+      occurredAt,
+    );
+  }
+
+  private recordDigitalAccess(actorPubky: string, command: RecordDigitalAccessCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the buyer may record digital access.');
+    }
+    if (!order.digitalDelivery) return failure('INVALID_STATE', 'No digital credential exists.');
+    if (Date.parse(order.digitalDelivery.expiresAt) <= this.now().getTime()) {
+      return failure('INVALID_STATE', 'The digital credential has expired.');
+    }
+    const occurredAt = this.now().toISOString();
+    const integrityOk = command.payload.contentHash === order.digitalDelivery.resourceHash;
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      state: order.state === 'paid' ? 'delivered' : order.state,
+      digitalDelivery: {
+        ...order.digitalDelivery,
+        accessCount: order.digitalDelivery.accessCount + 1,
+        lastAccessAt: occurredAt,
+        integrityOk,
+      },
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.access_recorded',
+      order.sellerPubky,
+      'order_delivered',
+      occurredAt,
+    );
+  }
+
   private recordExternalRefund(actorPubky: string, command: RecordExternalRefundCommand): MarketplaceCommandResult {
     const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
     if (!resolved.ok) return resolved.failure;
     const order = resolved.order;
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may record a refund.');
     if (
-      !['return_received', 'disputed', 'cancelled'].includes(order.state) ||
+      !['return_inspection', 'disputed', 'cancelled'].includes(order.state) ||
       command.payload.amountMinor > order.total.amountMinor ||
       order.externalRefund
     ) {
@@ -2754,9 +3090,16 @@ export class MarketplaceTransactionService {
     if (!resolved.ok) return resolved.failure;
     const order = resolved.order;
     if (
-      !['paid', 'processing', 'shipped', 'delivered', 'completed', 'return_requested', 'return_approved'].includes(
-        order.state,
-      )
+      ![
+        'paid',
+        'processing',
+        'shipped',
+        'delivered',
+        'completed',
+        'return_requested',
+        'return_in_transit',
+        'return_inspection',
+      ].includes(order.state)
     ) {
       return failure('INVALID_STATE', 'This order cannot enter dispute.');
     }
@@ -2933,14 +3276,26 @@ export class MarketplaceTransactionService {
       return failure('INVALID_STATE', 'This conversation is already blocked.');
     }
     const occurredAt = this.now().toISOString();
+    const systemMessage: MarketplaceMessage = {
+      id: command.commandId,
+      conversationId: command.aggregateId,
+      listingAggregateId: listing.aggregateId,
+      senderPubky: actorPubky,
+      recipientPubky: actorIsSeller ? buyerPubky : listing.sellerPubky,
+      kind: 'system',
+      text: 'Conversation blocked. Existing messages stay visible.',
+      card: listingCard(listing),
+      attachments: [],
+      createdAt: occurredAt,
+    };
     const conversation: MarketplaceConversation = {
       id: command.aggregateId,
       listingAggregateId: listing.aggregateId,
       sellerPubky: listing.sellerPubky,
       buyerPubky,
       revision: currentRevision + 1,
-      lastMessageAt: current?.lastMessageAt ?? occurredAt,
-      messages: current?.messages ?? [],
+      lastMessageAt: occurredAt,
+      messages: [...(current?.messages ?? []), systemMessage],
       blockedBy: [...(current?.blockedBy ?? []), actorPubky],
     };
     const event = this.createEvent(actorPubky, command, conversation.revision, 'message.blocked', occurredAt);
@@ -3361,6 +3716,75 @@ export class MarketplaceTransactionService {
     return { ok: true, order };
   }
 
+  private resolveMessageCard(
+    kind: MarketplaceMessageKind,
+    listing: MarketplaceListingAggregate,
+    card: SendMarketplaceMessageCommand['payload']['card'],
+    actorPubky: string,
+  ): { ok: true; card: MarketplaceMessageCard | null } | { ok: false; failure: MarketplaceCommandFailure } {
+    if (kind === 'text') return { ok: true, card: null };
+    if (kind === 'listing_card') {
+      return { ok: true, card: listingCard(listing) };
+    }
+    const offer = this.repository.getOffer(card?.offerId ?? '');
+    if (!offer || offer.listingAggregateId !== listing.aggregateId) {
+      return { ok: false, failure: failure('NOT_FOUND', 'The offer card could not be resolved.') };
+    }
+    if (actorPubky !== offer.buyerPubky && actorPubky !== offer.sellerPubky) {
+      return { ok: false, failure: failure('UNAUTHORIZED', 'Only offer participants may share this offer card.') };
+    }
+    return { ok: true, card: offerCard(listing, offer) };
+  }
+
+  private recordConversationSystemEvent(
+    listing: MarketplaceListingAggregate,
+    buyerPubky: string,
+    actorPubky: string,
+    recipientPubky: string,
+    text: string,
+    card: MarketplaceMessageCard | null,
+    occurredAt: string,
+  ): void {
+    const conversationId = buildMarketplaceConversationAggregateId(listing.sellerPubky, buyerPubky, listing.listingId);
+    const current = this.repository.getConversation(conversationId);
+    const message: MarketplaceMessage = {
+      id: randomUUID(),
+      conversationId,
+      listingAggregateId: listing.aggregateId,
+      senderPubky: actorPubky,
+      recipientPubky,
+      kind: 'system',
+      text,
+      card,
+      attachments: [],
+      createdAt: occurredAt,
+    };
+    this.repository.putConversation({
+      id: conversationId,
+      listingAggregateId: listing.aggregateId,
+      sellerPubky: listing.sellerPubky,
+      buyerPubky,
+      revision: (current?.revision ?? 0) + 1,
+      lastMessageAt: occurredAt,
+      messages: [...(current?.messages ?? []), message],
+      blockedBy: current?.blockedBy ?? [],
+    });
+  }
+
+  private buildDigitalDelivery(order: MarketplaceOrder, occurredAt: string): MarketplaceDigitalDelivery {
+    const listing = this.repository.getListing(order.lines[0]?.listingAggregateId ?? '');
+    return {
+      credentialId: randomUUID(),
+      resourceHash:
+        listing?.digitalLock?.resourceHash ?? listing?.contentHash ?? order.lines[0]?.contentHash ?? '0'.repeat(64),
+      issuedAt: occurredAt,
+      expiresAt: new Date(this.now().getTime() + 24 * 60 * 60 * 1_000).toISOString(),
+      accessCount: 0,
+      lastAccessAt: null,
+      integrityOk: true,
+    };
+  }
+
   private persistOrderAction(
     actorPubky: string,
     command: MarketplaceCommand,
@@ -3493,6 +3917,60 @@ function sameAsset(
   right: MarketplaceListingAggregate['unitPrice'],
 ): boolean {
   return left.currency === right.currency && left.exponent === right.exponent;
+}
+
+function normalizeHydratedOrderState(state: MarketplaceOrder['state'] | 'return_approved' | 'return_received') {
+  if (state === 'return_approved') return 'return_in_transit';
+  if (state === 'return_received') return 'return_inspection';
+  return state;
+}
+
+function formatSandboxMoney(amount: MarketplaceListingAggregate['unitPrice']): string {
+  return `${(amount.amountMinor / 10 ** amount.exponent).toFixed(amount.exponent)} ${amount.currency}`;
+}
+
+function resolveOrderFulfillment(
+  fulfillments: Array<MarketplaceListingAggregate['fulfillment']>,
+): MarketplaceOrder['fulfillment'] {
+  if (fulfillments.length > 0 && fulfillments.every((fulfillment) => fulfillment === 'digital')) return 'digital';
+  if (fulfillments.every((fulfillment) => fulfillment === 'pickup' || fulfillment === 'digital')) return 'pickup';
+  return 'physical';
+}
+
+function listingCard(listing: MarketplaceListingAggregate): MarketplaceMessageCard {
+  return {
+    type: 'listing',
+    listingAggregateId: listing.aggregateId,
+    listingId: listing.listingId,
+    listingTitle: listing.title,
+    sellerPubky: listing.sellerPubky,
+  };
+}
+
+function offerCard(listing: MarketplaceListingAggregate, offer: MarketplaceOffer): MarketplaceMessageCard {
+  return {
+    type: 'offer',
+    listingAggregateId: listing.aggregateId,
+    listingId: listing.listingId,
+    listingTitle: listing.title,
+    sellerPubky: listing.sellerPubky,
+    offerId: offer.id,
+    offerAmountMinor: offer.amount.amountMinor,
+    offerCurrency: offer.amount.currency,
+    offerState: offer.state,
+  };
+}
+
+function defaultCardText(kind: MarketplaceMessageKind, card: MarketplaceMessageCard | null): string {
+  if (kind === 'listing_card') return `Shared listing: ${card?.listingTitle ?? 'Marketplace item'}`;
+  if (kind === 'offer_card') {
+    const amount =
+      card?.offerAmountMinor != null && card.offerCurrency
+        ? `${(card.offerAmountMinor / 100).toFixed(2)} ${card.offerCurrency}`
+        : 'an offer';
+    return `Shared offer: ${amount}`;
+  }
+  return '';
 }
 
 function latestBidderMaximums(bids: MarketplaceBid[]): Map<string, MarketplaceBid> {

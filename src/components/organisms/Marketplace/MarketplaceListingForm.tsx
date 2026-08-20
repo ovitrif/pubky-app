@@ -376,6 +376,7 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               options={[
                 { value: 'physical', label: 'Ship item' },
                 { value: 'pickup', label: 'Local pickup' },
+                { value: 'digital', label: 'Digital download' },
               ]}
             />
             <FormSelect
@@ -390,6 +391,13 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               ]}
             />
           </div>
+
+          {fulfillment === 'digital' && (
+            <Typography as="p" className="rounded-lg border bg-secondary/40 p-3 text-sm text-muted-foreground">
+              Digital listings publish a sandbox Locks policy. Buyers receive a short-lived access credential after
+              payment. This is not a live Bitkit companion flow.
+            </Typography>
+          )}
 
           {fulfillment === 'physical' && (
             <>

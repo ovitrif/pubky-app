@@ -367,6 +367,12 @@ export class CommerceApplication {
         quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
         unitPrice,
         saleFormat: listing.sale.format,
+        fulfillment: listing.fulfillmentMethods.includes('digital')
+          ? 'digital'
+          : listing.fulfillmentMethods.includes('physical')
+            ? 'physical'
+            : 'pickup',
+        digitalLock: listing.digitalLock,
         auctionTerms:
           listing.sale.format === 'auction'
             ? {

@@ -32,6 +32,19 @@ describe('createMarketplaceListingSchema', () => {
     ).toBe(true);
   });
 
+  it('allows digital fulfillment without package or shipping fields', () => {
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...createMarketplaceListingDefaults,
+        title: 'Sewing pattern pack',
+        description: 'Downloadable pattern pack.',
+        price: '24',
+        fulfillment: 'digital',
+        altText: 'Pattern pack cover',
+      }).success,
+    ).toBe(true);
+  });
+
   it('supports multiple fixed-price variants but only one auction variant', () => {
     const variants = [
       { sku: 'BOOTS-42', size: '42', color: 'Brown', style: '', quantity: '1', priceOverride: '' },

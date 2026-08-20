@@ -52,6 +52,18 @@ export function useMarketplaceOrderAction(
             requestedAmountMinor: Math.round(Number(data.amount) * 100),
           });
           break;
+        case 'return_ship':
+          succeeded = await actOnOrder(order, 'return.ship', {
+            carrier: data.carrier,
+            trackingNumber: data.trackingNumber,
+          });
+          break;
+        case 'return_inspect':
+          succeeded = await actOnOrder(order, 'return.inspect', {
+            outcome: 'pass',
+            notes: data.reason,
+          });
+          break;
         case 'refund':
           succeeded = await actOnOrder(order, 'refund.record_external', {
             amountMinor: Math.round(Number(data.amount) * 100),

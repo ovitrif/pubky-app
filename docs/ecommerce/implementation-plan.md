@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (gallery, shipping labels, risk signals, conversation block, and checkout endpoint picker landed; live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (listing/offer cards, digital listings, relist studio, and return tracking/inspection landed; live Paykit/videos remain)
 
 Legend:
 
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: listing media gallery (reorder/captions), printable sandbox shipping labels, conversation block, labeled checkout payment-endpoint picker, and append-only `trust.flag_risk` review signals.
+Last shipped feature work: listing/offer conversation cards and offer system events, digital listing creation plus sandbox Locks credential issue/refresh/access audit, dedicated relist studio, and contract-aligned return tracking (`return.ship` / `return.inspect`).
 
 Next required work, in order:
 
@@ -131,11 +131,11 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Listings and inventory
 
-- [x] Sellers can create draft, fixed-price, auction, and digital listings.
+- [x] Sellers can create draft, fixed-price, auction, and digital listings. — sell form includes Digital download; sandbox catalog includes Sewing pattern pack
 - [x] Required fields include title, description, category, condition, price/currency, quantity, location granularity, delivery options, and media.
 - [~] Variants/SKUs support independent price, quantity, and status. — schema + form rows + PDP selector; limited option editor
 - [x] Media can be reordered, captioned, validated, retried, and removed. — up to 12 photos, cover-first reorder, per-photo captions
-- [~] Drafts autosave. Publish, edit, duplicate, pause, reserve, sell, relist, and delete transitions are enforced. — autosave, publish, pause/activate/duplicate/delete; no dedicated relist studio
+- [x] Drafts autosave. Publish, edit, duplicate, pause, reserve, sell, relist, and delete transitions are enforced. — dedicated relist studio creates a new active listing with price/quantity
 - [x] Quantity cannot become negative; reserved inventory expires or converts atomically.
 - [x] Public records carry a schema version and stable `seller:listId` identifier.
 
@@ -150,7 +150,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Messaging and negotiation
 
 - [x] Buyer and seller can open a listing-scoped conversation.
-- [~] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — text + image attachments + unread + block; no listing/offer cards
+- [x] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — share listing/offer cards; offer lifecycle and block append system events
 - [x] Buyers can make, withdraw, accept, reject, and counter offers.
 - [x] Sellers can send private offers to watchers.
 - [x] Offer expiry, currency, quantity, and inventory reservation are enforced.
@@ -183,7 +183,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated.
 - [x] Polling is abortable, bounded, resumable after reload, and tolerant of duplicate/reordered responses.
 - [x] A confirmed payment advances the order once; later duplicate confirmations are harmless.
-- [~] Digital goods use a Locks access credential and verify content hashes. — hook/UI present; live delivery unproven
+- [~] Digital goods use a Locks access credential and verify content hashes. — sandbox issue/refresh/access audit + integrity flag; live Bitkit delivery unproven
 - [x] Real payment criteria use direct on-chain Bitcoin with `minimum_confirmations` constrained to `0..6`; Lightning is not claimed by the current Paykit Server adapter.
 - [x] Marketplace expiry is an order policy, not a terminal Paykit failure. A late payment enters manual reconciliation because Locks v1 keeps upstream/network failures pending.
 - [x] Sandbox mode reproduces all supported statuses deterministically and is visibly labeled.
@@ -192,7 +192,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [x] Buyer and seller order views show a shared timeline with role-appropriate actions.
 - [x] Physical orders support address confirmation, handling deadline, shipment, carrier/tracking, delivery, and pickup.
-- [~] Digital orders support locked delivery, credential refresh, download/access audit, and content-integrity failure.
+- [x] Digital orders support locked delivery, credential refresh, download/access audit, and content-integrity failure. — sandbox credential on payment confirm; refresh and record_access commands
 - [x] Sellers can print a packing summary and a labeled sandbox shipping label, and mark ready/shipped.
 - [x] Buyers can confirm receipt; deterministic sandbox delivery can advance automatically.
 - [x] Cancellation rules depend on payment and fulfillment state and preserve an immutable event history.
@@ -201,7 +201,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [x] Buyers can request a return with reason, notes, and evidence within policy.
 - [x] Sellers can approve, reject, offer partial resolution, or request return shipment.
-- [~] Return tracking and inspection lead to full, partial, denied, or externally-refunded outcomes.
+- [x] Return tracking and inspection lead to full, partial, denied, or externally-refunded outcomes. — `return.ship`, `return.receive`, `return.inspect`, then external refund
 - [x] Because Paykit Server cannot spend, real refunds are recorded only after seller-provided external transaction evidence; the app never claims it moved funds.
 - [x] Buyers can escalate eligible orders to a dispute.
 - [x] Both parties can add evidence; moderators can decide, annotate, and close.
@@ -217,7 +217,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Seller tools and analytics
 
 - [~] Dashboard shows revenue-equivalent totals, paid orders, conversion, views, favorites, offers, sell-through, and fulfillment health. — inventory, orders, offers, revenue-equivalent
-- [~] Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview. — pause/activate/delete/duplicate + CSV export/import
+- [x] Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview. — pause/activate/delete/duplicate/relist + CSV export/import
 - [x] Order work queues expose awaiting payment, to ship, returns, disputes, and completed states.
 - [x] Shop settings cover policies, notifications, payment setup, shipping presets, blocked buyers, and vacation mode.
 - [x] Promotions support scheduled markdowns and usage-limited seller coupons without producing negative totals.
@@ -406,7 +406,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T4 — Messaging, offers, and auctions `[x]`
 
-- [~] Build listing-scoped conversations, system events, offers/counters, watcher offers, auction setup, proxy bidding, anti-sniping, close jobs, and notifications. — no watcher-only offers
+- [x] Build listing-scoped conversations, system events, offers/counters, watcher offers, auction setup, proxy bidding, anti-sniping, close jobs, and notifications. — listing/offer cards + offer system events; private watcher offers exist
 - [x] Verify 100-way concurrent bids and one-unit purchases, stale revisions, expiry, inventory reservation, and idempotent close.
 
 ### T5 — Checkout, Paykit, and Locks `[x]`
