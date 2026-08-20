@@ -1,5 +1,7 @@
 export const MARKETPLACE_SANDBOX_BIDDER_A = 'q'.repeat(52);
 export const MARKETPLACE_SANDBOX_BIDDER_B = 'w'.repeat(52);
+export const MARKETPLACE_SANDBOX_MODERATOR = 'm'.repeat(52);
+export const MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY = 'pubky.marketplace.sandboxOperator';
 
 export const MARKETPLACE_SANDBOX_AUCTION_SEED_BIDDERS = [
   MARKETPLACE_SANDBOX_BIDDER_A,

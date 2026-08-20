@@ -15,6 +15,7 @@ import {
   type MarketplaceModerationDecision,
   useMarketplaceModeration,
 } from '@/hooks/useMarketplaceModeration/useMarketplaceModeration';
+import { isMarketplaceSandboxOperator } from '@/libs/commerce/sandbox-operator';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 
 const DECISIONS: Array<{ value: MarketplaceModerationDecision; label: string }> = [
@@ -58,6 +59,11 @@ export function MarketplaceModeration() {
           <Typography as="p" className="mt-2 text-muted-foreground">
             Assignment, decisions, reversals, and invariant alerts are append-only.
           </Typography>
+          {isMarketplaceSandboxOperator() && (
+            <Badge className="mt-3" variant="outline">
+              Sandbox operator · staff commands use the reserved moderator
+            </Badge>
+          )}
         </div>
 
         <Input

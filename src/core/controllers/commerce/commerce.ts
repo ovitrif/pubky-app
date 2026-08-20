@@ -1,6 +1,7 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
 import { MARKETPLACE_GUEST_CART_OWNER, marketplaceCartOwner } from '@/libs/commerce/guest-cart';
+import { marketplaceCommandActor, marketplaceStaffActor } from '@/libs/commerce/sandbox-operator';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -63,9 +64,10 @@ export class CommerceController {
   }
 
   static async executeMarketplaceCommand(input: unknown) {
+    const command = CommerceRecordNormalizer.marketplaceCommand(input);
     return await CommerceApplication.executeMarketplaceCommand(
-      this.getCurrentUserPubky(),
-      CommerceRecordNormalizer.marketplaceCommand(input),
+      this.getMarketplaceCommandActor(command.kind),
+      command,
     );
   }
 
@@ -110,7 +112,7 @@ export class CommerceController {
   }
 
   static async getMarketplaceReports() {
-    return await CommerceApplication.getMarketplaceReports(this.getCurrentUserPubky());
+    return await CommerceApplication.getMarketplaceReports(this.getMarketplaceStaffActor());
   }
 
   static async getRestrictedListingIds() {
@@ -381,16 +383,16 @@ export class CommerceController {
   }
 
   static async getMarketplaceInvariants() {
-    return await CommerceApplication.getMarketplaceInvariants(this.getCurrentUserPubky());
+    return await CommerceApplication.getMarketplaceInvariants(this.getMarketplaceStaffActor());
   }
 
   static async getMarketplaceRiskSignals() {
-    return await CommerceApplication.getMarketplaceRiskSignals(this.getCurrentUserPubky());
+    return await CommerceApplication.getMarketplaceRiskSignals(this.getMarketplaceStaffActor());
   }
 
   static async searchMarketplaceAdmin(query: unknown) {
     return await CommerceApplication.searchMarketplaceAdmin(
-      this.getCurrentUserPubky(),
+      this.getMarketplaceStaffActor(),
       typeof query === 'string' ? query : '',
     );
   }
@@ -429,6 +431,14 @@ export class CommerceController {
 
   private static getCurrentUserPubky(): string {
     return useAuthStore.getState().selectCurrentUserPubky();
+  }
+
+  private static getMarketplaceStaffActor(): string {
+    return marketplaceStaffActor(this.getCurrentUserPubky());
+  }
+
+  private static getMarketplaceCommandActor(kind: string): string {
+    return marketplaceCommandActor(this.getCurrentUserPubky(), kind);
   }
 
   private static getCartOwnerPubky(): string {

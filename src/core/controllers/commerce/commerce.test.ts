@@ -3,6 +3,7 @@ import { CommerceApplication } from '@/application/commerce/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MARKETPLACE_GUEST_CART_OWNER } from '@/libs/commerce/guest-cart';
+import { MARKETPLACE_SANDBOX_MODERATOR, MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY } from '@/libs/commerce/sandbox-actors';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -167,6 +168,33 @@ describe('CommerceController', () => {
     await expect(
       CommerceController.executeMarketplaceCommand({ ...command, privateData: 'leak' }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  it('sends sandbox operator staff commands as the reserved moderator', async () => {
+    sessionStorage.setItem(MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY, '1');
+    const execute = vi.spyOn(CommerceApplication, 'executeMarketplaceCommand').mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000821',
+      aggregateId: 'report:00000000-0000-4000-8000-000000000821',
+      revision: 1,
+      eventIds: ['00000000-0000-4000-8000-000000000822'],
+      result: { kind: 'report' },
+    });
+    const command = {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000821',
+      aggregateId: 'report:00000000-0000-4000-8000-000000000821',
+      expectedRevision: 1,
+      issuedAt: '2026-08-19T23:00:00.000Z',
+      kind: 'trust.decide',
+      payload: { reportId: '00000000-0000-4000-8000-000000000821', decision: 'dismiss', notes: 'Sandbox review.' },
+    };
+
+    await CommerceController.executeMarketplaceCommand(command);
+
+    expect(execute).toHaveBeenCalledWith(MARKETPLACE_SANDBOX_MODERATOR, command);
+    sessionStorage.clear();
   });
 
   it('validates private message attachments before gateway upload', async () => {

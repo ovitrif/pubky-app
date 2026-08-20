@@ -372,6 +372,13 @@ export class CommerceApplication {
         now: Date.now(),
       }),
     );
+    if (getCommerceAdapterMode() === 'sandbox') {
+      try {
+        await this.registerSandboxListing(record);
+      } catch {
+        // Registration job stays pending; the owner-signed listing is already local.
+      }
+    }
   }
 
   static async commitCreateMedia(ownerPubky: string, mediaId: string, bytes: Uint8Array): Promise<string> {

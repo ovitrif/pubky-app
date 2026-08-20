@@ -638,7 +638,7 @@ export type MarketplaceAttachmentStoreResult =
   | { ok: true; attachment: MarketplaceAttachmentMetadata }
   | { ok: false; code: 'INVALID_ATTACHMENT' | 'UNAUTHORIZED'; message: string };
 
-export const MARKETPLACE_SANDBOX_MODERATOR = 'm'.repeat(52);
+export { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
 
 type StoredCommand = {
   requestHash: string;

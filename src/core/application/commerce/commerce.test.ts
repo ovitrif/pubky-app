@@ -126,16 +126,28 @@ describe('CommerceApplication', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it('publishes a listing and queues transaction-service registration', async () => {
+  it('publishes a listing and registers it with the sandbox transaction service', async () => {
     const record = createCommerceListingFixture();
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
     vi.spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValueOnce('018f47d2-6a27-7c23-a49d-6b21bb770120')
-      .mockReturnValueOnce('018f47d2-6a27-7c23-a49d-6b21bb770121');
+      .mockReturnValueOnce('018f47d2-6a27-7c23-a49d-6b21bb770121')
+      .mockReturnValueOnce('018f47d2-6a27-7c23-a49d-6b21bb770122');
     const stage = vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     const enqueue = vi.spyOn(LocalCommerceService, 'enqueueSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a49d-6b21bb770122',
+      aggregateId: `listing:${COMMERCE_FIXTURE_SELLER}_boots_01`,
+      revision: 1,
+      eventIds: [],
+      result: { kind: 'listing' },
+    });
 
     await CommerceApplication.commitUpsertListing(record);
 
@@ -146,6 +158,10 @@ describe('CommerceApplication', () => {
         operation: 'register',
         payload: { url: LISTING_URL, listingRevision: 1 },
       }),
+    );
+    expect(execute).toHaveBeenCalledWith(
+      COMMERCE_FIXTURE_SELLER,
+      expect.objectContaining({ kind: 'listing.register' }),
     );
   });
 
