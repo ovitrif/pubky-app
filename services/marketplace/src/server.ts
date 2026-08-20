@@ -481,7 +481,7 @@ function statusForFailure(code: string): number {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+async function main(): Promise<void> {
   const mode: MarketplaceServerMode = process.env.MARKETPLACE_MODE === 'sandbox' ? 'sandbox' : 'disabled';
   const port = Number.parseInt(process.env.MARKETPLACE_PORT ?? '3100', 10);
   const host = process.env.MARKETPLACE_HOST ?? '127.0.0.1';
@@ -498,4 +498,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.listen(port, host, () => {
     console.info(`[marketplace] listening on ${host}:${port} (${mode}, ${databaseUrl ? 'postgres' : 'memory'})`);
   });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void main();
 }
