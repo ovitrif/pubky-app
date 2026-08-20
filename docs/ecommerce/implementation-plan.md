@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: auction PDP **minimum next bid**, **end time**, and **standing**; sandbox-seeded public bid history; listing/shop buying policies and share; auto-accept re-register on the transaction service.
+Last shipped feature work: auction PDP **minimum next bid**, **end time**, and **standing**; sandbox-seeded public bid history; listing/shop buying policies and share; auto-accept re-register; public catalog during auth hydration.
 
 Next required work, in order:
 
