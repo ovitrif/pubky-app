@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (auction standing/min next bid/end time, seeded public bid history, buying policies, live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (guest cart + quantity + IndexedDB timeout, auction standing, live Paykit/videos remain)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — auction status + seeded bid history, buying policies, marketplace unit/hook tests, catalog VRT, Cypress browse/auth/auction/watcher/vacation; live Bitkit and signed-in videos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — guest local cart + quantity stepper, DatabaseProvider init timeout, auction status + seeded bid history, buying policies, marketplace unit/hook tests, catalog VRT, Cypress browse/guest-cart/auth/auction/watcher/vacation; live Bitkit and signed-in videos remain
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in/Bitkit feature videos not recorded
 
 ### Delivery slices
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: auction PDP **minimum next bid**, **end time**, and **standing**; sandbox-seeded public bid history; listing/shop buying policies and share; auto-accept re-register; public catalog during auth hydration.
+Last shipped feature work: **guest local cart** (reserved Dexie owner, merge on sign-in); PDP/cart **quantity stepper**; sandbox stock > 1 on boots/runners/keyboard/pattern pack; DatabaseProvider **init timeout** with retry; auction standing/min next bid; buying policies.
 
 Next required work, in order:
 
@@ -168,7 +168,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Cart and checkout
 
-- [x] Fixed-price items can be added, edited, removed, and grouped by seller.
+- [x] Fixed-price items can be added, edited, removed, and grouped by seller. — guests use a reserved local cart owner; checkout still requires a real session
 - [x] Cart validation refreshes price, stock, delivery availability, and listing state before checkout.
 - [x] Checkout captures delivery/contact details without placing raw private data in public records or telemetry.
 - [~] Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order. — sandbox shipping/tax plus coupon discount
