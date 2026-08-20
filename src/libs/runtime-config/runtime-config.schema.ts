@@ -179,7 +179,7 @@ export const APP_RUNTIME_DEFAULTS = {
   marketplaceUrl: 'http://localhost:3100',
   locksUrl: 'http://localhost:3101',
   paykitSetupUrl: 'http://localhost:3102/setup',
-  commerceAdapterMode: 'unavailable' as CommerceAdapterMode,
+  commerceAdapterMode: 'sandbox' as CommerceAdapterMode,
   commercePollIntervalMs: 2_000,
   preludeSdkTimeoutMs: 5_000,
   previewImage: '/preview.webp',

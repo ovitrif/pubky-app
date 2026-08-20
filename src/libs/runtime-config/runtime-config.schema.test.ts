@@ -186,7 +186,7 @@ describe('runtimeEnvInputSchema', () => {
 
   it('fails closed on unsupported commerce adapter modes', () => {
     expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, commerceAdapterMode: 'live' })).toThrow();
-    expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).commerceAdapterMode).toBe('unavailable');
+    expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).commerceAdapterMode).toBe('sandbox');
   });
 
   it('rejects an invalid configured moderation Pubky', () => {

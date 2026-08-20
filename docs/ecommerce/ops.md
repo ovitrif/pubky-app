@@ -9,7 +9,7 @@
 
 Runtime defaults live in `src/libs/runtime-config/runtime-config.schema.ts`. Copy `.env.example` only when you need to override them.
 
-The sandbox adapter is labeled in the UI. It does not move Bitcoin, custody funds, or issue real refunds.
+The sandbox adapter is the local default (`PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=sandbox`) and is labeled in the UI. It does not move Bitcoin, custody funds, or issue real refunds. Production deployments should set `locks-paykit` or `unavailable`.
 
 ## Docker / companion topology
 
