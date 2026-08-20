@@ -42,6 +42,10 @@ The transaction service exposes `/health/live` and `/health/ready`. `/health/rea
 
 JSON responses set `Content-Security-Policy: default-src 'none'`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY`. Sandbox POST `/v1/commands` and `/v1/attachments` require `x-marketplace-csrf: 1`. When `MARKETPLACE_ALLOWED_ORIGIN` is set to a concrete origin, the `Origin`/`Referer` must match.
 
+Privileged staff commands (`trust.decide`, `trust.reverse`, `risk.hold`, `risk.release`, `refund.record_external`, `inventory.reconcile_paid`) also require `x-marketplace-step-up` from `POST /v1/auth/step-up`. Tokens are HMAC-bound to actor and purpose and expire in five minutes. Support notes and ordinary buyer/seller commands do not use step-up.
+
+`POST /v1/callbacks/locks-payment` is service-to-service. It skips CSRF/origin and requires `x-marketplace-callback-timestamp`, `x-marketplace-callback-nonce`, and `x-marketplace-callback-signature` (HMAC-SHA256 over `v1.{timestamp}.{nonce}.{sha256(body)}`). Nonces are single-use inside a five-minute window. Override the labeled sandbox secrets with `MARKETPLACE_CALLBACK_SECRET` and `MARKETPLACE_STEP_UP_SECRET` (minimum 16 characters). Do not log raw callback bodies or tokens.
+
 The Locks / Paykit stub exposes `/health/live` and `/health/ready` on both ports and labels every response `sandbox`.
 
 Operator routes (sandbox moderator only): `/v1/invariants` (includes `reservedOnPaidOrders`), `/v1/admin/search?q=`, and `/v1/admin/snapshot` (full repository JSON). `inventory.reconcile_paid` converts leftover reserved units on already-paid orders to sold and appends `inventory.reconciled` events. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.

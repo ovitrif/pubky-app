@@ -7,6 +7,23 @@ import {
   marketplaceSecurityHeaders,
 } from '../../../src/libs/commerce/marketplace-http-security';
 import { isSandboxFinance, isSandboxModerator, isSandboxRisk } from '../../../src/libs/commerce/sandbox-roles';
+import {
+  createMarketplaceCallbackNonceStore,
+  MARKETPLACE_CALLBACK_NONCE_HEADER,
+  MARKETPLACE_CALLBACK_SIGNATURE_HEADER,
+  MARKETPLACE_CALLBACK_TIMESTAMP_HEADER,
+  marketplaceCallbackSecretFromEnv,
+  marketplacePaymentCallbackSchema,
+  verifyMarketplaceCallback,
+} from '../../../src/libs/commerce/signed-callback';
+import {
+  issueMarketplaceStepUpToken,
+  MARKETPLACE_STEP_UP_HEADER,
+  MARKETPLACE_STEP_UP_PURPOSES,
+  marketplaceStepUpSecretFromEnv,
+  stepUpPurposeForCommand,
+  verifyMarketplaceStepUpToken,
+} from '../../../src/libs/commerce/step-up';
 import { commerceAggregateIdSchema, commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import { PostgresMarketplaceRepository } from './postgres-repository';
 import {
@@ -24,6 +41,9 @@ export interface MarketplaceServerOptions {
   maxBodyBytes?: number;
   allowedOrigin?: string;
   storage?: MarketplaceStorageMode;
+  callbackSecret?: string;
+  stepUpSecret?: string;
+  now?: () => Date;
 }
 
 export function createMarketplaceHttpServer({
@@ -32,7 +52,11 @@ export function createMarketplaceHttpServer({
   maxBodyBytes = 1_000_000,
   allowedOrigin = '*',
   storage = 'memory',
+  callbackSecret = marketplaceCallbackSecretFromEnv(),
+  stepUpSecret = marketplaceStepUpSecretFromEnv(),
+  now = () => new Date(),
 }: MarketplaceServerOptions): Server {
+  const callbackNonces = createMarketplaceCallbackNonceStore();
   return createServer(async (request, response) => {
     try {
       if (mode === 'sandbox') {
@@ -40,7 +64,7 @@ export function createMarketplaceHttpServer({
         response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
         response.setHeader(
           'access-control-allow-headers',
-          `content-type, x-pubky-actor, x-recipient-pubky, ${MARKETPLACE_CSRF_HEADER}`,
+          `content-type, x-pubky-actor, x-recipient-pubky, ${MARKETPLACE_CSRF_HEADER}, ${MARKETPLACE_STEP_UP_HEADER}`,
         );
       }
       if (request.method === 'OPTIONS') {
@@ -49,7 +73,8 @@ export function createMarketplaceHttpServer({
         return;
       }
 
-      if (mode === 'sandbox' && request.method === 'POST') {
+      const requestPath = (request.url ?? '').split('?')[0] ?? '';
+      if (mode === 'sandbox' && request.method === 'POST' && !requestPath.startsWith('/v1/callbacks/')) {
         const mutationError = mutationGuard(request, allowedOrigin);
         if (mutationError) {
           writeJson(response, 403, { error: { code: 'UNAUTHORIZED', message: mutationError } }, mode);
@@ -74,6 +99,106 @@ export function createMarketplaceHttpServer({
           },
           mode,
         );
+        return;
+      }
+
+      if (request.method === 'POST' && requestPath === '/v1/auth/step-up') {
+        if (mode !== 'sandbox') {
+          writeJson(
+            response,
+            503,
+            { error: { code: 'UNAVAILABLE', message: 'Marketplace step-up is disabled.' } },
+            mode,
+          );
+          return;
+        }
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(
+            response,
+            401,
+            { error: { code: 'UNAUTHORIZED', message: 'A sandbox actor header is required.' } },
+            mode,
+          );
+          return;
+        }
+        const body = await readJsonBody(request, maxBodyBytes);
+        const purpose =
+          typeof body === 'object' && body !== null && 'purpose' in body && typeof body.purpose === 'string'
+            ? body.purpose
+            : '';
+        if (!MARKETPLACE_STEP_UP_PURPOSES.includes(purpose as (typeof MARKETPLACE_STEP_UP_PURPOSES)[number])) {
+          writeJson(
+            response,
+            400,
+            { error: { code: 'INVALID_COMMAND', message: 'A sandbox step-up purpose is required.' } },
+            mode,
+          );
+          return;
+        }
+        writeJson(
+          response,
+          200,
+          issueMarketplaceStepUpToken({
+            actorPubky: actorResult.data,
+            purpose: purpose as (typeof MARKETPLACE_STEP_UP_PURPOSES)[number],
+            secret: stepUpSecret,
+            nowMs: now().getTime(),
+          }),
+          mode,
+        );
+        return;
+      }
+
+      if (request.method === 'POST' && requestPath === '/v1/callbacks/locks-payment') {
+        if (mode !== 'sandbox') {
+          writeJson(
+            response,
+            503,
+            { error: { code: 'UNAVAILABLE', message: 'Marketplace callbacks are disabled.' } },
+            mode,
+          );
+          return;
+        }
+        const rawBody = await readRawBody(request, maxBodyBytes);
+        const verified = verifyMarketplaceCallback({
+          secret: callbackSecret,
+          timestampHeader: headerValue(request.headers[MARKETPLACE_CALLBACK_TIMESTAMP_HEADER]),
+          nonce: headerValue(request.headers[MARKETPLACE_CALLBACK_NONCE_HEADER]),
+          signature: headerValue(request.headers[MARKETPLACE_CALLBACK_SIGNATURE_HEADER]),
+          rawBody,
+          nowMs: now().getTime(),
+          nonces: callbackNonces,
+        });
+        if (!verified.ok) {
+          writeJson(
+            response,
+            verified.code === 'IDEMPOTENCY_CONFLICT' ? 409 : 401,
+            { error: { code: verified.code, message: verified.reason } },
+            mode,
+          );
+          return;
+        }
+        let parsedBody: unknown;
+        try {
+          parsedBody = JSON.parse(rawBody);
+        } catch {
+          writeJson(response, 400, { error: { code: 'INVALID_JSON', message: 'Callback body must be JSON.' } }, mode);
+          return;
+        }
+        const payload = marketplacePaymentCallbackSchema.safeParse(parsedBody);
+        if (!payload.success) {
+          writeJson(
+            response,
+            400,
+            { error: { code: 'INVALID_COMMAND', message: 'The payment callback payload is invalid.' } },
+            mode,
+          );
+          return;
+        }
+        const result = await service.applySignedPaymentObservation(payload.data);
+        writeJson(response, result.ok ? 200 : statusForFailure(result.error.code), result, mode);
         return;
       }
 
@@ -110,6 +235,21 @@ export function createMarketplaceHttpServer({
         }
 
         const body = await readJsonBody(request, maxBodyBytes);
+        const kind = typeof body === 'object' && body !== null && 'kind' in body ? String(body.kind) : '';
+        const purpose = stepUpPurposeForCommand(kind);
+        if (purpose) {
+          const verified = verifyMarketplaceStepUpToken({
+            token: headerValue(request.headers[MARKETPLACE_STEP_UP_HEADER]),
+            actorPubky: actor,
+            purpose,
+            secret: stepUpSecret,
+            nowMs: now().getTime(),
+          });
+          if (!verified.ok) {
+            writeJson(response, 403, { error: { code: 'UNAUTHORIZED', message: verified.reason } }, mode);
+            return;
+          }
+        }
         const result = await service.execute(actor, body);
         const status = result.ok ? 200 : statusForFailure(result.error.code);
         writeJson(response, status, result, mode);
@@ -518,12 +658,16 @@ class RequestBodyError extends Error {
 }
 
 async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Promise<unknown> {
-  const bytes = await readBytesBody(request, maxBodyBytes);
+  const rawBody = await readRawBody(request, maxBodyBytes);
   try {
-    return JSON.parse(Buffer.from(bytes).toString('utf8'));
+    return JSON.parse(rawBody);
   } catch {
     throw new RequestBodyError('INVALID_JSON', 400, 'Request body must be valid JSON.');
   }
+}
+
+async function readRawBody(request: IncomingMessage, maxBodyBytes: number): Promise<string> {
+  return Buffer.from(await readBytesBody(request, maxBodyBytes)).toString('utf8');
 }
 
 async function readBytesBody(request: IncomingMessage, maxBodyBytes: number): Promise<Uint8Array> {

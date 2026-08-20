@@ -5,6 +5,11 @@ import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
 import { MARKETPLACE_CSRF_HEADER, MARKETPLACE_CSRF_TOKEN } from '@/libs/commerce/marketplace-http-security';
 import { isSafeCommerceServiceUrl } from '@/libs/commerce/safe-outbound-url';
 import {
+  MARKETPLACE_STEP_UP_HEADER,
+  type MarketplaceStepUpPurpose,
+  stepUpPurposeForCommand,
+} from '@/libs/commerce/step-up';
+import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
   marketplaceCommandResponseSchema,
@@ -492,12 +497,30 @@ const enforcementSchema = z.object({
 export type MarketplaceRiskSignal = z.infer<typeof riskSignalSchema>;
 export type MarketplaceEnforcement = z.infer<typeof enforcementSchema>;
 
+const stepUpResponseSchema = z
+  .object({
+    token: z.string().min(16),
+    expiresAt: z.iso.datetime({ offset: true }),
+    purpose: z.enum(['moderation', 'risk', 'finance']),
+    ttlMs: z.number().int().positive(),
+  })
+  .strict();
+
+const stepUpTokens = new Map<string, { token: string; expiresAtMs: number }>();
+
 export class MarketplaceGatewayService {
   private constructor() {}
 
-  static async execute(actor: string, command: MarketplaceCommand): Promise<MarketplaceCommandResponse> {
+  static clearStepUpCache(): void {
+    stepUpTokens.clear();
+  }
+
+  static async requestStepUp(
+    actor: string,
+    purpose: MarketplaceStepUpPurpose,
+  ): Promise<z.infer<typeof stepUpResponseSchema>> {
     this.assertSandbox();
-    const url = `${getMarketplaceUrl()}/v1/commands`;
+    const url = `${getMarketplaceUrl()}/v1/auth/step-up`;
     const response = await safeFetch(
       url,
       {
@@ -507,6 +530,40 @@ export class MarketplaceGatewayService {
           'x-pubky-actor': actor,
           [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
         },
+        body: JSON.stringify({ purpose }),
+      },
+      ErrorService.Marketplace,
+      'requestStepUp',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'requestStepUp', url);
+    const parsed = stepUpResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned an invalid step-up token.', {
+        service: ErrorService.Marketplace,
+        operation: 'requestStepUp',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  static async execute(actor: string, command: MarketplaceCommand): Promise<MarketplaceCommandResponse> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/commands`;
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      'x-pubky-actor': actor,
+      [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
+    };
+    const purpose = stepUpPurposeForCommand(command.kind);
+    if (purpose) {
+      headers[MARKETPLACE_STEP_UP_HEADER] = await this.ensureStepUp(actor, purpose);
+    }
+    const response = await safeFetch(
+      url,
+      {
+        method: 'POST',
+        headers,
         body: JSON.stringify(command),
       },
       ErrorService.Marketplace,
@@ -1027,6 +1084,15 @@ export class MarketplaceGatewayService {
       'exportAccount',
     );
     return parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'exportAccount', url);
+  }
+
+  private static async ensureStepUp(actor: string, purpose: MarketplaceStepUpPurpose): Promise<string> {
+    const cacheKey = `${actor}:${purpose}`;
+    const cached = stepUpTokens.get(cacheKey);
+    if (cached && cached.expiresAtMs - 15_000 > Date.now()) return cached.token;
+    const issued = await this.requestStepUp(actor, purpose);
+    stepUpTokens.set(cacheKey, { token: issued.token, expiresAtMs: Date.parse(issued.expiresAt) });
+    return issued.token;
   }
 
   private static assertSandbox(): void {

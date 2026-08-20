@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (support/finance/risk consoles + 100-way concurrency + vendored Locks JS/WASM; live Bitkit remains)
+Stopped at: **T8 — Hardening and parity audit** (signed callbacks + staff step-up + support/finance/risk consoles + 100-way concurrency + vendored Locks JS/WASM; live Bitkit remains)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks, labeled HTTP stub, and vendored unpublished Locks JS/WASM; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, support/finance/risk role split, 100-way checkout/bid/close/payment concurrency, enforced Next nonce CSP, DNS rebinding, restore drill; live Bitkit remains
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, support/finance/risk role split, HMAC-signed Locks payment callbacks with a 5-minute replay window, staff step-up tokens, 100-way checkout/bid/close/payment concurrency, enforced Next nonce CSP, DNS rebinding, restore drill; live Bitkit remains
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in checkout, digital-delivery clicks, and operator-moderation videos recorded without the phrase; support/finance/risk Cypress coverage added; live Bitkit motion remains
 
 ### Delivery slices
@@ -39,12 +39,12 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
 - [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub + vendored Locks JS/WASM viewer; companion approval not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
-- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; trust labels; guarantee terms; buyer payment status; support/finance/risk consoles; 100-way concurrency; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
+- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; trust labels; guarantee terms; buyer payment status; support/finance/risk consoles; signed callbacks + staff step-up; 100-way concurrency; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
 
 ### Where we stopped
 
-Last shipped feature work: independent support, risk, and finance consoles plus 100-way checkout, last-bid, auction-close, and payment-confirm concurrency proofs.
+Last shipped feature work: HMAC-signed Locks payment callbacks with a replay window, plus staff step-up tokens for decide/hold/refund/reconcile.
 
 Next required work, in order:
 
@@ -256,7 +256,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Privacy, security, observability, and operations
 
-- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF + marketplace CSRF/origin + JSON CSP; Next.js document CSP is enforced with a per-request nonce on the raw runtime-config script
+- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF + marketplace CSRF/origin + JSON CSP + HMAC Locks payment callbacks (5-minute nonce window) + staff step-up tokens for decide/hold/refund/reconcile; Next.js document CSP is enforced with a per-request nonce on the raw runtime-config script
 - [x] Recovery phrases, payment secrets, raw delivery details, message bodies, evidence, access credentials, and private Pubky identifiers never enter analytics, logs, Sentry, or public records.
 - [x] Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
 - [x] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live`, `/health/ready`, `/v1/metrics`, `/v1/admin/snapshot`; `restore-drill.test.ts` JSON + Postgres file hydrate; ops.md procedure
@@ -400,7 +400,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 - [x] Add Dexie schemas/models, database version handling, local services, sync outbox, stores, controllers, and applications.
 - [x] Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock.
-- [~] Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters. — catalog + payment advance + flat tax/shipping
+- [~] Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters. — catalog + payment advance + flat tax/shipping + HMAC Locks payment callback
 - [x] Verify account isolation, recovery, conflict handling, replay, and offline behavior. — command identity + Dexie scoping; JSON/Postgres restore drill
 
 ### T3 — Catalog and discovery `[x]`
@@ -430,14 +430,14 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T8 — Hardening and parity audit `[~]` `[!]` stopped here
 
-- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, trust/guarantee/payment-status suites, support/finance/risk ACL, 100-way concurrency, CSRF/origin/JSON CSP, enforced Next nonce CSP, DNS rebinding, restore drill, catalog VRT mock, thin Cypress browse/auth-gate
+- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, trust/guarantee/payment-status suites, support/finance/risk ACL, HMAC callback + step-up adversarial tests, 100-way concurrency, CSRF/origin/JSON CSP, enforced Next nonce CSP, DNS rebinding, restore drill, catalog VRT mock, thin Cypress browse/auth-gate
 - [ ] Compare every acceptance item with authoritative runtime evidence.
 - [ ] Fix findings and repeat the complete affected verification scope.
 
 ### T9 — Documentation and demonstrations `[ ]`
 
 - [~] Document local sandbox, real Docker topology, runtime configuration, wallet approval, operational limitations, recovery, and threat model. — plan, ADRs, upstream, threat model, service README
-- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, and operator assign/dismiss; live Bitkit missing
+- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, and support/finance/risk consoles; live Bitkit missing
 - [ ] Review every video and retain only successful, minimal demonstrations.
 
 ## Verification loop

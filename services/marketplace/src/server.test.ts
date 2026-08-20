@@ -2,9 +2,14 @@ import type { AddressInfo } from 'node:net';
 import { fetch as realFetch } from 'undici';
 import { describe, expect, it } from 'vitest';
 import { MARKETPLACE_CSRF_HEADER, MARKETPLACE_CSRF_TOKEN } from '../../../src/libs/commerce/marketplace-http-security';
-import { buildMarketplaceListingAggregateId } from './contracts';
+import {
+  MARKETPLACE_SANDBOX_CALLBACK_SECRET,
+  marketplaceCallbackHeaders,
+} from '../../../src/libs/commerce/signed-callback';
+import { MARKETPLACE_STEP_UP_HEADER } from '../../../src/libs/commerce/step-up';
+import { buildMarketplaceCheckoutAggregateId, buildMarketplaceListingAggregateId } from './contracts';
 import { createMarketplaceHttpServer, type MarketplaceServerMode } from './server';
-import { MARKETPLACE_SANDBOX_MODERATOR } from './transaction-service';
+import { MARKETPLACE_SANDBOX_FINANCE, MARKETPLACE_SANDBOX_MODERATOR } from './transaction-service';
 
 function commandHeaders(extra: Record<string, string> = {}) {
   return {
@@ -16,6 +21,8 @@ function commandHeaders(extra: Record<string, string> = {}) {
 }
 
 const SELLER = 'y'.repeat(52);
+const BUYER = 'b'.repeat(52);
+const CALLBACK_NOW = new Date('2026-08-20T22:00:00.000Z');
 
 async function withServer<T>(mode: MarketplaceServerMode, operation: (baseUrl: string) => Promise<T>): Promise<T> {
   const server = createMarketplaceHttpServer({ mode });
@@ -224,6 +231,165 @@ describe('marketplace HTTP server', () => {
         orders: [],
         ledger: [],
       });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it('requires a purpose-bound step-up token for privileged staff commands', async () => {
+    await withServer('sandbox', async (baseUrl) => {
+      const command = {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001920',
+        aggregateId: 'inventory:reconcile',
+        expectedRevision: 0,
+        issuedAt: CALLBACK_NOW.toISOString(),
+        kind: 'inventory.reconcile_paid',
+        payload: {},
+      };
+      const missing = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({ 'x-pubky-actor': MARKETPLACE_SANDBOX_FINANCE }),
+        body: JSON.stringify(command),
+      });
+      expect(missing.status).toBe(403);
+      expect(await missing.json()).toMatchObject({
+        error: { code: 'UNAUTHORIZED', message: 'A marketplace step-up token is required.' },
+      });
+
+      const issued = await realFetch(`${baseUrl}/v1/auth/step-up`, {
+        method: 'POST',
+        headers: commandHeaders({ 'x-pubky-actor': MARKETPLACE_SANDBOX_FINANCE }),
+        body: JSON.stringify({ purpose: 'finance' }),
+      });
+      expect(issued.status).toBe(200);
+      const tokenBody = (await issued.json()) as { token: string; purpose: string };
+      expect(tokenBody.purpose).toBe('finance');
+
+      const wrongPurpose = await realFetch(`${baseUrl}/v1/auth/step-up`, {
+        method: 'POST',
+        headers: commandHeaders({ 'x-pubky-actor': MARKETPLACE_SANDBOX_FINANCE }),
+        body: JSON.stringify({ purpose: 'risk' }),
+      });
+      const riskToken = (await wrongPurpose.json()) as { token: string };
+      const rejected = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({
+          'x-pubky-actor': MARKETPLACE_SANDBOX_FINANCE,
+          [MARKETPLACE_STEP_UP_HEADER]: riskToken.token,
+        }),
+        body: JSON.stringify(command),
+      });
+      expect(rejected.status).toBe(403);
+
+      const accepted = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({
+          'x-pubky-actor': MARKETPLACE_SANDBOX_FINANCE,
+          [MARKETPLACE_STEP_UP_HEADER]: tokenBody.token,
+        }),
+        body: JSON.stringify(command),
+      });
+      expect(accepted.status).toBe(200);
+      await expect(accepted.json()).resolves.toMatchObject({ ok: true, result: { kind: 'inventory_reconcile' } });
+    });
+  });
+
+  it('accepts HMAC-signed Locks payment callbacks and rejects unsigned or replayed ones', async () => {
+    const server = createMarketplaceHttpServer({
+      mode: 'sandbox',
+      now: () => CALLBACK_NOW,
+      allowedOrigin: 'http://localhost:3000',
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({ origin: 'http://localhost:3000' }),
+        body: JSON.stringify(registrationCommand()),
+      });
+      const checkoutId = '00000000-0000-4000-8000-000000001930';
+      const checkout = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({ origin: 'http://localhost:3000', 'x-pubky-actor': BUYER }),
+        body: JSON.stringify({
+          version: 1,
+          commandId: checkoutId,
+          aggregateId: buildMarketplaceCheckoutAggregateId(checkoutId),
+          expectedRevision: 0,
+          issuedAt: CALLBACK_NOW.toISOString(),
+          kind: 'checkout.create',
+          payload: {
+            lines: [{ listingAggregateId: registrationCommand().aggregateId, expectedRevision: 1, quantity: 1 }],
+            deliveryAddress: {
+              name: 'Alice Buyer',
+              line1: '1 Market Street',
+              line2: '',
+              city: 'New York',
+              region: 'NY',
+              postalCode: '10001',
+              countryCode: 'US',
+            },
+            guaranteePolicyVersion: 1,
+          },
+        }),
+      });
+      expect(checkout.status).toBe(200);
+      const checkoutBody = (await checkout.json()) as {
+        ok: boolean;
+        result: { payments: Array<{ id: string }> };
+      };
+      const paymentId = checkoutBody.result.payments[0]?.id;
+      expect(paymentId).toMatch(/^[0-9a-f-]{36}$/);
+
+      const payload = {
+        version: 1 as const,
+        paymentId,
+        target: 'confirmed' as const,
+        confirmations: 1,
+        commandId: '00000000-0000-4000-8000-000000001931',
+      };
+      const rawBody = JSON.stringify(payload);
+      const nonce = 'ab'.repeat(16);
+      const headers = marketplaceCallbackHeaders({
+        secret: MARKETPLACE_SANDBOX_CALLBACK_SECRET,
+        timestampMs: CALLBACK_NOW.getTime(),
+        nonce,
+        rawBody,
+      });
+
+      const unsigned = await realFetch(`${baseUrl}/v1/callbacks/locks-payment`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: rawBody,
+      });
+      expect(unsigned.status).toBe(401);
+
+      const confirmed = await realFetch(`${baseUrl}/v1/callbacks/locks-payment`, {
+        method: 'POST',
+        headers,
+        body: rawBody,
+      });
+      expect(confirmed.status).toBe(200);
+      await expect(confirmed.json()).resolves.toMatchObject({
+        ok: true,
+        result: { kind: 'payment', payment: { state: 'confirmed' } },
+      });
+
+      const replayed = await realFetch(`${baseUrl}/v1/callbacks/locks-payment`, {
+        method: 'POST',
+        headers,
+        body: rawBody,
+      });
+      expect(replayed.status).toBe(409);
+      await expect(replayed.json()).resolves.toMatchObject({ error: { code: 'IDEMPOTENCY_CONFLICT' } });
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

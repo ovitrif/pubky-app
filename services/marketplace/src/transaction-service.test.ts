@@ -954,6 +954,36 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 
+  it('applies a signed payment observation as the buyer without a browser CSRF session', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') return;
+    const payment = checkout.result.payments[0];
+
+    const confirmed = await service.applySignedPaymentObservation({
+      version: 1,
+      paymentId: payment.id,
+      target: 'confirmed',
+      confirmations: 1,
+      commandId: '00000000-0000-4000-8000-000000001910',
+    });
+
+    expect(confirmed).toMatchObject({
+      ok: true,
+      result: { kind: 'payment', payment: { state: 'confirmed' }, order: { state: 'paid' } },
+    });
+    await expect(
+      service.applySignedPaymentObservation({
+        version: 1,
+        paymentId: payment.id,
+        target: 'confirmed',
+        confirmations: 1,
+        commandId: '00000000-0000-4000-8000-000000001911',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
+  });
+
   it('expires an unpaid sandbox payment, cancels the order, and releases reserved inventory', async () => {
     const { repository, service } = createService();
     await service.execute(SELLER, registerCommand());

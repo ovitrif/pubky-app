@@ -9,6 +9,7 @@ import {
   isSandboxSupport,
   marketplaceSandboxRoleForActor,
 } from '../../../src/libs/commerce/sandbox-roles';
+import type { MarketplacePaymentCallback } from '../../../src/libs/commerce/signed-callback';
 import { redactMarketplaceOrderForStaff } from '../../../src/libs/commerce/staff-order';
 import {
   MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR,
@@ -1607,6 +1608,24 @@ export class MarketplaceTransactionService {
         this.repository.putStoredCommand(actorPubky, command.commandId, { requestHash, result });
       }
       return result;
+    });
+  }
+
+  async applySignedPaymentObservation(input: MarketplacePaymentCallback): Promise<MarketplaceCommandResult> {
+    const payment = this.repository.getPayment(input.paymentId);
+    if (!payment) return failure('NOT_FOUND', 'The sandbox payment was not found.');
+    return this.execute(payment.buyerPubky, {
+      version: 1,
+      commandId: input.commandId,
+      aggregateId: buildMarketplacePaymentAggregateId(payment.id),
+      expectedRevision: payment.revision,
+      issuedAt: this.now().toISOString(),
+      kind: 'payment.sandbox_advance',
+      payload: {
+        paymentId: input.paymentId,
+        target: input.target,
+        confirmations: input.confirmations,
+      },
     });
   }
 

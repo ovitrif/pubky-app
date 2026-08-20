@@ -84,15 +84,15 @@ Assumptions:
 
 ### Identity and authorization
 
-| ID      | Threat                                        | Impact                                                 | Required mitigation and evidence                                                    |
-| ------- | --------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| AUTH-01 | Forged Pubky identity                         | Cross-account purchase, sale, message, or staff action | Server-verifiable assertion; audience/nonce/expiry checks; negative signature tests |
-| AUTH-02 | Replayed assertion or command                 | Duplicate transaction or stale privilege               | One-time nonce/session binding; actor-scoped command ID; replay tests               |
-| AUTH-03 | Confused-deputy assertion for another service | Unauthorized marketplace access                        | Exact audience and origin binding; wrong-audience tests                             |
-| AUTH-04 | IDOR through order/listing/message IDs        | Private data disclosure or mutation                    | Object participation checked after lookup on every route; cross-user matrix tests   |
-| AUTH-05 | Stale suspension or revoked session           | Restricted user continues transacting                  | Server-side role/status checks per command; revocation propagation test             |
-| AUTH-06 | Account switch leaks Dexie projections        | Private data disclosure                                | Pubky-scoped database keys/cache and full sign-out cleanup test                     |
-| AUTH-07 | Privilege aggregation into “admin”            | Unreviewed financial/moderation power                  | Independent support/moderator/risk/finance/operator roles and step-up authorization |
+| ID      | Threat                                        | Impact                                                 | Required mitigation and evidence                                                                                                                      |
+| ------- | --------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AUTH-01 | Forged Pubky identity                         | Cross-account purchase, sale, message, or staff action | Server-verifiable assertion; audience/nonce/expiry checks; negative signature tests                                                                   |
+| AUTH-02 | Replayed assertion or command                 | Duplicate transaction or stale privilege               | One-time nonce/session binding; actor-scoped command ID; replay tests                                                                                 |
+| AUTH-03 | Confused-deputy assertion for another service | Unauthorized marketplace access                        | Exact audience and origin binding; wrong-audience tests                                                                                               |
+| AUTH-04 | IDOR through order/listing/message IDs        | Private data disclosure or mutation                    | Object participation checked after lookup on every route; cross-user matrix tests                                                                     |
+| AUTH-05 | Stale suspension or revoked session           | Restricted user continues transacting                  | Server-side role/status checks per command; revocation propagation test                                                                               |
+| AUTH-06 | Account switch leaks Dexie projections        | Private data disclosure                                | Pubky-scoped database keys/cache and full sign-out cleanup test                                                                                       |
+| AUTH-07 | Privilege aggregation into “admin”            | Unreviewed financial/moderation power                  | Independent support/moderator/risk/finance/operator roles; HMAC step-up tokens for decide/hold/refund/reconcile (`step-up.test.ts`, `server.test.ts`) |
 
 ### Public catalog and media
 
@@ -133,18 +133,18 @@ Assumptions:
 
 ### Paykit, Locks, and digital access
 
-| ID     | Threat                                       | Impact                        | Required mitigation and evidence                                                    |
-| ------ | -------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------- |
-| PAY-01 | Browser calls Paykit Server business route   | Invoice/status abuse          | Network isolation plus Lock Server Ed25519 signature; unsigned request rejected     |
-| PAY-02 | Client claims Locks completion               | Unpaid order/content access   | Transaction Service independently verifies lifecycle; duplicate completion test     |
-| PAY-03 | `bundle_id` or access credential leaks       | Bearer entitlement theft      | Encrypted storage, HMAC lookup, no URLs/logs/analytics, redaction tests             |
-| PAY-04 | Changed lock/amount under existing order     | Underpayment or wrong content | Bind lock hash, seller, buyer, amount, asset, policy, and order snapshot            |
-| PAY-05 | Split/under/late payment ambiguity           | Incorrect confirmation        | Respect current Paykit Server semantics; pending/manual reconciliation, never infer |
-| PAY-06 | Reorg before finality                        | Premature finality            | Configured `0..6` policy with explicit guarantee disclosure and reconciliation      |
-| PAY-07 | Locks/Paykit outage shown as failure or paid | False finality                | Pending state, bounded client polling, durable server reconciliation                |
-| PAY-08 | xpub enters Pubky App                        | Financial privacy compromise  | Companion claim only; network/storage/log assertion that app never receives it      |
-| PAY-09 | Refund UI claims funds moved                 | Buyer deception               | `external_refund_required` until independently verified transaction evidence        |
-| PAY-10 | Guarded content hash mismatch                | Wrong/mutated digital good    | Lock/order resource hash binding and verification before render/download            |
+| ID     | Threat                                       | Impact                        | Required mitigation and evidence                                                                                     |
+| ------ | -------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| PAY-01 | Browser calls Paykit Server business route   | Invoice/status abuse          | Network isolation plus Lock Server Ed25519 signature; unsigned request rejected                                      |
+| PAY-02 | Client claims Locks completion               | Unpaid order/content access   | Transaction Service independently verifies lifecycle; HMAC `/v1/callbacks/locks-payment` + duplicate completion test |
+| PAY-03 | `bundle_id` or access credential leaks       | Bearer entitlement theft      | Encrypted storage, HMAC lookup, no URLs/logs/analytics, redaction tests                                              |
+| PAY-04 | Changed lock/amount under existing order     | Underpayment or wrong content | Bind lock hash, seller, buyer, amount, asset, policy, and order snapshot                                             |
+| PAY-05 | Split/under/late payment ambiguity           | Incorrect confirmation        | Respect current Paykit Server semantics; pending/manual reconciliation, never infer                                  |
+| PAY-06 | Reorg before finality                        | Premature finality            | Configured `0..6` policy with explicit guarantee disclosure and reconciliation                                       |
+| PAY-07 | Locks/Paykit outage shown as failure or paid | False finality                | Pending state, bounded client polling, durable server reconciliation                                                 |
+| PAY-08 | xpub enters Pubky App                        | Financial privacy compromise  | Companion claim only; network/storage/log assertion that app never receives it                                       |
+| PAY-09 | Refund UI claims funds moved                 | Buyer deception               | `external_refund_required` until independently verified transaction evidence                                         |
+| PAY-10 | Guarded content hash mismatch                | Wrong/mutated digital good    | Lock/order resource hash binding and verification before render/download                                             |
 
 ### Messaging, reviews, and social abuse
 

@@ -14,6 +14,8 @@ const STAFF_LINKS: Array<{ href: string; role: MarketplaceSandboxStaffRole; labe
   { href: MARKETPLACE_ROUTES.FINANCE, role: 'finance', label: 'Finance' },
 ];
 
+const STEP_UP_ROLES = new Set<MarketplaceSandboxStaffRole>(['moderator', 'risk', 'finance']);
+
 export function MarketplaceStaffChrome({
   role,
   description,
@@ -31,6 +33,11 @@ export function MarketplaceStaffChrome({
       <Typography as="p" className="text-muted-foreground">
         {description}
       </Typography>
+      {STEP_UP_ROLES.has(role) && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          Decide, hold, refund, and reconcile actions require a 5-minute sandbox step-up token.
+        </Typography>
+      )}
       <nav aria-label="Sandbox staff consoles" className="flex flex-wrap gap-3 text-sm">
         {STAFF_LINKS.map((link) => (
           <Link

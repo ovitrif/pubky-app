@@ -43,6 +43,7 @@ describe('MarketplaceGatewayService', () => {
     vi.clearAllMocks();
     config.mode = 'sandbox';
     config.marketplaceUrl = 'http://localhost:3100';
+    MarketplaceGatewayService.clearStepUpCache();
   });
 
   it('executes a closed sandbox command with the Pubky actor header', async () => {
@@ -69,6 +70,64 @@ describe('MarketplaceGatewayService', () => {
         headers: expect.objectContaining({
           'x-pubky-actor': SELLER,
           'x-marketplace-csrf': '1',
+        }),
+      }),
+    );
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).not.toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-marketplace-step-up': expect.any(String) }),
+      }),
+    );
+  });
+
+  it('requests a step-up token before privileged staff commands', async () => {
+    const finance = 'p'.repeat(52);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          token: 'c3RlcC11cC10b2tlbg.aa'.padEnd(80, 'a'),
+          expiresAt: '2026-08-20T22:05:00.000Z',
+          purpose: 'finance',
+          ttlMs: 300_000,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          ok: true,
+          version: 1,
+          commandId: '00000000-0000-4000-8000-000000000824',
+          aggregateId: 'inventory:reconcile',
+          revision: 1,
+          eventIds: ['00000000-0000-4000-8000-000000000825'],
+          result: { kind: 'inventory_reconcile', convertedOrderIds: [] },
+        }),
+      );
+
+    await MarketplaceGatewayService.execute(finance, {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000824',
+      aggregateId: 'inventory:reconcile',
+      expectedRevision: 0,
+      issuedAt: '2026-08-20T22:00:00.000Z',
+      kind: 'inventory.reconcile_paid',
+      payload: {},
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3100/v1/auth/step-up',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ purpose: 'finance' }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3100/v1/commands',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-pubky-actor': finance,
+          'x-marketplace-step-up': 'c3RlcC11cC10b2tlbg.aa'.padEnd(80, 'a'),
         }),
       }),
     );
