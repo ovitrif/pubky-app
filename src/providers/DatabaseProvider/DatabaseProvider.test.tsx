@@ -19,6 +19,19 @@ describe('DatabaseProvider', () => {
     vi.restoreAllMocks();
   });
 
+  it('renders a delayed reload hint while initialization is pending', () => {
+    vi.spyOn(db, 'initialize').mockReturnValue(new Promise(() => {}));
+
+    render(
+      <DatabaseProvider>
+        <div>Test Content</div>
+      </DatabaseProvider>,
+    );
+
+    expect(screen.getByText('Storage is taking too long. Reload')).toBeInTheDocument();
+    expect(screen.queryByText('Test Content')).not.toBeInTheDocument();
+  });
+
   it('should initialize database successfully', async () => {
     vi.spyOn(db, 'initialize').mockResolvedValueOnce({ wasDbReset: false });
 

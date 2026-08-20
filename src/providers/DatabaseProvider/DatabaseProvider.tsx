@@ -112,8 +112,14 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     content = <DatabaseErrorScreen onRetry={initDatabase} />;
   } else if (!isReady) {
     content = (
-      <Container overrideDefaults className="flex min-h-screen items-center justify-center">
+      <Container overrideDefaults className="flex min-h-screen flex-col items-center justify-center gap-4">
         <Spinner />
+        <a
+          href="?storageRetry=1"
+          className="text-sm text-muted-foreground opacity-0 [animation:db-init-timeout-hint_0.2s_ease-out_8s_forwards]"
+        >
+          Storage is taking too long. Reload
+        </a>
       </Container>
     );
   } else {
