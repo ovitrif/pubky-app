@@ -6,7 +6,8 @@ import { Badge } from '@/atoms/Badge/Badge';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
-import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
+import { formatCommerceCondition, formatCommerceMoney, formatCommerceSaleFormat } from '@/libs/commerce/format';
+import { commerceListingSalePrice } from '@/libs/commerce/marketplace-records';
 import { cn } from '@/libs/utils/utils';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import type { CommerceLayout } from '@/stores/commerce/commerce.types';
@@ -28,7 +29,7 @@ export interface MarketplaceListingCardProps {
 
 export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: MarketplaceListingCardProps) {
   const record = listing.record;
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+  const price = commerceListingSalePrice(record.sale);
   const colorIndex = Number.parseInt(record.media[0]?.contentHash.charAt(0) ?? '0', 16) % MEDIA_BACKGROUNDS.length;
   const background = MEDIA_BACKGROUNDS[colorIndex] ?? MEDIA_BACKGROUNDS[0];
 
@@ -54,7 +55,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid' }: M
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.16),transparent_32%)]" />
           <MarketplaceCategoryIcon categoryId={record.categoryId} />
           <Badge className="absolute top-3 left-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
-            {record.sale.format === 'auction' ? 'Auction' : 'Buy now'}
+            {formatCommerceSaleFormat(record.sale.format)}
           </Badge>
           {record.sale.format === 'auction' && (
             <Badge variant="secondary" className="absolute right-3 bottom-3 bg-background/85 backdrop-blur-md">

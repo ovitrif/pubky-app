@@ -20,6 +20,7 @@ import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCar
 import { relatedMarketplaceListings } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
+import { commerceListingSalePrice } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
@@ -118,7 +119,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const record = listing.record;
   const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+  const price = commerceListingSalePrice(record.sale);
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
 
   return (
@@ -157,7 +158,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   ? negotiation.projection?.auction?.bidCount
                     ? 'Current bid '
                     : 'Starting at '
-                  : ''}
+                  : record.sale.format === 'offer'
+                    ? 'Asking '
+                    : ''}
                 {formatCommerceMoney(displayPrice)}
               </Typography>
               {negotiation.projection?.auction && (
@@ -294,6 +297,23 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     />
                   )}
                 </>
+              ) : record.sale.format === 'offer' ? (
+                <>
+                  <MarketplaceOfferDialog
+                    aggregateId={aggregateId}
+                    expectedRevision={negotiation.projection?.serverRevision ?? null}
+                    onAccepted={negotiation.refresh}
+                    asSeller={currentUserPubky === sellerPubky}
+                    label={
+                      currentUserPubky === sellerPubky
+                        ? 'Offer to watcher'
+                        : favorite.isFavorite
+                          ? 'Make offer'
+                          : 'Watch to offer'
+                    }
+                    disabled={currentUserPubky !== sellerPubky && !favorite.isFavorite}
+                  />
+                </>
               ) : (
                 <>
                   <Button
@@ -322,25 +342,31 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 variant="secondary"
                 className="rounded-full"
                 aria-label={
-                  record.sale.format === 'auction'
+                  record.sale.format === 'fixed_price'
                     ? favorite.isFavorite
-                      ? 'Remove from watchlist'
-                      : 'Add to watchlist'
-                    : favorite.isFavorite
                       ? 'Remove from favorites'
                       : 'Add to favorites'
+                    : favorite.isFavorite
+                      ? 'Remove from watchlist'
+                      : 'Add to watchlist'
                 }
                 aria-pressed={favorite.isFavorite}
                 disabled={favorite.isMutating}
                 onClick={favorite.toggle}
               >
-                {record.sale.format === 'auction' ? (
-                  <Bell className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
-                ) : (
+                {record.sale.format === 'fixed_price' ? (
                   <Heart className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
+                ) : (
+                  <Bell className={favorite.isFavorite ? 'fill-brand text-brand' : ''} />
                 )}
               </Button>
             </div>
+            {record.sale.format === 'offer' && (
+              <Typography as="p" className="text-center text-sm text-muted-foreground">
+                Watcher-only offer. Add this listing to your watchlist to send a private offer. There is no buy-now
+                checkout.
+              </Typography>
+            )}
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">
                 Transactions are disabled in this deployment.

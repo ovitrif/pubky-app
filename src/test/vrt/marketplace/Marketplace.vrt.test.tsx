@@ -9,7 +9,7 @@ const fixtures = vi.hoisted(async () => {
   const { createCommerceSandboxCatalog } = await import('@/libs/commerce/sandbox-catalog');
   const catalog = createCommerceSandboxCatalog();
   const listings = catalog.listings.map((record) => {
-    const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+    const price = record.sale.format === 'auction' ? record.sale.startingPrice : record.sale.unitPrice;
     return {
       id: `${record.ownerPubky}:${record.listingId}`,
       seller_id: record.ownerPubky,

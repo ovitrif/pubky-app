@@ -133,7 +133,25 @@ const auctionSaleSchema = z
   })
   .strict();
 
-export const commerceSaleSchema = z.discriminatedUnion('format', [fixedPriceSaleSchema, auctionSaleSchema]);
+const offerSaleSchema = z
+  .object({
+    format: z.literal('offer'),
+    unitPrice: commercePositiveMoneySchema,
+    offersOpenTo: z.enum(['anyone', 'watchers']).default('watchers'),
+  })
+  .strict();
+
+export const commerceSaleSchema = z.discriminatedUnion('format', [
+  fixedPriceSaleSchema,
+  auctionSaleSchema,
+  offerSaleSchema,
+]);
+
+export function commerceListingSalePrice(
+  sale: z.infer<typeof commerceSaleSchema>,
+): z.infer<typeof commercePositiveMoneySchema> {
+  return sale.format === 'auction' ? sale.startingPrice : sale.unitPrice;
+}
 
 const freeShippingOptionSchema = z
   .object({
@@ -385,7 +403,7 @@ export const commerceListingRecordSchema = commercePublicRecordBaseSchema
       }
     }
 
-    const primaryMoney = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+    const primaryMoney = commerceListingSalePrice(listing.sale);
     listing.variants.forEach((variant, variantIndex) => {
       if (variant.priceOverride && !hasSameAsset(primaryMoney, variant.priceOverride)) {
         context.addIssue({

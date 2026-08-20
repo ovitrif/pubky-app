@@ -148,11 +148,17 @@ function buildListingRecord(
             ? { buyNowPrice: { amountMinor: Math.round(Number(data.buyNowPrice) * 100), currency: 'USD', exponent: 2 } }
             : {}),
         }
-      : {
-          format: 'fixed_price',
-          unitPrice,
-          acceptsOffers: true,
-        };
+      : data.saleFormat === 'offer'
+        ? {
+            format: 'offer',
+            unitPrice,
+            offersOpenTo: 'watchers',
+          }
+        : {
+            format: 'fixed_price',
+            unitPrice,
+            acceptsOffers: true,
+          };
   const isPhysical = data.fulfillment === 'physical';
   const isDigital = data.fulfillment === 'digital';
   const returnWindowDays = data.returnDays === 'none' ? undefined : Number(data.returnDays);

@@ -42,9 +42,9 @@ describe('LocalCommerceService', () => {
     await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
     await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(false);
 
-    expect(await LocalCommerceService.getAllShops()).toHaveLength(9);
-    expect(await LocalCommerceService.getAllListings()).toHaveLength(9);
-    expect(await CommerceListingProjectionModel.table.count()).toBe(9);
+    expect(await LocalCommerceService.getAllShops()).toHaveLength(10);
+    expect(await LocalCommerceService.getAllListings()).toHaveLength(10);
+    expect(await CommerceListingProjectionModel.table.count()).toBe(10);
   });
 
   it('refreshes sandbox listing media without wiping later local listings', async () => {

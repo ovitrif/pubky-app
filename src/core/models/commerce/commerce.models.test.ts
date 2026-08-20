@@ -103,7 +103,7 @@ function makeListingModel(
 ): CommerceListingModelSchema {
   const record = makeListingRecord(listingId);
   record.categoryId = categoryId;
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+  const price = record.sale.format === 'auction' ? record.sale.startingPrice : record.sale.unitPrice;
   return {
     id: `${SELLER_PUBKY}:${listingId}`,
     seller_id: SELLER_PUBKY,

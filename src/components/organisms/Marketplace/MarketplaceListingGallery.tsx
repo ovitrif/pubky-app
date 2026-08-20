@@ -49,7 +49,7 @@ export function MarketplaceListingGallery({
           <PackageCheck className="size-32 text-foreground/75 drop-shadow-2xl" />
         )}
         <Badge className="absolute top-4 left-4 bg-background/85 text-foreground backdrop-blur-md">
-          {saleFormat === 'auction' ? 'Live auction' : 'Buy now'}
+          {saleFormat === 'auction' ? 'Live auction' : saleFormat === 'offer' ? 'Watcher-only offer' : 'Buy now'}
         </Badge>
         {media.length > 1 && (
           <Badge variant="secondary" className="absolute top-4 right-4 bg-background/85 backdrop-blur-md">

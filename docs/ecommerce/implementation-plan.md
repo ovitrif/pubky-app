@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (listing/offer cards, digital listings, relist studio, and return tracking/inspection landed; live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (watcher-only offer product, auction manipulation auto-flags, digital listings, relist/returns landed; live Paykit/videos remain)
 
 Legend:
 
@@ -23,7 +23,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T1 — Architecture and contracts** — ADRs 0019/0020, Zod contracts, threat model; PostgreSQL schema applied on connect
 - [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory tests plus PostgreSQL write-through repository
 - [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
-- [x] **T4 — Messaging, offers, and auctions** — proxy bids, anti-sniping, private watcher offers, buy-now close
+- [x] **T4 — Messaging, offers, and auctions** — proxy bids, anti-sniping, watcher-only offer listings, private watcher offers, buy-now close, increment-shill auto-flags
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; no staff assignment/reversal
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: listing/offer conversation cards and offer system events, digital listing creation plus sandbox Locks credential issue/refresh/access audit, dedicated relist studio, and contract-aligned return tracking (`return.ship` / `return.inspect`).
+Last shipped feature work: watcher-only offer listings (`listing.watch` / `listing.unwatch`, catalog **Sample-room wool coat**), auction increment-shill auto-flags that never rewrite bid history, listing/offer conversation cards, digital Locks credentials, relist studio, and contract-aligned return tracking.
 
 Next required work, in order:
 
@@ -131,7 +131,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Listings and inventory
 
-- [x] Sellers can create draft, fixed-price, auction, and digital listings. — sell form includes Digital download; sandbox catalog includes Sewing pattern pack
+- [x] Sellers can create draft, fixed-price, auction, digital, and watcher-only offer listings. — sell form includes Digital download and Watcher-only offer; sandbox catalog includes Sewing pattern pack and Sample-room wool coat
 - [x] Required fields include title, description, category, condition, price/currency, quantity, location granularity, delivery options, and media.
 - [~] Variants/SKUs support independent price, quantity, and status. — schema + form rows + PDP selector; limited option editor
 - [x] Media can be reordered, captioned, validated, retried, and removed. — up to 12 photos, cover-first reorder, per-photo captions
@@ -153,6 +153,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — share listing/offer cards; offer lifecycle and block append system events
 - [x] Buyers can make, withdraw, accept, reject, and counter offers.
 - [x] Sellers can send private offers to watchers.
+- [x] Dedicated watcher-only offer listings reject cart/checkout and require `listing.watch` before `offer.create`.
 - [x] Offer expiry, currency, quantity, and inventory reservation are enforced.
 - [x] Duplicate events are idempotent and transitions reject stale revisions.
 
@@ -247,7 +248,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log.
 - [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
 - [x] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
-- [x] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
+- [x] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history. — increment-only non-leading bids auto-flag `auction_manipulation`
 - [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards; adversarial suite incomplete
 
 ### Privacy, security, observability, and operations
@@ -406,7 +407,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T4 — Messaging, offers, and auctions `[x]`
 
-- [x] Build listing-scoped conversations, system events, offers/counters, watcher offers, auction setup, proxy bidding, anti-sniping, close jobs, and notifications. — listing/offer cards + offer system events; private watcher offers exist
+- [x] Build listing-scoped conversations, system events, offers/counters, watcher offers, auction setup, proxy bidding, anti-sniping, close jobs, and notifications. — listing/offer cards + offer system events; watcher-only offer product + `listing.watch`; increment-shill auto-flags
 - [x] Verify 100-way concurrent bids and one-unit purchases, stale revisions, expiry, inventory reservation, and idempotent close.
 
 ### T5 — Checkout, Paykit, and Locks `[x]`
@@ -449,16 +450,18 @@ Each implementation task closes only through this loop:
 
 Ledger format:
 
-| Requirement                            | Verification address                                   | Expected evidence                     | Finding | Fix                    | Re-verification        | Status              |
-| -------------------------------------- | ------------------------------------------------------ | ------------------------------------- | ------- | ---------------------- | ---------------------- | ------------------- |
-| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price      | Closed  | Service + UI           | Marketplace unit suite | Verified in sandbox |
-| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky   | Closed  | Dexie v6               | Hook test              | Verified in sandbox |
-| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger | Closed  | Integer ledger         | Marketplace unit suite | Verified in sandbox |
-| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter     | Closed  | Filter + trust.decide  | Unit tests             | Verified in sandbox |
-| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                 | Closed  | Transaction service    | Marketplace unit suite | Verified in sandbox |
-| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                 | Open    | Pending                | Not run                | Unverified          |
-| PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect      | Closed  | Write-through snapshot | Marketplace unit suite | Verified in sandbox |
-| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Pending                | Not recorded           | Unverified          |
+| Requirement                            | Verification address                                   | Expected evidence                     | Finding | Fix                      | Re-verification        | Status              |
+| -------------------------------------- | ------------------------------------------------------ | ------------------------------------- | ------- | ------------------------ | ---------------------- | ------------------- |
+| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price      | Closed  | Service + UI             | Marketplace unit suite | Verified in sandbox |
+| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky   | Closed  | Dexie v6                 | Hook test              | Verified in sandbox |
+| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger | Closed  | Integer ledger           | Marketplace unit suite | Verified in sandbox |
+| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter     | Closed  | Filter + trust.decide    | Unit tests             | Verified in sandbox |
+| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                 | Closed  | Transaction service      | Marketplace unit suite | Verified in sandbox |
+| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                 | Open    | Pending                  | Not run                | Unverified          |
+| PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect      | Closed  | Write-through snapshot   | Marketplace unit suite | Verified in sandbox |
+| Watcher-only offers                    | `transaction-service.test.ts` + sell form + PDP        | watch required, checkout rejected     | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
+| Auction increment-shill auto-flag      | `transaction-service.test.ts`                          | risk signal, bid history unchanged    | Closed  | Auto-flag on `bid.place` | Marketplace unit suite | Verified in sandbox |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Pending                  | Not recorded           | Unverified          |
 
 Required gates:
 

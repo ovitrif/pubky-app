@@ -58,6 +58,21 @@ export function useMarketplaceCart() {
   const add = async (listingId: string, variantId: string, quantity = 1) => {
     const mutation = requireAuth(async () => {
       try {
+        const separator = listingId.indexOf(':');
+        const listing =
+          separator > 0
+            ? await CommerceController.getListing(listingId.slice(0, separator), listingId.slice(separator + 1))
+            : null;
+        if (listing && listing.record.sale.format !== 'fixed_price') {
+          toast({
+            variant: 'error',
+            description:
+              listing.record.sale.format === 'offer'
+                ? 'This listing is watcher-offer only and cannot be added to the cart.'
+                : 'Auction listings cannot be added to the cart.',
+          });
+          return;
+        }
         await CommerceController.commitUpsertCartItem(listingId, variantId, quantity);
         toast({ title: 'Added to cart' });
       } catch {
@@ -83,7 +98,7 @@ export function useMarketplaceCart() {
     const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
     const price =
       variant?.priceOverride ??
-      (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+      (item.listing.record.sale.format === 'auction' ? null : item.listing.record.sale.unitPrice);
     return total + (price?.amountMinor ?? 0) * item.quantity;
   }, 0);
 

@@ -1569,4 +1569,83 @@ describe('MarketplaceTransactionService', () => {
       result: { kind: 'checkout', payments: [{ endpointId: 'sandbox_labeled_invoice', adapter: 'sandbox' }] },
     });
   });
+
+  it('requires a watch before a buyer can offer on a watcher-only listing', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, {
+      ...registerCommand(),
+      payload: {
+        ...registerCommand().payload,
+        saleFormat: 'offer',
+        offersOpenTo: 'watchers',
+      },
+    });
+
+    await expect(service.execute(BUYER, createOfferCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED', message: 'Only watchers can make an offer on this listing.' },
+    });
+
+    await expect(
+      service.execute(BUYER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8002-000000000001',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'listing.watch',
+        payload: {},
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'watch', watching: true, watcherPubky: BUYER },
+    });
+
+    await expect(service.execute(BUYER, createOfferCommand())).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { state: 'pending', buyerPubky: BUYER } },
+    });
+
+    await expect(service.execute(BUYER, checkoutCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_STATE' },
+    });
+  });
+
+  it('rejects seller self-watches and flags increment-only bids that never take the lead', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8002-000000000002',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'listing.watch',
+        payload: {},
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+
+    await expect(service.execute(BUYER, placeBidCommand(1, 20_000, 1))).resolves.toMatchObject({
+      ok: true,
+      result: { listing: { auction: { leaderPubky: BUYER, bidCount: 1 } } },
+    });
+    expect(service.getRiskSignals(MARKETPLACE_SANDBOX_MODERATOR)).toEqual([]);
+
+    await expect(service.execute(OTHER_BUYER, placeBidCommand(2, 5_500, 2))).resolves.toMatchObject({
+      ok: true,
+      result: { listing: { auction: { leaderPubky: BUYER, bidCount: 2 } } },
+    });
+    expect(service.getRiskSignals(MARKETPLACE_SANDBOX_MODERATOR)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          signalType: 'auction_manipulation',
+          targetType: 'auction',
+          targetId: AGGREGATE_ID,
+        }),
+      ]),
+    );
+    expect(service.getListingProjection(AGGREGATE_ID)?.auction?.leaderPubky).toBe(BUYER);
+  });
 });

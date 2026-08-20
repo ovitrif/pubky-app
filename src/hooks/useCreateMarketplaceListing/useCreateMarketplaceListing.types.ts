@@ -75,7 +75,7 @@ export const createMarketplaceListingSchema = z
       .trim()
       .regex(/^[A-Za-z]{2}$/, 'Enter a two-letter country code.'),
     region: z.string().trim().max(100, 'Region is too long.'),
-    saleFormat: z.enum(['fixed_price', 'auction']),
+    saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
     price: moneyInputSchema,
     buyNowPrice: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
@@ -129,11 +129,14 @@ export const createMarketplaceListingSchema = z
         });
       }
     }
-    if (data.saleFormat === 'auction' && data.variants.length !== 1) {
+    if ((data.saleFormat === 'auction' || data.saleFormat === 'offer') && data.variants.length !== 1) {
       context.addIssue({
         code: 'custom',
         path: ['variants'],
-        message: 'Auction listings require exactly one variant.',
+        message:
+          data.saleFormat === 'offer'
+            ? 'Watcher-only offer listings require exactly one variant.'
+            : 'Auction listings require exactly one variant.',
       });
     }
     const skus = data.variants.map(({ sku }) => sku).filter(Boolean);
@@ -154,7 +157,7 @@ export const createMarketplaceListingDraftSchema = z
     condition: z.enum(['new', 'like_new', 'excellent', 'good', 'fair', 'for_parts']),
     countryCode: z.string(),
     region: z.string(),
-    saleFormat: z.enum(['fixed_price', 'auction']),
+    saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
     price: z.string(),
     buyNowPrice: z.string(),
     variants: z.array(

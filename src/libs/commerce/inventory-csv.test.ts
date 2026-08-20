@@ -6,7 +6,7 @@ import { exportMarketplaceInventoryCsv, parseMarketplaceInventoryCsv } from './i
 describe('inventory CSV', () => {
   it('round-trips listing identity and state', () => {
     const listing = createCommerceSandboxCatalog().listings[0];
-    const price = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+    const price = listing.sale.format === 'auction' ? listing.sale.startingPrice : listing.sale.unitPrice;
     const model: CommerceListingModelSchema = {
       id: `${listing.ownerPubky}:${listing.listingId}`,
       seller_id: listing.ownerPubky,

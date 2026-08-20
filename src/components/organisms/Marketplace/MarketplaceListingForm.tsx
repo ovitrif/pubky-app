@@ -254,6 +254,7 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               options={[
                 { value: 'fixed_price', label: 'Buy now' },
                 { value: 'auction', label: '7-day auction' },
+                { value: 'offer', label: 'Watcher-only offer' },
               ]}
             />
             <ControlledInputField
@@ -272,6 +273,11 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
                 disabled={isPublishing}
               />
             )}
+            {saleFormat === 'offer' && (
+              <Typography as="p" className="text-sm text-muted-foreground sm:col-span-2">
+                Buyers must watch this listing before they can send an offer. There is no cart or buy-now checkout.
+              </Typography>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 border-t pt-5">
@@ -288,7 +294,9 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               size="sm"
               variant="secondary"
               className="shrink-0 rounded-full"
-              disabled={isPublishing || saleFormat === 'auction' || variants.fields.length >= 100}
+              disabled={
+                isPublishing || saleFormat === 'auction' || saleFormat === 'offer' || variants.fields.length >= 100
+              }
               onClick={() =>
                 variants.append({ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' })
               }

@@ -20,6 +20,12 @@ export function formatCommerceMoney(money: CommerceMoney): string {
   })} ${money.currency}`;
 }
 
+export function formatCommerceSaleFormat(format: 'fixed_price' | 'auction' | 'offer'): string {
+  if (format === 'auction') return 'Auction';
+  if (format === 'offer') return 'Watcher offer';
+  return 'Buy now';
+}
+
 export function formatCommerceCondition(condition: string): string {
   return condition
     .split('_')

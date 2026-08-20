@@ -128,11 +128,11 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
       >
         <button
           aria-label="Grid view"
-          aria-pressed="false"
-          class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none size-8 rounded-full"
+          aria-pressed="true"
+          class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent size-8 rounded-full"
           data-size="icon"
           data-slot="button"
-          data-variant="ghost"
+          data-variant="secondary"
         >
           <svg
             aria-hidden="true"
@@ -164,11 +164,11 @@ exports[`MarketplaceFilters - Snapshots > matches the default filter snapshot 1`
         </button>
         <button
           aria-label="List view"
-          aria-pressed="true"
-          class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent size-8 rounded-full"
+          aria-pressed="false"
+          class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs hover:text-accent-foreground hover:bg-accent/50 border-none size-8 rounded-full"
           data-size="icon"
           data-slot="button"
-          data-variant="secondary"
+          data-variant="ghost"
         >
           <svg
             aria-hidden="true"

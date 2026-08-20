@@ -56,7 +56,9 @@ import {
   type ShipOrderCommand,
   type ShipReturnCommand,
   type UnblockBuyerCommand,
+  type UnwatchListingCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
+  type WatchListingCommand,
   type WithdrawOfferCommand,
   type OfferPartialReturnCommand,
 } from './contracts';
@@ -79,7 +81,8 @@ export interface MarketplaceListingAggregate {
     currency: string;
     exponent: number;
   };
-  saleFormat: 'fixed_price' | 'auction';
+  saleFormat: 'fixed_price' | 'auction' | 'offer';
+  offersOpenTo: 'anyone' | 'watchers';
   fulfillment: 'physical' | 'digital' | 'pickup';
   digitalLock: {
     policyUri: string;
@@ -486,6 +489,8 @@ export interface MarketplaceEvent {
   actorPubky: string;
   kind:
     | 'listing.registered'
+    | 'listing.watched'
+    | 'listing.unwatched'
     | 'inventory.reserved'
     | 'offer.created'
     | 'offer.created_private'
@@ -549,6 +554,7 @@ export type MarketplaceCommandSuccess = {
   eventIds: string[];
   result:
     | { kind: 'listing'; listing: MarketplaceListingAggregate }
+    | { kind: 'watch'; listingAggregateId: string; watcherPubky: string; watching: boolean }
     | { kind: 'reservation'; listing: MarketplaceListingAggregate; reservation: MarketplaceReservation }
     | { kind: 'offer'; offer: MarketplaceOffer }
     | {
@@ -652,6 +658,7 @@ export type MarketplaceRepositorySnapshot = {
   promotions: MarketplacePromotion[];
   blockedBuyers: Array<{ sellerPubky: string; buyerPubkys: string[] }>;
   riskSignals: MarketplaceRiskSignal[];
+  watches: Array<{ listingAggregateId: string; watcherPubkys: string[] }>;
   ledger: MarketplaceLedgerEntry[];
   commands: Array<{ key: string; stored: StoredCommand }>;
   events: MarketplaceEvent[];
@@ -674,6 +681,7 @@ export class InMemoryMarketplaceRepository {
   private promotions = new Map<string, MarketplacePromotion>();
   private blockedBuyers = new Map<string, Set<string>>();
   private riskSignals = new Map<string, MarketplaceRiskSignal>();
+  private watches = new Map<string, Set<string>>();
   private enforcements = new Map<string, MarketplaceEnforcement>();
   private ledger: MarketplaceLedgerEntry[] = [];
   private commands = new Map<string, StoredCommand>();
@@ -827,6 +835,17 @@ export class InMemoryMarketplaceRepository {
     return [...this.riskSignals.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  isWatching(listingAggregateId: string, watcherPubky: string): boolean {
+    return this.watches.get(listingAggregateId)?.has(watcherPubky) ?? false;
+  }
+
+  setWatching(listingAggregateId: string, watcherPubky: string, watching: boolean): void {
+    const current = this.watches.get(listingAggregateId) ?? new Set<string>();
+    if (watching) current.add(watcherPubky);
+    else current.delete(watcherPubky);
+    this.watches.set(listingAggregateId, current);
+  }
+
   getReport(id: string): MarketplaceReport | undefined {
     return this.reports.get(id);
   }
@@ -943,6 +962,10 @@ export class InMemoryMarketplaceRepository {
         buyerPubkys: [...buyerPubkys],
       })),
       riskSignals: [...this.riskSignals.values()],
+      watches: [...this.watches.entries()].map(([listingAggregateId, watcherPubkys]) => ({
+        listingAggregateId,
+        watcherPubkys: [...watcherPubkys],
+      })),
       ledger: [...this.ledger],
       commands: [...this.commands.entries()].map(([key, stored]) => ({ key, stored })),
       events: [...this.events],
@@ -958,6 +981,7 @@ export class InMemoryMarketplaceRepository {
           ...listing,
           fulfillment: listing.fulfillment ?? 'physical',
           digitalLock: listing.digitalLock ?? null,
+          offersOpenTo: listing.offersOpenTo ?? 'anyone',
         },
       ]),
     );
@@ -1028,6 +1052,12 @@ export class InMemoryMarketplaceRepository {
       snapshot.blockedBuyers.map(({ sellerPubky, buyerPubkys }) => [sellerPubky, new Set(buyerPubkys)]),
     );
     this.riskSignals = new Map((snapshot.riskSignals ?? []).map((signal) => [signal.id, signal]));
+    this.watches = new Map(
+      (snapshot.watches ?? []).map(({ listingAggregateId, watcherPubkys }) => [
+        listingAggregateId,
+        new Set(watcherPubkys),
+      ]),
+    );
     this.ledger = [...snapshot.ledger];
     this.commands = new Map(snapshot.commands.map(({ key, stored }) => [key, stored]));
     this.events = [...snapshot.events];
@@ -1377,6 +1407,10 @@ export class MarketplaceTransactionService {
     switch (command.kind) {
       case 'listing.register':
         return this.registerListing(actorPubky, command);
+      case 'listing.watch':
+        return this.watchListing(actorPubky, command, true);
+      case 'listing.unwatch':
+        return this.watchListing(actorPubky, command, false);
       case 'inventory.reserve':
         return this.reserveInventory(actorPubky, command);
       case 'offer.create':
@@ -1517,6 +1551,7 @@ export class MarketplaceTransactionService {
       restricted: current?.restricted ?? false,
       unitPrice: payload.unitPrice,
       saleFormat: payload.saleFormat,
+      offersOpenTo: payload.offersOpenTo ?? (payload.saleFormat === 'offer' ? 'watchers' : 'anyone'),
       fulfillment: payload.fulfillment,
       digitalLock: payload.digitalLock ?? null,
       auction: payload.auctionTerms
@@ -1541,6 +1576,38 @@ export class MarketplaceTransactionService {
     this.repository.putListing(listing);
     this.repository.appendEvent(event);
     return success(command, listing.serverRevision, event.id, { kind: 'listing', listing });
+  }
+
+  private watchListing(
+    actorPubky: string,
+    command: WatchListingCommand | UnwatchListingCommand,
+    watching: boolean,
+  ): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (listing.sellerPubky === actorPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot watch their own listing.');
+    }
+    if (command.expectedRevision !== 0) {
+      return failure('INVALID_COMMAND', 'Watch commands use expected revision 0.');
+    }
+
+    const occurredAt = this.now().toISOString();
+    this.repository.setWatching(listing.aggregateId, actorPubky, watching);
+    const event = this.createEvent(
+      actorPubky,
+      command,
+      1,
+      watching ? 'listing.watched' : 'listing.unwatched',
+      occurredAt,
+    );
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, {
+      kind: 'watch',
+      listingAggregateId: listing.aggregateId,
+      watcherPubky: actorPubky,
+      watching,
+    });
   }
 
   private reserveInventory(actorPubky: string, command: ReserveInventoryCommand): MarketplaceCommandResult {
@@ -1614,6 +1681,12 @@ export class MarketplaceTransactionService {
     }
     if (!sameAsset(listing.unitPrice, command.payload.amount)) {
       return failure('INVALID_COMMAND', 'Offer amount must use the listing asset and exponent.');
+    }
+    if (listing.restricted) {
+      return failure('INVALID_STATE', 'This listing is restricted.');
+    }
+    if (listing.offersOpenTo === 'watchers' && !this.repository.isWatching(listing.aggregateId, actorPubky)) {
+      return failure('UNAUTHORIZED', 'Only watchers can make an offer on this listing.');
     }
 
     const now = this.now();
@@ -2078,6 +2151,14 @@ export class MarketplaceTransactionService {
     this.repository.putBid(bid);
     this.repository.putListing(updatedListing);
     this.repository.appendEvent(event);
+    this.recordAuctionManipulationSignals({
+      listing: updatedListing,
+      previousBids,
+      bid,
+      previousVisibleMinor: listing.auction.currentPrice.amountMinor,
+      becameLeader: updatedListing.auction?.leaderPubky === actorPubky,
+      occurredAt,
+    });
     if (
       listing.auction.leaderPubky &&
       listing.auction.leaderPubky !== updatedListing.auction?.leaderPubky &&
@@ -3860,6 +3941,97 @@ export class MarketplaceTransactionService {
       aggregateId,
       createdAt,
       readAt: null,
+    });
+  }
+
+  private recordAuctionManipulationSignals({
+    listing,
+    previousBids,
+    bid,
+    previousVisibleMinor,
+    becameLeader,
+    occurredAt,
+  }: {
+    listing: MarketplaceListingAggregate;
+    previousBids: MarketplaceBid[];
+    bid: MarketplaceBid;
+    previousVisibleMinor: number;
+    becameLeader: boolean;
+    occurredAt: string;
+  }): void {
+    if (!listing.auction) return;
+    const increment = listing.auction.minimumIncrement.amountMinor;
+    const incrementOnly = bid.maximumAmount.amountMinor <= previousVisibleMinor + increment * 2;
+    if (!incrementOnly || becameLeader) return;
+
+    const details = `Increment-only bid from ${bid.bidderPubky} did not take the lead (max ${bid.maximumAmount.amountMinor}, visible ${previousVisibleMinor}, increment ${increment}).`;
+    const alreadyFlagged = this.repository
+      .getRiskSignals()
+      .some(
+        (signal) =>
+          signal.signalType === 'auction_manipulation' &&
+          signal.targetId === listing.aggregateId &&
+          signal.details.includes(bid.bidderPubky),
+      );
+    if (alreadyFlagged) return;
+
+    this.putAutomatedRiskSignal({
+      signalType: 'auction_manipulation',
+      targetType: 'auction',
+      targetId: listing.aggregateId,
+      details,
+      occurredAt,
+    });
+
+    const incrementShillBidders = new Set(
+      [...previousBids, bid]
+        .filter((item) => item.maximumAmount.amountMinor <= previousVisibleMinor + increment * 2)
+        .map((item) => item.bidderPubky),
+    );
+    if (incrementShillBidders.size < 3) return;
+    const ladderDetails = `Three or more increment-only bids on ${listing.aggregateId} without taking the lead.`;
+    if (
+      this.repository
+        .getRiskSignals()
+        .some((signal) => signal.signalType === 'auction_manipulation' && signal.details === ladderDetails)
+    ) {
+      return;
+    }
+    this.putAutomatedRiskSignal({
+      signalType: 'auction_manipulation',
+      targetType: 'auction',
+      targetId: listing.aggregateId,
+      details: ladderDetails,
+      occurredAt,
+    });
+  }
+
+  private putAutomatedRiskSignal(input: {
+    signalType: MarketplaceRiskSignalType;
+    targetType: MarketplaceRiskSignal['targetType'];
+    targetId: string;
+    details: string;
+    occurredAt: string;
+  }): void {
+    const signal: MarketplaceRiskSignal = {
+      id: randomUUID(),
+      revision: 1,
+      actorPubky: MARKETPLACE_SANDBOX_MODERATOR,
+      signalType: input.signalType,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      details: input.details,
+      createdAt: input.occurredAt,
+    };
+    this.repository.putRiskSignal(signal);
+    this.repository.appendEvent({
+      id: randomUUID(),
+      commandId: signal.id,
+      aggregateId: `risk:${signal.id}`,
+      revision: 1,
+      actorPubky: MARKETPLACE_SANDBOX_MODERATOR,
+      kind: 'trust.risk_flagged',
+      occurredAt: input.occurredAt,
     });
   }
 

@@ -30,9 +30,9 @@ export function useRelistMarketplaceListing(): UseRelistMarketplaceListingResult
       const nextId = crypto.randomUUID().replaceAll('-', '');
       const amountMinor = Math.round(Number(data.price) * 100);
       const sale =
-        record.sale.format === 'fixed_price'
-          ? { ...record.sale, unitPrice: { ...record.sale.unitPrice, amountMinor } }
-          : { ...record.sale, startingPrice: { ...record.sale.startingPrice, amountMinor } };
+        record.sale.format === 'auction'
+          ? { ...record.sale, startingPrice: { ...record.sale.startingPrice, amountMinor } }
+          : { ...record.sale, unitPrice: { ...record.sale.unitPrice, amountMinor } };
       try {
         await CommerceController.commitUpsertListing({
           ...record,

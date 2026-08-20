@@ -7,13 +7,13 @@ describe('marketplace', () => {
 
     cy.get('body').then(($body) => {
       if ($body.text().includes('Sandbox · no real funds')) {
-        cy.contains('9 items').should('be.visible');
+        cy.contains('10 items').should('be.visible');
         cy.get('input[placeholder="Search items, styles, or sellers"]').type('camera');
         cy.contains('1 item').should('be.visible');
         cy.contains('35mm rangefinder camera').should('be.visible');
         cy.contains('Vintage leather boots').should('not.exist');
         cy.contains('button', 'Clear').click();
-        cy.contains('9 items').should('be.visible');
+        cy.contains('10 items').should('be.visible');
       } else {
         cy.contains('Marketplace transactions are unavailable in this deployment.').should('be.visible');
       }

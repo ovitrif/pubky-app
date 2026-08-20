@@ -135,6 +135,29 @@ describe('useCreateMarketplaceListing', () => {
     });
   });
 
+  it('publishes a watcher-only offer listing', async () => {
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Sample-room wool coat');
+      result.current.form.setValue('description', 'Watcher-only sample coat.');
+      result.current.form.setValue('price', '72.00');
+      result.current.form.setValue('saleFormat', 'offer');
+      result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('altText', 'Wool coat on a form');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+    expect(listing).toMatchObject({
+      sale: { format: 'offer', offersOpenTo: 'watchers', unitPrice: { amountMinor: 7_200 } },
+    });
+  });
+
   it('does not publish when media preparation fails', async () => {
     mediaState.prepared = false;
     const { result } = renderHook(() => useCreateMarketplaceListing());

@@ -15,12 +15,14 @@ export function MarketplaceOfferDialog({
   onAccepted,
   asSeller = false,
   label = 'Make offer',
+  disabled = false,
 }: {
   aggregateId: string;
   expectedRevision: number | null;
   onAccepted: () => void | Promise<void>;
   asSeller?: boolean;
   label?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const offer = useMarketplaceOffer(aggregateId, expectedRevision, asSeller);
@@ -45,7 +47,12 @@ export function MarketplaceOfferDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="lg" variant="secondary" className="flex-1 rounded-full" disabled={expectedRevision === null}>
+        <Button
+          size="lg"
+          variant="secondary"
+          className="flex-1 rounded-full"
+          disabled={disabled || expectedRevision === null}
+        >
           <HandCoins className="mr-2 size-4" />
           {label}
         </Button>

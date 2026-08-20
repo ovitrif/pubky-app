@@ -66,7 +66,7 @@ export function MarketplaceCart() {
                 const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
                 const price =
                   variant?.priceOverride ??
-                  (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+                  (item.listing.record.sale.format === 'auction' ? null : item.listing.record.sale.unitPrice);
                 return (
                   <Card key={item.id} className="border py-4">
                     <CardContent className="flex items-center gap-4 px-4">

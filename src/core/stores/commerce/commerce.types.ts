@@ -1,4 +1,4 @@
-export type CommerceSaleFormatFilter = 'all' | 'fixed_price' | 'auction';
+export type CommerceSaleFormatFilter = 'all' | 'fixed_price' | 'auction' | 'offer';
 export type CommerceConditionFilter = 'new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts';
 export type CommerceSort = 'recommended' | 'newest' | 'price_low' | 'price_high' | 'ending_soon';
 export type CommerceLayout = 'grid' | 'list';

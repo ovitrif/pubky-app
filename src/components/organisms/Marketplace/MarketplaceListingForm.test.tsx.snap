@@ -486,6 +486,11 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
             >
               7-day auction
             </option>
+            <option
+              value="offer"
+            >
+              Watcher-only offer
+            </option>
           </select>
         </div>
         <div

@@ -27,7 +27,8 @@ const registerListingPayloadSchema = z
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
     quantity: z.number().int().positive().max(1_000_000),
     unitPrice: commercePositiveMoneySchema,
-    saleFormat: z.enum(['fixed_price', 'auction']).default('fixed_price'),
+    saleFormat: z.enum(['fixed_price', 'auction', 'offer']).default('fixed_price'),
+    offersOpenTo: z.enum(['anyone', 'watchers']).optional(),
     fulfillment: z.enum(['physical', 'digital', 'pickup']).default('physical'),
     digitalLock: z
       .object({
@@ -59,6 +60,13 @@ const registerListingPayloadSchema = z
         code: 'custom',
         path: ['auctionTerms'],
         message: 'Auction format and terms must be configured together.',
+      });
+    }
+    if (payload.saleFormat === 'offer' && payload.offersOpenTo === 'anyone') {
+      context.addIssue({
+        code: 'custom',
+        path: ['offersOpenTo'],
+        message: 'Offer-format listings are watcher-only.',
       });
     }
     if (payload.auctionTerms) {
@@ -109,6 +117,10 @@ export const reserveInventoryCommandSchema = createCommerceCommandSchema(
     })
     .strict(),
 );
+
+export const watchListingCommandSchema = createCommerceCommandSchema('listing.watch', z.object({}).strict());
+
+export const unwatchListingCommandSchema = createCommerceCommandSchema('listing.unwatch', z.object({}).strict());
 
 const offerTermsSchema = z
   .object({
@@ -534,6 +546,8 @@ export const flagMarketplaceRiskCommandSchema = createCommerceCommandSchema(
 export const marketplaceCommandSchema = z.union([
   registerListingCommandSchema,
   reserveInventoryCommandSchema,
+  watchListingCommandSchema,
+  unwatchListingCommandSchema,
   createOfferCommandSchema,
   createPrivateOfferCommandSchema,
   counterOfferCommandSchema,
@@ -594,6 +608,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
           kind: z.enum([
             'listing',
             'reservation',
+            'watch',
             'offer',
             'accepted_offer',
             'bid',
@@ -631,6 +646,8 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
 
 export type RegisterListingCommand = z.infer<typeof registerListingCommandSchema>;
 export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSchema>;
+export type WatchListingCommand = z.infer<typeof watchListingCommandSchema>;
+export type UnwatchListingCommand = z.infer<typeof unwatchListingCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CreatePrivateOfferCommand = z.infer<typeof createPrivateOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;

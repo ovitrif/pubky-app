@@ -6,7 +6,7 @@ import { MarketplaceListingCard } from './MarketplaceListingCard';
 
 function listingModel(index = 0): CommerceListingModelSchema {
   const record = createCommerceSandboxCatalog().listings[index];
-  const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+  const price = record.sale.format === 'auction' ? record.sale.startingPrice : record.sale.unitPrice;
   return {
     id: `${record.ownerPubky}:${record.listingId}`,
     seller_id: record.ownerPubky,

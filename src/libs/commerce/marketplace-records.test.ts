@@ -3,6 +3,7 @@ import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/c
 import {
   commerceCollectionRecordSchema,
   type CommerceListingRecord,
+  commerceListingSalePrice,
   commerceListingRecordSchema,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
@@ -318,6 +319,17 @@ describe('auction listing rules', () => {
     });
 
     expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+  });
+});
+
+describe('watcher-only offer listings', () => {
+  it('accepts a watcher-only offer product and exposes the list price', () => {
+    const listing = makeFixedListing();
+    listing.sale = { format: 'offer', unitPrice: usd(7_200), offersOpenTo: 'watchers' };
+    const parsed = commerceListingRecordSchema.safeParse(listing);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(commerceListingSalePrice(parsed.data.sale)).toEqual(usd(7_200));
   });
 });
 

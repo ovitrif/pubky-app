@@ -62,6 +62,14 @@ describe('createMarketplaceListingSchema', () => {
 
     expect(createMarketplaceListingSchema.safeParse(base).success).toBe(true);
     expect(createMarketplaceListingSchema.safeParse({ ...base, saleFormat: 'auction' }).success).toBe(false);
+    expect(createMarketplaceListingSchema.safeParse({ ...base, saleFormat: 'offer' }).success).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        saleFormat: 'offer',
+        variants: [variants[0]],
+      }).success,
+    ).toBe(true);
     expect(
       createMarketplaceListingSchema.safeParse({
         ...base,

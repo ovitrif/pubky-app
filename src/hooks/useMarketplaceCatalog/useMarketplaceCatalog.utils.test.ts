@@ -10,7 +10,7 @@ import {
 
 function catalogModels(): CommerceListingModelSchema[] {
   return createCommerceSandboxCatalog().listings.map((record) => {
-    const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+    const price = record.sale.format === 'auction' ? record.sale.startingPrice : record.sale.unitPrice;
     return {
       id: `${record.ownerPubky}:${record.listingId}`,
       seller_id: record.ownerPubky,
@@ -72,8 +72,14 @@ describe('filterMarketplaceCatalog', () => {
     const low = filterMarketplaceCatalog(catalogModels(), filters({ sort: 'price_low' }));
     const high = filterMarketplaceCatalog(catalogModels(), filters({ sort: 'price_high' }));
 
-    expect(low[0].listing_id).toBe('jazz_first_press');
+    expect(low[0].listing_id).toBe('pattern_pack');
     expect(high[0].listing_id).toBe('mechanical_keyboard');
+  });
+
+  it('filters watcher-only offer listings', () => {
+    const results = filterMarketplaceCatalog(catalogModels(), filters({ saleFormat: 'offer' }));
+
+    expect(results.map(({ listing_id }) => listing_id)).toEqual(['sample_coat']);
   });
 
   it('puts active auctions before fixed-price listings for ending-soon', () => {

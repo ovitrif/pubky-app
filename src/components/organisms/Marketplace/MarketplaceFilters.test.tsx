@@ -53,6 +53,10 @@ describe('MarketplaceFilters', () => {
 });
 
 describe('MarketplaceFilters - Snapshots', () => {
+  beforeEach(() => {
+    useCommerceStore.getState().reset();
+  });
+
   it('matches the default filter snapshot', () => {
     const { container } = render(<MarketplaceFilters resultCount={8} />);
     expect(container.firstChild).toMatchSnapshot();

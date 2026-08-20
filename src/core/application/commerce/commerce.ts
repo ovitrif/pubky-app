@@ -1,5 +1,9 @@
 import { getCommerceAdapterMode } from '@/config/commerce';
-import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import {
+  type CommerceListingRecord,
+  type CommerceShopRecord,
+  commerceListingSalePrice,
+} from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
@@ -253,10 +257,12 @@ export class CommerceApplication {
 
   static async commitCreateFavorite(ownerPubky: string, listingId: string): Promise<void> {
     await LocalCommerceService.createFavorite(ownerPubky, listingId, Date.now());
+    await this.syncListingWatch(ownerPubky, listingId, true);
   }
 
   static async commitDeleteFavorite(ownerPubky: string, listingId: string): Promise<void> {
     await LocalCommerceService.deleteFavorite(ownerPubky, listingId);
+    await this.syncListingWatch(ownerPubky, listingId, false);
   }
 
   static async isShopFollowed(ownerPubky: string, sellerPubky: string): Promise<boolean> {
@@ -350,7 +356,7 @@ export class CommerceApplication {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(aggregateId);
     if (existing?.serverRevision) return;
-    const unitPrice = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+    const unitPrice = commerceListingSalePrice(listing.sale);
     const command = CommerceRecordNormalizer.marketplaceCommand({
       version: 1,
       commandId: crypto.randomUUID(),
@@ -367,6 +373,7 @@ export class CommerceApplication {
         quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
         unitPrice,
         saleFormat: listing.sale.format,
+        offersOpenTo: listing.sale.format === 'offer' ? listing.sale.offersOpenTo : undefined,
         fulfillment: listing.fulfillmentMethods.includes('digital')
           ? 'digital'
           : listing.fulfillmentMethods.includes('physical')
@@ -419,5 +426,33 @@ export class CommerceApplication {
       created_at: now,
       updated_at: now,
     };
+  }
+
+  private static async syncListingWatch(
+    ownerPubky: string,
+    listingCompositeId: string,
+    watching: boolean,
+  ): Promise<void> {
+    const separator = listingCompositeId.indexOf(':');
+    if (separator <= 0) return;
+    try {
+      await MarketplaceGatewayService.execute(
+        ownerPubky,
+        CommerceRecordNormalizer.marketplaceCommand({
+          version: 1,
+          commandId: crypto.randomUUID(),
+          aggregateId: buildMarketplaceListingAggregateId(
+            listingCompositeId.slice(0, separator),
+            listingCompositeId.slice(separator + 1),
+          ),
+          expectedRevision: 0,
+          issuedAt: new Date().toISOString(),
+          kind: watching ? 'listing.watch' : 'listing.unwatch',
+          payload: {},
+        }),
+      );
+    } catch {
+      // Local favorite remains; watcher-only offers fail closed until the watch command succeeds.
+    }
   }
 }

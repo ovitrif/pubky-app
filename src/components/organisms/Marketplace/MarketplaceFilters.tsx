@@ -55,6 +55,7 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
               <SelectItem value="all">All formats</SelectItem>
               <SelectItem value="fixed_price">Buy now</SelectItem>
               <SelectItem value="auction">Auctions</SelectItem>
+              <SelectItem value="offer">Watcher offers</SelectItem>
             </SelectContent>
           </Select>
 

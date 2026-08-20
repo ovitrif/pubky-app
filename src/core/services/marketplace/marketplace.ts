@@ -24,7 +24,7 @@ const listingProjectionSchema = z
     availableQuantity: z.number().int().nonnegative(),
     reservedQuantity: z.number().int().nonnegative(),
     unitPrice: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
-    saleFormat: z.enum(['fixed_price', 'auction']),
+    saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
     auction: z
       .object({
         startsAt: z.string(),

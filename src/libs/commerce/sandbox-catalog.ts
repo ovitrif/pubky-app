@@ -3,6 +3,7 @@ import type { CommerceListingProjectionModelSchema } from '@/models/commerce/com
 import {
   type CommerceListingRecord,
   commerceListingRecordSchema,
+  commerceListingSalePrice,
   type CommerceShopRecord,
   commerceShopRecordSchema,
 } from './marketplace-records';
@@ -147,6 +148,20 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     fulfillment: 'digital',
     colorHash: '2',
   },
+  {
+    seller: 'o'.repeat(52),
+    shopName: 'Watcher Atelier',
+    listingId: 'sample_coat',
+    title: 'Sample-room wool coat',
+    description:
+      'Watcher-only sample. Add this listing to your watchlist to send a private offer. There is no buy-now checkout.',
+    categoryId: 'fashion-jackets',
+    condition: 'excellent',
+    amountMinor: 7_200,
+    tags: ['sample', 'coat'],
+    saleFormat: 'offer',
+    colorHash: '3',
+  },
 ];
 
 export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
@@ -169,7 +184,7 @@ export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
 
   const listings = CATALOG_ENTRIES.map((entry, index) => createListing(entry, index));
   const projections = listings.map((listing, index) => {
-    const price = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+    const price = commerceListingSalePrice(listing.sale);
     return {
       id: `${listing.ownerPubky}:${listing.listingId}`,
       seller_id: listing.ownerPubky,
@@ -205,11 +220,17 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
           antiSnipingWindowSeconds: 120,
           antiSnipingExtensionSeconds: 120,
         }
-      : {
-          format: 'fixed_price',
-          unitPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
-          acceptsOffers: true,
-        };
+      : entry.saleFormat === 'offer'
+        ? {
+            format: 'offer',
+            unitPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
+            offersOpenTo: 'watchers',
+          }
+        : {
+            format: 'fixed_price',
+            unitPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
+            acceptsOffers: true,
+          };
 
   return commerceListingRecordSchema.parse({
     schemaVersion: COMMERCE_CONTRACT_VERSION,

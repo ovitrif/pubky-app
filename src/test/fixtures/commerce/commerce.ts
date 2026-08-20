@@ -276,7 +276,7 @@ export function createCommerceSandboxCatalogFixture(): CommerceSandboxCatalogFix
   });
 
   const projections = listings.map((listing, index) => {
-    const price = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
+    const price = listing.sale.format === 'auction' ? listing.sale.startingPrice : listing.sale.unitPrice;
     return createCommerceProjectionFixture({
       id: `${listing.ownerPubky}:${listing.listingId}`,
       seller_id: listing.ownerPubky,

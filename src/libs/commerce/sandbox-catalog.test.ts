@@ -8,12 +8,13 @@ describe('createCommerceSandboxCatalog', () => {
     const second = createCommerceSandboxCatalog();
 
     expect(first).toEqual(second);
-    expect(first.shops).toHaveLength(9);
-    expect(first.listings).toHaveLength(9);
-    expect(first.projections).toHaveLength(9);
+    expect(first.shops).toHaveLength(10);
+    expect(first.listings).toHaveLength(10);
+    expect(first.projections).toHaveLength(10);
     expect(
       first.listings.some((listing) => listing.fulfillmentMethods.includes('digital') && listing.digitalLock),
     ).toBe(true);
+    expect(first.listings.some((listing) => listing.sale.format === 'offer')).toBe(true);
     expect(first.shops.every((shop) => commerceShopRecordSchema.safeParse(shop).success)).toBe(true);
     expect(first.listings.every((listing) => commerceListingRecordSchema.safeParse(listing).success)).toBe(true);
 
@@ -28,7 +29,7 @@ describe('createCommerceSandboxCatalog', () => {
   it('covers fixed-price, auction, fashion, electronics, home, and collectibles discovery', () => {
     const { listings } = createCommerceSandboxCatalog();
 
-    expect(new Set(listings.map(({ sale }) => sale.format))).toEqual(new Set(['fixed_price', 'auction']));
+    expect(new Set(listings.map(({ sale }) => sale.format))).toEqual(new Set(['fixed_price', 'auction', 'offer']));
     expect(new Set(listings.flatMap(({ fulfillmentMethods }) => fulfillmentMethods))).toEqual(
       new Set(['pickup', 'digital']),
     );

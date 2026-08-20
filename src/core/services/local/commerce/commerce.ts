@@ -1,5 +1,9 @@
 import { db } from '@/database/franky/franky';
-import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import {
+  type CommerceListingRecord,
+  type CommerceShopRecord,
+  commerceListingSalePrice,
+} from '@/libs/commerce/marketplace-records';
 import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -494,7 +498,7 @@ export class LocalCommerceService {
     record: CommerceListingRecord,
     syncStatus: CommerceCacheStatus,
   ): CommerceListingModelSchema {
-    const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
+    const price = commerceListingSalePrice(record.sale);
     return {
       id: `${record.ownerPubky}:${record.listingId}`,
       seller_id: record.ownerPubky,
