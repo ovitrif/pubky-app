@@ -5,7 +5,7 @@ const VASE_SELLER = 'd'.repeat(52);
 const HTTP_BUYER = '3'.repeat(52);
 const BOOTS_AGGREGATE = `listing:${BOOTS_SELLER}_leather_boots`;
 
-describe('marketplace signed-in', { video: false, defaultCommandTimeout: 30_000 }, () => {
+describe('marketplace signed-in', { defaultCommandTimeout: 30_000 }, () => {
   it('restores staging and completes buyer, seller, and staff sandbox journeys', () => {
     cy.task<string | null>('getStagingRecoveryPhrase').then((phrase) => {
       expect(phrase, 'STAGING_RECOVERY_PHRASE must be a 12-word staging phrase').to.be.a('string');

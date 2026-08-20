@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
@@ -638,7 +639,7 @@ export type MarketplaceAttachmentStoreResult =
   | { ok: true; attachment: MarketplaceAttachmentMetadata }
   | { ok: false; code: 'INVALID_ATTACHMENT' | 'UNAUTHORIZED'; message: string };
 
-export { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
+export { MARKETPLACE_SANDBOX_MODERATOR };
 
 type StoredCommand = {
   requestHash: string;
