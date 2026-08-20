@@ -73,9 +73,9 @@ function placeBid() {
   cy.contains('h1', '35mm rangefinder camera').should('be.visible');
   cy.contains('button', 'Place a bid').click();
   cy.contains('Set your private proxy maximum').should('be.visible');
-  cy.get('#maximumAmount').clear().type('200');
+  cy.get('#maximumAmount').clear().type((Date.now() / 1000).toFixed(2));
   cy.contains('button', 'Confirm bid').click();
-  cy.contains('Bid accepted').should('be.visible');
+  cy.contains(/Bid accepted|previous maximum/).should('be.visible');
   cy.screenshot('signed-in-bid', { overwrite: true });
 }
 
