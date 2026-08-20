@@ -54,11 +54,11 @@ export function useLocksPayment({
       try {
         const next = await CommerceController.lookupLocksVerification(creatorPubky, bundleId);
         if (!active) return;
-        setLifecycle(next);
         if (next.status === 'completed') {
           const issued = await CommerceController.issueLocksAccessCredential(creatorPubky, bundleId);
           if (active) setCredential(issued);
         }
+        if (active) setLifecycle(next);
       } catch {
         if (active) setError('Payment verification is retrying.');
       }

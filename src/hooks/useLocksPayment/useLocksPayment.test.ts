@@ -20,6 +20,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 describe('useLocksPayment', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000001200');
@@ -86,5 +90,45 @@ describe('useLocksPayment', () => {
       credential: 'sandbox-locks-opaque',
       expires_at: '2026-08-20T00:00:00.000Z',
     });
+  });
+
+  it('keeps the credential when polling completes the pending proof', async () => {
+    vi.useFakeTimers();
+    vi.mocked(CommerceController.lookupLocksVerification).mockResolvedValue({
+      creator: `pubky${CREATOR}`,
+      bundle_id: BUNDLE_ID,
+      status: 'completed',
+      submitted_at: '2026-08-19T23:00:00.000Z',
+      started_at: '2026-08-19T23:00:01.000Z',
+      completed_at: '2026-08-19T23:00:02.000Z',
+      failure_message: null,
+    });
+    vi.mocked(CommerceController.issueLocksAccessCredential).mockImplementation(async () => {
+      await Promise.resolve();
+      return {
+        credential: 'sandbox-locks-polled',
+        expires_at: '2026-08-20T00:00:00.000Z',
+      };
+    });
+
+    const { result } = renderHook(() =>
+      useLocksPayment({
+        creatorPubky: CREATOR,
+        lockResource: `pubky://${CREATOR}/pub/locks.app/lock.json`,
+        criterionId: 'criterion-1',
+      }),
+    );
+
+    await act(() => result.current.start());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(result.current.lifecycle?.status).toBe('completed');
+    expect(result.current.credential).toEqual({
+      credential: 'sandbox-locks-polled',
+      expires_at: '2026-08-20T00:00:00.000Z',
+    });
+    vi.useRealTimers();
   });
 });
