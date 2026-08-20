@@ -272,86 +272,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 />
               </div>
             )}
-            <MarketplaceTrustIndicators shop={shop?.record} reputation={reputation} listingRevision={record.revision} />
-            <MarketplaceSellerPolicies
-              shop={shop?.record}
-              listingReturn={record.returnPolicy}
-              listingShipping={shippingLabel}
-            />
-
-            <div className="flex flex-wrap gap-2">
-              {record.tags.map((tag) => (
-                <Badge key={tag} variant="outline">
-                  #{tag}
-                </Badge>
-              ))}
-            </div>
-
-            {record.variants.length > 1 && (
-              <div>
-                <Typography as="p" className="mb-2 text-sm font-semibold">
-                  Variant
-                </Typography>
-                <Select value={selectedVariant?.id} onValueChange={setSelectedVariantId}>
-                  <SelectTrigger className="h-11 w-full rounded-md border px-3" aria-label="Choose listing variant">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {record.variants.map((variant) => (
-                      <SelectItem
-                        key={variant.id}
-                        value={variant.id}
-                        disabled={!variant.enabled || variant.quantity === 0}
-                      >
-                        {Object.values(variant.options).join(' · ') || variant.sku || 'Default'} · {variant.quantity}{' '}
-                        left
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
-                <MapPin className="size-5 text-brand" />
-                <div>
-                  <Typography as="p" className="text-sm font-semibold">
-                    {record.fulfillmentMethods.includes('digital') ? 'Digital delivery' : 'Ships from'}
-                  </Typography>
-                  <Typography as="p" className="text-sm text-muted-foreground">
-                    {record.fulfillmentMethods.includes('digital')
-                      ? 'Locks credential after payment'
-                      : `${shippingLabel} · ${record.location.region ? `${record.location.region}, ` : ''}${record.location.countryCode}`}
-                  </Typography>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
-                <ShieldCheck className="size-5 text-brand" />
-                <div>
-                  <Typography as="p" className="text-sm font-semibold">
-                    Owner-signed
-                  </Typography>
-                  <Typography as="p" className="text-sm text-muted-foreground">
-                    Revision {record.revision}
-                  </Typography>
-                </div>
-              </div>
-            </div>
-
-            {record.digitalLock && (
-              <MarketplaceLocksPayment
-                creatorPubky={record.ownerPubky}
-                lockResource={record.digitalLock.policyUri}
-                criterionId={record.digitalLock.criterionId}
-              />
-            )}
-
-            {record.sale.format === 'auction' && (
-              <MarketplaceBidHistory history={negotiation.projection?.visibleBidHistory ?? []} />
-            )}
-
-            <div className="mt-auto flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3">
               {record.sale.format === 'auction' ? (
                 <>
                   {auctionStatus !== 'sold' && auctionStatus !== 'unsold' && (
@@ -504,6 +425,84 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               <Typography as="p" className="text-center text-sm text-amber-300">
                 {negotiation.error}
               </Typography>
+            )}
+            <MarketplaceTrustIndicators shop={shop?.record} reputation={reputation} listingRevision={record.revision} />
+            <MarketplaceSellerPolicies
+              shop={shop?.record}
+              listingReturn={record.returnPolicy}
+              listingShipping={shippingLabel}
+            />
+
+            <div className="flex flex-wrap gap-2">
+              {record.tags.map((tag) => (
+                <Badge key={tag} variant="outline">
+                  #{tag}
+                </Badge>
+              ))}
+            </div>
+
+            {record.variants.length > 1 && (
+              <div>
+                <Typography as="p" className="mb-2 text-sm font-semibold">
+                  Variant
+                </Typography>
+                <Select value={selectedVariant?.id} onValueChange={setSelectedVariantId}>
+                  <SelectTrigger className="h-11 w-full rounded-md border px-3" aria-label="Choose listing variant">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {record.variants.map((variant) => (
+                      <SelectItem
+                        key={variant.id}
+                        value={variant.id}
+                        disabled={!variant.enabled || variant.quantity === 0}
+                      >
+                        {Object.values(variant.options).join(' · ') || variant.sku || 'Default'} · {variant.quantity}{' '}
+                        left
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
+                <MapPin className="size-5 text-brand" />
+                <div>
+                  <Typography as="p" className="text-sm font-semibold">
+                    {record.fulfillmentMethods.includes('digital') ? 'Digital delivery' : 'Ships from'}
+                  </Typography>
+                  <Typography as="p" className="text-sm text-muted-foreground">
+                    {record.fulfillmentMethods.includes('digital')
+                      ? 'Locks credential after payment'
+                      : `${shippingLabel} · ${record.location.region ? `${record.location.region}, ` : ''}${record.location.countryCode}`}
+                  </Typography>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
+                <ShieldCheck className="size-5 text-brand" />
+                <div>
+                  <Typography as="p" className="text-sm font-semibold">
+                    Owner-signed
+                  </Typography>
+                  <Typography as="p" className="text-sm text-muted-foreground">
+                    Revision {record.revision}
+                  </Typography>
+                </div>
+              </div>
+            </div>
+
+            {record.digitalLock && (
+              <MarketplaceLocksPayment
+                creatorPubky={record.ownerPubky}
+                lockResource={record.digitalLock.policyUri}
+                criterionId={record.digitalLock.criterionId}
+              />
+            )}
+
+            {record.sale.format === 'auction' && (
+              <MarketplaceBidHistory history={negotiation.projection?.visibleBidHistory ?? []} />
             )}
           </div>
         </div>
