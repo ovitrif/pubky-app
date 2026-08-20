@@ -24,10 +24,10 @@ describe('marketplace', () => {
     const seller = 'y'.repeat(52);
     cy.visit(`/marketplace/listing/${seller}/leather_boots`);
     cy.contains('h1', 'Vintage leather boots').should('be.visible');
-    cy.contains('Vintage leather boots detail').should('be.visible');
     cy.contains('1 of 2').should('be.visible');
     cy.contains('button', 'Photo 2').click();
     cy.contains('2 of 2').should('be.visible');
+    cy.contains('Vintage leather boots detail').should('be.visible');
   });
 
   it('shows Locks-protected digital delivery on a sandbox digital listing', () => {
