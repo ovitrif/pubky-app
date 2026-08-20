@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { MARKETPLACE_CSRF_HEADER, MARKETPLACE_CSRF_TOKEN } from '../../../src/libs/commerce/marketplace-http-security';
 import { buildMarketplaceListingAggregateId } from './contracts';
 import { createMarketplaceHttpServer, type MarketplaceServerMode } from './server';
+import { MARKETPLACE_SANDBOX_MODERATOR } from './transaction-service';
 
 function commandHeaders(extra: Record<string, string> = {}) {
   return {
@@ -207,6 +208,21 @@ describe('marketplace HTTP server', () => {
         listings: 1,
         orders: 0,
         reservedOnPaidOrders: 0,
+      });
+
+      const forbiddenSnapshot = await realFetch(`${baseUrl}/v1/admin/snapshot`, {
+        headers: { 'x-pubky-actor': SELLER },
+      });
+      expect(forbiddenSnapshot.status).toBe(403);
+
+      const snapshot = await realFetch(`${baseUrl}/v1/admin/snapshot`, {
+        headers: { 'x-pubky-actor': MARKETPLACE_SANDBOX_MODERATOR },
+      });
+      expect(snapshot.status).toBe(200);
+      await expect(snapshot.json()).resolves.toMatchObject({
+        listings: [{ listingId: 'boots_01' }],
+        orders: [],
+        ledger: [],
       });
     } finally {
       await new Promise<void>((resolve, reject) => {

@@ -2,6 +2,10 @@ const BLOCKED_HOSTS = new Set(['metadata.google.internal', 'metadata.goog', 'met
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
+export function isLoopbackCommerceHostname(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname.replace(/^\[|\]$/g, '').toLocaleLowerCase('en-US'));
+}
+
 export function isSafeCommerceServiceUrl(value: string): boolean {
   let parsed: URL;
   try {
@@ -16,7 +20,7 @@ export function isSafeCommerceServiceUrl(value: string): boolean {
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLocaleLowerCase('en-US');
   if (BLOCKED_HOSTS.has(hostname) || hostname.endsWith('.internal')) return false;
   if (isBlockedIpAddress(hostname)) return false;
-  if (LOOPBACK_HOSTS.has(hostname)) return true;
+  if (isLoopbackCommerceHostname(hostname)) return true;
   if (parsed.protocol !== 'https:') return false;
   return hostname.includes('.') && !hostname.endsWith('.local');
 }

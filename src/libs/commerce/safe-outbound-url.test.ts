@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { isSafeCommerceServiceUrl } from './safe-outbound-url';
+import { isLoopbackCommerceHostname, isSafeCommerceServiceUrl } from './safe-outbound-url';
+
+describe('isLoopbackCommerceHostname', () => {
+  it.each(['localhost', '127.0.0.1', '::1', '[::1]', 'LOCALHOST'])('treats %s as loopback', (hostname) => {
+    expect(isLoopbackCommerceHostname(hostname)).toBe(true);
+  });
+
+  it.each(['locks.example.com', '169.254.169.254'])('rejects %s', (hostname) => {
+    expect(isLoopbackCommerceHostname(hostname)).toBe(false);
+  });
+});
 
 describe('isSafeCommerceServiceUrl', () => {
   it.each([

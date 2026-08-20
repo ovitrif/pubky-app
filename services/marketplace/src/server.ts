@@ -431,6 +431,22 @@ export function createMarketplaceHttpServer({
         return;
       }
 
+      if (request.method === 'GET' && request.url === '/v1/admin/snapshot') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success || actorResult.data !== MARKETPLACE_SANDBOX_MODERATOR) {
+          writeJson(
+            response,
+            403,
+            { error: { code: 'UNAUTHORIZED', message: 'Operator identity is required.' } },
+            mode,
+          );
+          return;
+        }
+        writeJson(response, 200, service.exportRepositorySnapshot(), mode);
+        return;
+      }
+
       if (request.method === 'GET' && request.url === '/v1/account/export') {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);

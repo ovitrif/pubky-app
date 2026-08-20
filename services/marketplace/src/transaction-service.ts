@@ -1409,6 +1409,10 @@ export class MarketplaceTransactionService {
     };
   }
 
+  exportRepositorySnapshot(): MarketplaceRepositorySnapshot {
+    return this.repository.exportSnapshot();
+  }
+
   exportAccount(actorPubky: string): {
     orders: MarketplaceOrder[];
     offers: MarketplaceOffer[];

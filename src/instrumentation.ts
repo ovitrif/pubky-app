@@ -9,6 +9,11 @@ export async function register() {
     try {
       const config = getRuntimeConfig();
       warnIfModerationDisabled(config);
+      const { assertSafeResolvedCommerceServiceUrls } = await import('@/libs/commerce/safe-resolved-url');
+      await assertSafeResolvedCommerceServiceUrls(
+        [config.marketplaceUrl, config.locksUrl, config.paykitSetupUrl],
+        'register.commerceUrls',
+      );
     } catch (error) {
       console.error(error);
       process.exit(1);

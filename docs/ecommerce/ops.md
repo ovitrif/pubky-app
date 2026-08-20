@@ -42,6 +42,24 @@ JSON responses set `Content-Security-Policy: default-src 'none'`, `X-Content-Typ
 
 The Locks / Paykit stub exposes `/health/live` and `/health/ready` on both ports and labels every response `sandbox`.
 
-Operator routes (sandbox moderator only): `/v1/invariants` (includes `reservedOnPaidOrders`) and `/v1/admin/search?q=`. `inventory.reconcile_paid` converts leftover reserved units on already-paid orders to sold and appends `inventory.reconciled` events. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.
+Operator routes (sandbox moderator only): `/v1/invariants` (includes `reservedOnPaidOrders`), `/v1/admin/search?q=`, and `/v1/admin/snapshot` (full repository JSON). `inventory.reconcile_paid` converts leftover reserved units on already-paid orders to sold and appends `inventory.reconciled` events. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.
+
+## Restore drill
+
+Isolated restore is `exportSnapshot` → JSON → `hydrateSnapshot` on a fresh repository. Automated addresses:
+
+- `services/marketplace/src/restore-drill.test.ts` (in-memory JSON round-trip; PostgreSQL file snapshot when `marketplace_test` is reachable)
+- Process restart: `services/marketplace/src/postgres-repository.test.ts`
+
+Manual sandbox procedure:
+
+1. Export as the sandbox moderator (`'m'` × 52): `GET /v1/admin/snapshot` → `snapshot.json`.
+2. Stop `npm run marketplace` (exact PID).
+3. Recreate or truncate `marketplace` (`marketplace_snapshots`, events, ledger, aggregates, commands, outbox).
+4. `INSERT INTO marketplace_snapshots (id, payload, updated_at) VALUES ('default', $snapshot::jsonb, now())`.
+5. Start `npm run marketplace` and confirm `/health/ready` reports `storage: postgres`.
+6. Re-read the same listing aggregate, order, and ledger; `GET /v1/invariants` must show no unbalanced orders.
+
+Do not replay Paykit/Locks side effects from a restored snapshot. The drill restores marketplace authority only.
 
 Checkout tax/shipping uses `sandbox-us-8pct-v1` and `sandbox-listing-shipping-v1`. Digital-only seller groups have $0 shipping. Pickup without listing options still uses the $12 flat quote. Physical listings can quote free, flat, or sandbox-calculated (`$6 + $4/kg`) shipping.
