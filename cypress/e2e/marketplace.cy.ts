@@ -36,6 +36,26 @@ describe('marketplace', () => {
     cy.contains('h1', 'Sewing pattern pack').should('be.visible');
     cy.contains('Locks-protected digital delivery').should('be.visible');
     cy.contains('Paykit sends the private Bitcoin request to Bitkit').should('be.visible');
+    cy.contains('Sandbox stub · empty proof · no Bitcoin').should('be.visible');
+    cy.contains('button', 'Request Paykit payment').should('be.visible');
+  });
+
+  it('serves labeled Locks and Paykit sandbox companion stubs', () => {
+    cy.request('http://127.0.0.1:3101/health/ready').its('body').should('include', { mode: 'sandbox' });
+    cy.request(
+      'http://127.0.0.1:3101/connect?return_to=http://localhost:3000/marketplace/settings&state=guest-locks',
+    ).then((response) => {
+      expect(response.headers['x-locks-mode']).to.eq('sandbox');
+      expect(response.body).to.include('SANDBOX');
+      expect(response.body).to.include('not Pubky Ring');
+    });
+    cy.request(
+      'http://127.0.0.1:3102/setup?return_to=http://localhost:3000/marketplace/settings&state=guest-paykit',
+    ).then((response) => {
+      expect(response.headers['x-paykit-mode']).to.eq('sandbox');
+      expect(response.body).to.include('SANDBOX');
+      expect(response.body).to.include('not Bitkit');
+    });
   });
 
   it('shows a public auction bid history without a proxy maximum', () => {

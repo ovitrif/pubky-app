@@ -2,8 +2,10 @@ const BOOTS_SELLER = 'y'.repeat(52);
 const CAMERA_SELLER = 'n'.repeat(52);
 const COAT_SELLER = 'o'.repeat(52);
 const VASE_SELLER = 'd'.repeat(52);
+const DIGITAL_SELLER = 'k'.repeat(52);
 const HTTP_BUYER = '3'.repeat(52);
 const BOOTS_AGGREGATE = `listing:${BOOTS_SELLER}_leather_boots`;
+const DIGITAL_AGGREGATE = `listing:${DIGITAL_SELLER}_pattern_pack`;
 
 describe('marketplace signed-in', { defaultCommandTimeout: 30_000 }, () => {
   it('restores staging and completes buyer, seller, and staff sandbox journeys', () => {
@@ -25,19 +27,24 @@ describe('marketplace signed-in', { defaultCommandTimeout: 30_000 }, () => {
       placeBid();
       watchAndOffer();
       messageAndReport();
+      requestSandboxPaykitProof();
       ensureBootsStock();
       checkoutBootsAndFulfill();
+      checkoutDigitalPatternPack();
       sellViaHttpAndShip();
       moderateAsSandboxOperator();
 
       cy.visit('/marketplace/notifications');
       cy.location('pathname').should('eq', '/marketplace/notifications');
       cy.contains('h1', 'Commerce activity').should('be.visible');
+      cy.contains('New order created').should('be.visible');
+      cy.contains('Payment confirmed').should('be.visible');
       cy.screenshot('signed-in-notifications', { overwrite: true });
 
       cy.visit('/marketplace/settings');
       cy.location('pathname').should('eq', '/marketplace/settings');
       cy.contains('h1', 'Payments and Locks', { timeout: 30_000 }).should('be.visible');
+      visitCompanionStubs();
       cy.screenshot('signed-in-settings', { overwrite: true });
     });
   });
@@ -171,6 +178,7 @@ function checkoutBootsAndFulfill() {
   cy.contains('button', 'Confirm payment').click();
   cy.contains(/paid|processing|confirmed/i).should('be.visible');
   cy.screenshot('signed-in-payment-confirmed', { overwrite: true });
+  assertBuyerOrderNotifications();
 
   markBootsReadyForPickup();
   cy.reload();
@@ -337,6 +345,133 @@ function sellViaHttpAndShip() {
   cy.contains('button', 'Confirm').click();
   cy.contains(/dispute|open/i).should('be.visible');
   cy.screenshot('signed-in-seller-ship', { overwrite: true });
+}
+
+function requestSandboxPaykitProof() {
+  cy.visit(`/marketplace/listing/${DIGITAL_SELLER}/pattern_pack`);
+  cy.contains('h1', 'Sewing pattern pack').should('be.visible');
+  cy.contains('Sandbox stub · empty proof · no Bitcoin').should('be.visible');
+  cy.contains('button', 'Request Paykit payment').click();
+  cy.contains('Payment entitlement verified', { timeout: 15_000 }).should('be.visible');
+  cy.screenshot('signed-in-paykit-request', { overwrite: true });
+}
+
+function assertBuyerOrderNotifications() {
+  cy.visit('/marketplace/notifications');
+  cy.contains('h1', 'Commerce activity').should('be.visible');
+  cy.contains(/[1-9]\d* unread transaction/).should('be.visible');
+  cy.contains('New order created').should('be.visible');
+  cy.contains('Payment confirmed').should('be.visible');
+  cy.screenshot('signed-in-buyer-notifications', { overwrite: true });
+}
+
+function ensurePatternPackStock() {
+  cy.marketplaceRequest('GET', `/v1/listings?aggregateId=${encodeURIComponent(DIGITAL_AGGREGATE)}`).then((res) => {
+    const listing = res.json as {
+      availableQuantity?: number;
+      reservedQuantity?: number;
+      soldQuantity?: number;
+      serverRevision?: number;
+      listingRevision?: number;
+      fulfillment?: string;
+    };
+    if ((listing.availableQuantity ?? 0) >= 1 && listing.fulfillment === 'digital') return;
+    const committed = (listing.reservedQuantity ?? 0) + (listing.soldQuantity ?? 0);
+    cy.marketplaceRequest('POST', '/v1/commands', DIGITAL_SELLER, {
+      aggregateId: DIGITAL_AGGREGATE,
+      expectedRevision: listing.serverRevision ?? 0,
+      kind: 'listing.register',
+      payload: {
+        sellerPubky: DIGITAL_SELLER,
+        listingId: 'pattern_pack',
+        title: 'Sewing pattern pack',
+        listingRevision: (listing.listingRevision ?? 0) + 1,
+        contentHash: '2'.repeat(64),
+        quantity: Math.max(committed + 2, 2),
+        unitPrice: { amountMinor: 2_400, currency: 'USD', exponent: 2 },
+        fulfillment: 'digital',
+        digitalLock: {
+          policyUri: `pubky://${DIGITAL_SELLER}/pub/locks.app/pattern_pack.json`,
+          criterionId: 'criterion-1',
+          resourceHash: '2'.repeat(64),
+          minimumConfirmations: 1,
+        },
+      },
+    }).then((register) => {
+      expect(register.json, 'pattern pack restock').to.have.property('ok', true);
+    });
+  });
+}
+
+function checkoutDigitalPatternPack() {
+  ensurePatternPackStock();
+  cy.visit(`/marketplace/listing/${DIGITAL_SELLER}/pattern_pack`);
+  cy.contains('button', 'Add to cart').click();
+  cy.contains('Added to cart').should('be.visible');
+  cy.visit('/marketplace/cart');
+  cy.contains('Sewing pattern pack').should('be.visible');
+  cy.get('body').then(($body) => {
+    $body.find('button[aria-label^="Remove "]').each((_, button) => {
+      const label = button.getAttribute('aria-label') ?? '';
+      if (!label.includes('Sewing pattern pack')) {
+        button.click();
+      }
+    });
+  });
+  cy.get('#name').clear().type('Ada Buyer');
+  cy.get('#line1').clear().type('12 Market Street');
+  cy.get('#city').clear().type('New York');
+  cy.get('#region').clear().type('NY');
+  cy.get('#postalCode').clear().type('10001');
+  cy.contains('Place sandbox order').click();
+  cy.contains('Order created').should('be.visible');
+  cy.contains('Sewing pattern pack')
+    .parents('div.border')
+    .first()
+    .within(() => {
+      cy.contains('$25.92').should('be.visible');
+      cy.contains('Shipping $0.00').should('be.visible');
+      cy.contains('button', 'Confirm payment').click();
+    });
+  cy.contains('Sewing pattern pack')
+    .parents('div.border')
+    .first()
+    .within(() => {
+      cy.contains(/paid|processing|confirmed/i).should('be.visible');
+      cy.contains('Sandbox Locks credential').should('be.visible');
+      cy.contains('button', 'Open digital delivery').click();
+    });
+  cy.contains('Sewing pattern pack')
+    .parents('div.border')
+    .first()
+    .within(() => {
+      cy.contains('access 1').should('be.visible');
+      cy.contains('button', 'Refresh credential').click();
+      cy.contains('Sandbox Locks credential').should('be.visible');
+    });
+  cy.screenshot('signed-in-digital-delivery', { overwrite: true });
+}
+
+function visitCompanionStubs() {
+  cy.window().then((win) => {
+    cy.stub(win, 'open').as('companionOpen');
+  });
+  cy.contains('button', 'Open Locks connect').click();
+  cy.get('@companionOpen').should('have.been.called');
+  cy.contains('button', 'Open Bitkit setup').click();
+  cy.get('@companionOpen').should('have.been.calledTwice');
+  cy.request(
+    'http://127.0.0.1:3101/connect?return_to=http://localhost:3000/marketplace/settings&state=signed-in-locks',
+  ).then((response) => {
+    expect(response.body).to.include('SANDBOX');
+    expect(response.body).to.include('not Pubky Ring');
+  });
+  cy.request(
+    'http://127.0.0.1:3102/setup?return_to=http://localhost:3000/marketplace/settings&state=signed-in-paykit',
+  ).then((response) => {
+    expect(response.body).to.include('SANDBOX');
+    expect(response.body).to.include('not Bitkit');
+  });
 }
 
 function moderateAsSandboxOperator() {
