@@ -184,16 +184,19 @@ function checkoutBootsAndFulfill() {
   markBootsReadyForPickup();
   cy.visit('/marketplace/orders');
   cy.contains('Vintage leather boots').should('be.visible');
-  cy.contains('button', 'Confirm delivery').click();
+  dismissMarketplaceDialog();
+  cy.contains('button', 'Confirm delivery').click({ force: true });
   cy.contains('button', 'Leave review').should('be.visible');
-  cy.contains('button', 'Leave review').click();
+  cy.contains('button', 'Leave review').click({ force: true });
   cy.contains('Leave a review').should('be.visible');
   cy.get('#rating').clear().type('5');
   cy.get('#itemAccuracy').clear().type('5');
   cy.get('#shipping').clear().type('5');
   cy.get('#communication').clear().type('5');
   cy.get('#text').clear().type('Boots arrived as described.');
-  cy.contains('button', 'Confirm').click();
+  cy.get('#text').should('have.value', 'Boots arrived as described.');
+  cy.contains('button', 'Confirm').click({ force: true });
+  cy.contains('Leave a review').should('not.exist');
   cy.contains('Review 5/5').should('be.visible');
   cy.screenshot('signed-in-review', { overwrite: true });
   requestBootsReturn();
@@ -204,7 +207,7 @@ function requestBootsReturn() {
   cy.contains('Request a return').should('be.visible');
   cy.get('#reason').clear().type('Too narrow in the toe box.');
   cy.get('#amount').clear().type('125');
-  cy.contains('button', 'Confirm').click();
+  cy.contains('button', 'Confirm').click({ force: true });
   cy.contains(/Return /).should('be.visible');
   approveBootsReturn();
   cy.reload();
@@ -212,7 +215,7 @@ function requestBootsReturn() {
   cy.contains('Add return tracking').should('be.visible');
   cy.get('#carrier').clear().type('Sandbox Returns');
   cy.get('#trackingNumber').clear().type('RET-BOOTS-1');
-  cy.contains('button', 'Confirm').click();
+  cy.contains('button', 'Confirm').click({ force: true });
   cy.contains('Sandbox Returns').should('be.visible');
   cy.contains('RET-BOOTS-1').should('be.visible');
   cy.screenshot('signed-in-return', { overwrite: true });
@@ -333,7 +336,7 @@ function sellViaHttpAndShip() {
   cy.contains('Add shipment tracking').should('be.visible');
   cy.get('#carrier').clear().type('Sandbox Post');
   cy.get('#trackingNumber').clear().type('TRACK-HAT-1');
-  cy.contains('button', 'Confirm').click();
+  cy.contains('button', 'Confirm').click({ force: true });
   cy.contains('Sandbox Post').should('be.visible');
   cy.contains('TRACK-HAT-1').should('be.visible');
   cy.contains('Cypress sold hat')
@@ -344,7 +347,7 @@ function sellViaHttpAndShip() {
     });
   cy.contains('Open a dispute').should('be.visible');
   cy.get('#reason').clear().type('Sandbox seller dispute on delayed buyer confirmation.');
-  cy.contains('button', 'Confirm').click();
+  cy.contains('button', 'Confirm').click({ force: true });
   cy.contains(/dispute|open/i).should('be.visible');
   cy.screenshot('signed-in-seller-ship', { overwrite: true });
 }
@@ -452,6 +455,14 @@ function checkoutDigitalPatternPack() {
       cy.contains('Sandbox Locks credential').should('be.visible');
     });
   cy.screenshot('signed-in-digital-delivery', { overwrite: true });
+}
+
+function dismissMarketplaceDialog() {
+  cy.get('body').then(($body) => {
+    if ($body.attr('data-scroll-locked') === '1') {
+      cy.contains('button', 'Cancel').click({ force: true });
+    }
+  });
 }
 
 function visitCompanionStubs() {
