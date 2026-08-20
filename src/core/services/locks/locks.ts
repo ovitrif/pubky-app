@@ -6,7 +6,6 @@ import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { parseResponseOrThrow } from '@/libs/http/response.utils';
-import { generateLocksSdkBundleId, loadLocksSdk } from '@/libs/locks-sdk/load-locks-sdk';
 
 const lifecycleSchema = z.object({
   creator: z.string().min(1),
@@ -31,6 +30,7 @@ export class LocksGatewayService {
 
   static async generateBundleId(): Promise<string> {
     if (getCommerceAdapterMode() === 'locks-paykit') {
+      const { generateLocksSdkBundleId } = await import('@/libs/locks-sdk/load-locks-sdk');
       return await generateLocksSdkBundleId();
     }
     return crypto.randomUUID().replaceAll('-', '');
@@ -71,6 +71,7 @@ export class LocksGatewayService {
     };
     if (getCommerceAdapterMode() === 'locks-paykit') {
       this.requireLocksUrl();
+      const { loadLocksSdk } = await import('@/libs/locks-sdk/load-locks-sdk');
       const sdk = await loadLocksSdk();
       const client = await sdk.Locks.forContentLock(lockResource);
       try {
@@ -86,6 +87,7 @@ export class LocksGatewayService {
   static async lookupVerification(creatorPubky: string, bundleId: string): Promise<LocksVerificationLifecycle> {
     if (getCommerceAdapterMode() === 'locks-paykit') {
       this.requireLocksUrl();
+      const { loadLocksSdk } = await import('@/libs/locks-sdk/load-locks-sdk');
       const sdk = await loadLocksSdk();
       const client = await sdk.Locks.forCreator(withPubkyPrefix(creatorPubky));
       const options = new sdk.VerificationTaskHandleOptions(withPubkyPrefix(creatorPubky), bundleId);
@@ -106,6 +108,7 @@ export class LocksGatewayService {
   static async issueAccessCredential(creatorPubky: string, bundleId: string): Promise<LocksAccessCredential> {
     if (getCommerceAdapterMode() === 'locks-paykit') {
       this.requireLocksUrl();
+      const { loadLocksSdk } = await import('@/libs/locks-sdk/load-locks-sdk');
       const sdk = await loadLocksSdk();
       const client = await sdk.Locks.forCreator(withPubkyPrefix(creatorPubky));
       const options = new sdk.VerificationTaskHandleOptions(withPubkyPrefix(creatorPubky), bundleId);

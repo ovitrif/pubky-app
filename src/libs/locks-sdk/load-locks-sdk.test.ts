@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const generate = vi.fn();
 const init = vi.fn(async () => ({}));
 
-vi.mock('locks-sdk-wasm', () => ({
+vi.mock('../../../vendor/locks-sdk-wasm/locks_sdk_wasm.js', () => ({
   default: init,
   BundleId: {
     generate: () => generate(),
