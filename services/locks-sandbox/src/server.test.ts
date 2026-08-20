@@ -1,11 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { fetch as realFetch } from 'undici';
 import { describe, expect, it } from 'vitest';
-import {
-  createLocksSandboxHttpServer,
-  createLocksSandboxStore,
-  createPaykitSetupSandboxHttpServer,
-} from './server';
+import { createLocksSandboxHttpServer, createLocksSandboxStore, createPaykitSetupSandboxHttpServer } from './server';
 
 const CREATOR = 'k'.repeat(52);
 const READER = 'b'.repeat(52);

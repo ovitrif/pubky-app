@@ -138,10 +138,20 @@ export function createPaykitSetupSandboxHttpServer(): Server {
         writeHtml(response, renderSetupPage(url.searchParams), 'paykit');
         return;
       }
-      writeJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Paykit setup sandbox route not found.' } }, 'paykit');
+      writeJson(
+        response,
+        404,
+        { error: { code: 'NOT_FOUND', message: 'Paykit setup sandbox route not found.' } },
+        'paykit',
+      );
     } catch (error) {
       console.error('[locks-sandbox] paykit setup failed', error);
-      writeJson(response, 500, { error: { code: 'INTERNAL_ERROR', message: 'Paykit setup sandbox request failed.' } }, 'paykit');
+      writeJson(
+        response,
+        500,
+        { error: { code: 'INTERNAL_ERROR', message: 'Paykit setup sandbox request failed.' } },
+        'paykit',
+      );
     }
   });
 }
@@ -155,19 +165,34 @@ function submitProofBundle(store: LocksSandboxStore, body: unknown): { status: n
   }
   const bundle = body.submitted_proof_bundle;
   if (bundle.version !== 1) {
-    return { status: 400, body: { error: { code: 'INVALID_PROOF', message: 'Only proof bundle version 1 is accepted.' } } };
+    return {
+      status: 400,
+      body: { error: { code: 'INVALID_PROOF', message: 'Only proof bundle version 1 is accepted.' } },
+    };
   }
   if (typeof bundle.bundle_id !== 'string' || !BUNDLE_ID.test(bundle.bundle_id)) {
-    return { status: 400, body: { error: { code: 'INVALID_PROOF', message: 'bundle_id must be 16 to 128 URL-safe characters.' } } };
+    return {
+      status: 400,
+      body: { error: { code: 'INVALID_PROOF', message: 'bundle_id must be 16 to 128 URL-safe characters.' } },
+    };
   }
   if (typeof bundle.pubky_lock_resource !== 'string' || !LOCK_RESOURCE.test(bundle.pubky_lock_resource)) {
-    return { status: 400, body: { error: { code: 'INVALID_PROOF', message: 'pubky_lock_resource is not a Locks policy path.' } } };
+    return {
+      status: 400,
+      body: { error: { code: 'INVALID_PROOF', message: 'pubky_lock_resource is not a Locks policy path.' } },
+    };
   }
   if (typeof bundle.reader_public_key !== 'string' || !READER_KEY.test(bundle.reader_public_key)) {
-    return { status: 400, body: { error: { code: 'INVALID_PROOF', message: 'reader_public_key must be a prefixed Pubky.' } } };
+    return {
+      status: 400,
+      body: { error: { code: 'INVALID_PROOF', message: 'reader_public_key must be a prefixed Pubky.' } },
+    };
   }
   if (!Array.isArray(bundle.proofs) || bundle.proofs.length === 0) {
-    return { status: 400, body: { error: { code: 'INVALID_PROOF', message: 'At least one Paykit proof is required.' } } };
+    return {
+      status: 400,
+      body: { error: { code: 'INVALID_PROOF', message: 'At least one Paykit proof is required.' } },
+    };
   }
   for (const proof of bundle.proofs) {
     if (!isRecord(proof) || proof.verifier_type !== 'paykit-payment' || typeof proof.criterion_id !== 'string') {
@@ -269,14 +294,26 @@ function readGuardedContent(
   const header = request.headers.authorization;
   const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
   if (!token) {
-    return { ok: false, status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'A sandbox bearer credential is required.' } } };
+    return {
+      ok: false,
+      status: 401,
+      body: { error: { code: 'UNAUTHORIZED', message: 'A sandbox bearer credential is required.' } },
+    };
   }
   const credential = store.credentials.get(token);
   if (!credential) {
-    return { ok: false, status: 403, body: { error: { code: 'FORBIDDEN', message: 'The sandbox credential is unknown.' } } };
+    return {
+      ok: false,
+      status: 403,
+      body: { error: { code: 'FORBIDDEN', message: 'The sandbox credential is unknown.' } },
+    };
   }
   if (Date.parse(credential.expiresAt) <= store.now().getTime()) {
-    return { ok: false, status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'The sandbox credential has expired.' } } };
+    return {
+      ok: false,
+      status: 401,
+      body: { error: { code: 'UNAUTHORIZED', message: 'The sandbox credential has expired.' } },
+    };
   }
   const safePath = relativePath
     .split('/')
@@ -284,7 +321,11 @@ function readGuardedContent(
     .map((segment) => decodeURIComponent(segment))
     .join('/');
   if (!safePath || safePath.includes('..')) {
-    return { ok: false, status: 400, body: { error: { code: 'INVALID_PATH', message: 'Guarded content path is invalid.' } } };
+    return {
+      ok: false,
+      status: 400,
+      body: { error: { code: 'INVALID_PATH', message: 'Guarded content path is invalid.' } },
+    };
   }
   return {
     ok: true,

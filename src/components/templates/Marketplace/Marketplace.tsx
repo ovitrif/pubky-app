@@ -88,11 +88,7 @@ export function Marketplace() {
                 <HandCoins className="mr-2 size-4" />
                 Offers
               </Button>
-              <Button
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => router.push(MARKETPLACE_ROUTES.CART)}
-              >
+              <Button variant="ghost" className="rounded-full" onClick={() => router.push(MARKETPLACE_ROUTES.CART)}>
                 <ShoppingCart className="mr-2 size-4" />
                 Cart
               </Button>
