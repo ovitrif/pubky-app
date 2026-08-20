@@ -34,6 +34,10 @@ export function useLocksPayment({
       });
       setBundleId(nextBundleId);
       setLifecycle(next);
+      if (next.status === 'completed') {
+        const issued = await CommerceController.issueLocksAccessCredential(creatorPubky, nextBundleId);
+        setCredential(issued);
+      }
       return true;
     } catch {
       setError('Could not create the Locks/Paykit payment request.');
