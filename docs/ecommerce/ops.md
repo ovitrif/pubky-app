@@ -13,6 +13,8 @@
 
 `npm run locks:sandbox` listens on `127.0.0.1:3101` (Locks client routes) and `127.0.0.1:3102` (Paykit `/setup`). It is a labeled stub: empty Paykit proofs only, no Bitcoin, no Bitkit, no Ring grant.
 
+`npm run locks:wasm:smoke` checks the vendored unpublished Locks JS/WASM pin (`vendor/locks-sdk-wasm`, public asset `/locks-sdk/locks_sdk_wasm_bg.wasm`). Loading that package is not Bitkit companion approval.
+
 Runtime defaults live in `src/libs/runtime-config/runtime-config.schema.ts`. Copy `.env.example` only when you need to override them.
 
 The sandbox adapter is the local default (`PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=sandbox`) and is labeled in the UI. It does not move Bitcoin, custody funds, or issue real refunds. Production deployments should set `locks-paykit` or `unavailable`.

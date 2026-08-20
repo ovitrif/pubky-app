@@ -240,6 +240,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.fetchAttachment(actorPubky, attachmentId);
   }
 
+  static async generateLocksBundleId() {
+    return await LocksGatewayService.generateBundleId();
+  }
+
   static async submitLocksPaykitProof(params: {
     creatorPubky: string;
     readerPubky: string;

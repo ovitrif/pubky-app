@@ -184,6 +184,10 @@ export class CommerceController {
     );
   }
 
+  static async generateLocksBundleId() {
+    return await CommerceApplication.generateLocksBundleId();
+  }
+
   static async submitLocksPaykitProof({
     creatorPubky,
     bundleId,

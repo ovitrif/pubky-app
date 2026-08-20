@@ -1,0 +1,25 @@
+{
+  "package": "locks-sdk-wasm",
+  "upstream": "https://github.com/pubky/locks",
+  "sourceCommit": "ba49a777a94db318ec6ebd427315080a5b904645",
+  "sourcePath": "locks-sdk/bindings/js",
+  "license": "MIT",
+  "generatedAt": "2026-08-20T21:43:00.000Z",
+  "tools": {
+    "wasmPack": "0.13.1",
+    "rustc": "1.89.0 (29483883e 2025-08-04)",
+    "target": "wasm32-unknown-unknown",
+    "command": "wasm-pack build --target web --out-dir pkg"
+  },
+  "checksumsSha256": {
+    "locks_sdk_wasm_bg.wasm": "9da44909b46b1280536aa3dd19e760edd712183557de3b14920f0538122386d0",
+    "locks_sdk_wasm.js": "0ba84924af02de312728a025c2d61481f0753614c0c92e78945798707ec40dbe",
+    "locks_sdk_wasm.d.ts": "9d6edd1196d21396bc21e09a46c15745cd06f164456bfd8b18b62d0f234b5244",
+    "package.json": "c760bc271fbe85ad8d10bc48ccdec1f9cf869f369ece58102a18adbf046d66d6"
+  },
+  "browserAsset": "/locks-sdk/locks_sdk_wasm_bg.wasm",
+  "notes": [
+    "Unpublished upstream package. Do not reimplement identifiers, proofs, or sessions in TypeScript.",
+    "Load only from a client dynamic import. This is not Bitkit, Paykit Server, or live settlement."
+  ]
+}

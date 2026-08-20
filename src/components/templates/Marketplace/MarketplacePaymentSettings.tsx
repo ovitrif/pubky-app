@@ -11,10 +11,12 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useLocksSdkStatus } from '@/hooks/useLocksSdkStatus/useLocksSdkStatus';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceShopSettingsForm } from '@/organisms/Marketplace/MarketplaceShopSettingsForm';
 
 export function MarketplacePaymentSettings() {
+  const locksSdk = useLocksSdkStatus();
   const openLocks = () => {
     const url = new URL('/connect', getLocksUrl());
     url.searchParams.set('return_to', window.location.href);
@@ -66,7 +68,39 @@ export function MarketplacePaymentSettings() {
               Sandbox checkout uses a labeled simulated Paykit endpoint. Live Bitkit companion approval is a separate
               setup step and does not move funds from this page.
             </Typography>
-            <Badge variant="secondary">sandbox · simulated invoice</Badge>
+            <Badge variant="secondary">
+              {locksSdk.adapterMode === 'locks-paykit' ? 'locks-paykit · WASM viewer' : 'sandbox · simulated invoice'}
+            </Badge>
+          </CardContent>
+        </Card>
+
+        <Card className="border">
+          <CardContent className="grid gap-3 px-6">
+            <Typography as="h2" className="font-semibold">
+              Locks JS/WASM client
+            </Typography>
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Browser bindings are vendored from pubky/locks @{locksSdk.sourceCommit.slice(0, 8)}. This loads the
+              generated package only. It does not approve Bitkit or move Bitcoin.
+            </Typography>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="secondary"
+                className="rounded-full"
+                disabled={locksSdk.status === 'loading'}
+                onClick={() => void locksSdk.verify()}
+              >
+                Verify Locks JS/WASM
+              </Button>
+              {locksSdk.status === 'ready' && (
+                <Badge variant="secondary">Loaded pinned WASM · {locksSdk.sourceCommit.slice(0, 8)}</Badge>
+              )}
+              {locksSdk.status === 'unavailable' && (
+                <Typography as="p" role="status" className="text-sm text-amber-300">
+                  {locksSdk.error}
+                </Typography>
+              )}
+            </div>
           </CardContent>
         </Card>
 

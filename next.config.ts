@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { NextConfig } from 'next';
 import withSerwistInit from '@serwist/next';
 import { withSentryConfig } from '@sentry/nextjs';
@@ -49,6 +50,11 @@ const nextConfig: NextConfig = {
       config.externals.push('@synonymdev/pubky');
     }
 
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'locks-sdk-wasm': path.resolve(process.cwd(), 'vendor/locks-sdk-wasm/locks_sdk_wasm.js'),
+    };
+
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,
@@ -61,6 +67,7 @@ const nextConfig: NextConfig = {
     resolveAlias: {
       '@synonymdev/pubky': '@synonymdev/pubky/index.js',
       'pubky-app-specs': 'pubky-app-specs/index.js',
+      'locks-sdk-wasm': './vendor/locks-sdk-wasm/locks_sdk_wasm.js',
     },
   },
 };

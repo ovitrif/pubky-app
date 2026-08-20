@@ -34,9 +34,13 @@ export function MarketplaceLocksPayment({
             <Typography as="p" className="text-sm text-muted-foreground">
               Paykit sends the private Bitcoin request to Bitkit. Pubky App never receives wallet keys.
             </Typography>
-            {sandbox && (
+            {sandbox ? (
               <Badge variant="secondary" className="mt-2">
                 Sandbox stub · empty proof · no Bitcoin
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="mt-2">
+                Locks JS/WASM viewer · empty Paykit proof · no invoice in this app
               </Badge>
             )}
           </div>

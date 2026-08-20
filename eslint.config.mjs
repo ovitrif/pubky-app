@@ -29,6 +29,8 @@ const eslintConfig = [
       'next-env.d.ts',
       // PWA generated files (serwist)
       'public/sw.js',
+      // Generated unpublished Locks JS/WASM
+      'vendor/locks-sdk-wasm/**',
     ],
   },
   {

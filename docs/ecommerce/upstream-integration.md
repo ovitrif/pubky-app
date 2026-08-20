@@ -284,7 +284,7 @@ What works now without Bitkit, Ring, or Paykit Server:
 What still blocks a live Bitkit → Paykit Server → Locks confirmation:
 
 - This Cloud VM has a staging recovery phrase, but Bitkit, Paykit Server, Electrum, and a Bitcoin node are not running here.
-- Locks JS/WASM is unpublished and is not vendored into this Next.js build.
+- Locks JS/WASM is now vendored from `pubky/locks@ba49a777` (`vendor/locks-sdk-wasm`, `npm run locks:wasm:smoke`). Loading it is not Bitkit companion approval.
 - Paykit has no browser binding. The browser must not call Paykit Server business routes.
 - Paykit Server is BTC-only, single-process, and cannot spend, refund, or issue receipts.
 - `pubky-docker` does not include Locks, Paykit Server, Electrum, Bitcoin, Ring, or Bitkit.
@@ -294,7 +294,7 @@ Until those companions are running against the pinned topology, treat sandbox pa
 
 ## Blockers tracked as work
 
-- Build and package the unpublished Locks JS/WASM binding reproducibly.
+- Wire the vendored Locks JS/WASM viewer to a live Lock Server + Paykit Server + Bitkit topology.
 - Add a protocol-real local Compose overlay; neither Pubky Docker nor Locks Compose alone is complete.
 - Implement Marketplace Transaction Service verification of the Locks lifecycle without exposing bearer material.
 - Define private marketplace messaging: use Paykit encrypted links through a Rust adapter or adopt another reviewed encrypted Pubky protocol.

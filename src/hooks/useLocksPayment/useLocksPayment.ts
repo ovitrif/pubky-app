@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getCommercePollIntervalMs } from '@/config/commerce';
+import { getCommerceAdapterMode, getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { LocksAccessCredential, LocksVerificationLifecycle } from '@/services/locks/locks';
 
@@ -21,7 +21,10 @@ export function useLocksPayment({
   const [isStarting, setIsStarting] = useState(false);
 
   const start = async () => {
-    const nextBundleId = crypto.randomUUID().replaceAll('-', '');
+    const nextBundleId =
+      getCommerceAdapterMode() === 'locks-paykit'
+        ? await CommerceController.generateLocksBundleId()
+        : crypto.randomUUID().replaceAll('-', '');
     setIsStarting(true);
     setCredential(null);
     setError(null);

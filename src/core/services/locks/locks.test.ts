@@ -5,14 +5,46 @@ const CREATOR = 'y'.repeat(52);
 const READER = 'b'.repeat(52);
 const BUNDLE_ID = '000G40R40M30E209185GR38E1W';
 
+const adapterMode = vi.hoisted(() => ({ value: 'sandbox' as 'sandbox' | 'locks-paykit' }));
+const sdkViewer = vi.hoisted(() => ({
+  submitProofBundle: vi.fn(),
+  lookupVerificationTask: vi.fn(),
+  issueAccessCredential: vi.fn(),
+  proxyReadGuardedResource: vi.fn(),
+}));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
   return {
     ...actual,
+    getCommerceAdapterMode: () => adapterMode.value,
     getLocksUrl: () => 'https://locks.example.com',
     getPaykitSetupUrl: () => 'https://paykit.example.com/setup',
   };
 });
+
+vi.mock('@/libs/locks-sdk/load-locks-sdk', () => ({
+  generateLocksSdkBundleId: vi.fn(async () => '000G40R40M30E209185GR38E1W'),
+  loadLocksSdk: vi.fn(async () => ({
+    Locks: {
+      forContentLock: async () => ({
+        viewer: sdkViewer,
+        free: vi.fn(),
+      }),
+      forCreator: async () => ({
+        viewer: sdkViewer,
+        free: vi.fn(),
+      }),
+    },
+    VerificationTaskHandleOptions: class {
+      constructor(
+        readonly creator: string,
+        readonly bundleId: string,
+      ) {}
+      free() {}
+    },
+  })),
+}));
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -33,6 +65,7 @@ function lifecycle(status: 'pending' | 'completed' = 'pending') {
 describe('LocksGatewayService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    adapterMode.value = 'sandbox';
   });
 
   it('submits the canonical empty Paykit proof without invoice material', async () => {
@@ -99,5 +132,40 @@ describe('LocksGatewayService', () => {
     ).toBe(
       'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state',
     );
+  });
+
+  it('generates a random hex bundle id in sandbox mode', async () => {
+    const uuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(uuid);
+    await expect(LocksGatewayService.generateBundleId()).resolves.toBe(uuid.replaceAll('-', ''));
+  });
+
+  it('uses the vendored Locks SDK viewer in locks-paykit mode', async () => {
+    adapterMode.value = 'locks-paykit';
+    sdkViewer.submitProofBundle.mockResolvedValue(lifecycle());
+    sdkViewer.lookupVerificationTask.mockResolvedValue(lifecycle('completed'));
+    sdkViewer.issueAccessCredential.mockResolvedValue({
+      credential: 'opaque-secret',
+      expires_at: '2026-08-20T00:00:00.000Z',
+    });
+    await expect(LocksGatewayService.generateBundleId()).resolves.toBe(BUNDLE_ID);
+    await LocksGatewayService.submitPaykitProof({
+      creatorPubky: CREATOR,
+      readerPubky: READER,
+      bundleId: BUNDLE_ID,
+      lockResource: `pubky://${CREATOR}/pub/locks.app/lock.json`,
+      criterionId: 'criterion-1',
+    });
+    await LocksGatewayService.lookupVerification(CREATOR, BUNDLE_ID);
+    await LocksGatewayService.issueAccessCredential(CREATOR, BUNDLE_ID);
+
+    expect(sdkViewer.submitProofBundle).toHaveBeenCalledWith({
+      version: 1,
+      bundle_id: BUNDLE_ID,
+      pubky_lock_resource: `pubky${CREATOR}/pub/locks.app/lock.json`,
+      reader_public_key: `pubky${READER}`,
+      proofs: [{ criterion_id: 'criterion-1', verifier_type: 'paykit-payment', payload: {} }],
+    });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });

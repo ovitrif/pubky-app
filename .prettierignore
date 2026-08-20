@@ -39,6 +39,9 @@ coverage/
 # Public assets
 public/
 
+# Generated unpublished Locks JS/WASM
+vendor/locks-sdk-wasm/
+
 # Generated files
 next-env.d.ts
 

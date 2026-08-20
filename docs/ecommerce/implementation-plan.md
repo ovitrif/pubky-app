@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (support/finance/risk consoles + 100-way checkout/bid/close/payment concurrency; live Bitkit remains)
+Stopped at: **T8 — Hardening and parity audit** (support/finance/risk consoles + 100-way concurrency + vendored Locks JS/WASM; live Bitkit remains)
 
 Legend:
 
@@ -24,7 +24,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory tests plus PostgreSQL write-through repository
 - [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
 - [x] **T4 — Messaging, offers, and auctions** — proxy bids, visible bid history, anti-sniping, watcher-only offers, auto-accept thresholds, increment-shill auto-flags
-- [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks plus labeled HTTP stub; live Bitkit/Paykit Server E2E unverified
+- [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks, labeled HTTP stub, and vendored unpublished Locks JS/WASM; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
 - [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, support/finance/risk role split, 100-way checkout/bid/close/payment concurrency, enforced Next nonce CSP, DNS rebinding, restore drill; live Bitkit remains
@@ -37,7 +37,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 3. Durable transaction service + inventory/ledger foundations — PostgreSQL snapshot + events/ledger/outbox tables
 - [x] 4. Messaging + offers + concurrency-safe auctions
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
-- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub; companion approval not proven
+- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub + vendored Locks JS/WASM viewer; companion approval not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
 - [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; trust labels; guarantee terms; buyer payment status; support/finance/risk consoles; 100-way concurrency; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
@@ -375,7 +375,7 @@ All events include stable ID, aggregate ID, actor, revision, timestamp, idempote
 ### Adapter modes
 
 - `sandbox`: deterministic local adapter for complete demos and failure testing; always labeled.
-- `locks-paykit`: real Locks HTTP lifecycle backed by Paykit Server.
+- `locks-paykit`: vendored Locks JS/WASM viewer against a configured Lock Server. Paykit Server stays out of the browser.
 - `unavailable`: fail closed with setup guidance; never silently fall back during a real checkout.
 
 Runtime configuration will include service URLs, adapter mode, polling/backoff limits, confirmation policy, and public keys. Secrets and trusted signing keys stay server-side.
@@ -470,6 +470,7 @@ Ledger format:
 | Visible bid history                    | `transaction-service.test.ts` + auction PDP            | visible prices only, no proxy max       | Closed  | Projection reconstruct                                                             | Marketplace unit suite                       | Verified in sandbox |
 | Offer auto-accept                      | `transaction-service.test.ts` + sell form + vase PDP   | threshold reserves inventory            | Closed  | Service + catalog                                                                  | Marketplace unit suite                       | Verified in sandbox |
 | Feature videos                         | recorded walkthroughs                                  | all feature groups                      | Open    | Guest subset + signed-in checkout, digital clicks, operator moderation (no phrase) | Live Bitkit and staff-console videos missing | Partial             |
+| Vendored Locks JS/WASM                 | `npm run locks:wasm:smoke` + `load-locks-sdk.test.ts`  | pinned `ba49a777` checksums + BundleId  | Closed  | vendor + public asset + client dynamic import                                      | Smoke + unit                                 | Verified locally    |
 | Support / finance / risk roles         | `transaction-service.test.ts` + `/marketplace/support` | redacted orders; finance cannot decide  | Closed  | Reserved staff pubkys + consoles                                                   | Marketplace unit suite                       | Verified in sandbox |
 | 100-way checkout / close / payment     | `transaction-service.test.ts`                          | exactly one winner / one confirm        | Closed  | Listing and payment revision CAS                                                   | Marketplace unit suite                       | Verified in sandbox |
 
