@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (listing shipping quotes, shop collection editor, Satoshi second listing; live Bitkit and remaining videos remain)
+Stopped at: **T8 — Hardening and parity audit** (enforced Next CSP + DNS-rebinding + restore drill; live Bitkit and remaining signed-in videos remain)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks plus labeled HTTP stub; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — payment confirm converts reserved→sold; dashboard views/favorites/conversion/sell-through; named option editor; axe + SSRF suites; live Bitkit and remaining videos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — enforced Next nonce CSP; resolved commerce URL DNS check; JSON/Postgres restore drill; marketplace muted-text AA override; live Bitkit and remaining videos remain
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills plus Locks stub pages; Bitkit and remaining motion demos remain
 
 ### Delivery slices
@@ -39,12 +39,12 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
 - [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub; companion approval not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
-- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; live Bitkit and remaining videos remain
+- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
 
 ### Where we stopped
 
-Last shipped feature work: reserved inventory converts to sold on payment confirm, seller analytics (views/favorites/conversion/sell-through), dynamic listing option dimensions, and axe/SSRF suites.
+Last shipped feature work: enforced Next.js nonce CSP, Node-side commerce DNS-rebinding checks, isolated snapshot restore drills, and marketplace muted-text contrast override.
 
 Next required work, in order:
 
@@ -249,20 +249,20 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
 - [x] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
 - [x] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history. — increment-only non-leading bids auto-flag `auction_manipulation`
-- [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards + outbound URL SSRF + CSRF/origin suite; live DNS-rebinding still open
+- [x] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards + outbound URL SSRF + CSRF/origin suite + resolved-DNS rebinding (loopback skip, public hostname → private IP rejected)
 
 ### Privacy, security, observability, and operations
 
-- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF + marketplace CSRF/origin + JSON CSP; Next.js CSP is report-only because of the inline runtime-config script
+- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF + marketplace CSRF/origin + JSON CSP; Next.js document CSP is enforced with a per-request nonce on the raw runtime-config script
 - [x] Recovery phrases, payment secrets, raw delivery details, message bodies, evidence, access credentials, and private Pubky identifiers never enter analytics, logs, Sentry, or public records.
 - [x] Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
-- [~] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live`, `/health/ready`, `/v1/metrics`; restore drills pending
+- [x] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live`, `/health/ready`, `/v1/metrics`, `/v1/admin/snapshot`; `restore-drill.test.ts` JSON + Postgres file hydrate; ops.md procedure
 - [x] Invariant alerts cover oversell, double winner, duplicate payment/refund, unbalanced ledger, stuck fulfillment, and authorization failures.
 - [x] Admin searches and manual actions are role-scoped, redacted, reasoned, previewed, and append-only audited.
 
 ### Accessibility, responsiveness, and local-first behavior
 
-- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form and catalog filter axe suites; contrast/manual review remain
+- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form and catalog filter axe suites; marketplace muted token AA on cards; signed-in manual review still needed
 - [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT with feed sections
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
@@ -398,7 +398,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 - [x] Add Dexie schemas/models, database version handling, local services, sync outbox, stores, controllers, and applications.
 - [x] Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock.
 - [~] Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters. — catalog + payment advance + flat tax/shipping
-- [~] Verify account isolation, recovery, conflict handling, replay, and offline behavior. — command identity + Dexie scoping; restore drills pending
+- [x] Verify account isolation, recovery, conflict handling, replay, and offline behavior. — command identity + Dexie scoping; JSON/Postgres restore drill
 
 ### T3 — Catalog and discovery `[x]`
 
@@ -427,7 +427,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T8 — Hardening and parity audit `[~]` `[!]` stopped here
 
-- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, CSRF/origin/JSON CSP, catalog VRT mock, thin Cypress browse/auth-gate
+- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, CSRF/origin/JSON CSP, enforced Next nonce CSP, DNS rebinding, restore drill, catalog VRT mock, thin Cypress browse/auth-gate
 - [ ] Compare every acceptance item with authoritative runtime evidence.
 - [ ] Fix findings and repeat the complete affected verification scope.
 
@@ -450,20 +450,23 @@ Each implementation task closes only through this loop:
 
 Ledger format:
 
-| Requirement                            | Verification address                                   | Expected evidence                     | Finding | Fix                      | Re-verification        | Status              |
-| -------------------------------------- | ------------------------------------------------------ | ------------------------------------- | ------- | ------------------------ | ---------------------- | ------------------- |
-| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price      | Closed  | Service + UI             | Marketplace unit suite | Verified in sandbox |
-| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky   | Closed  | Dexie v6                 | Hook test              | Verified in sandbox |
-| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger | Closed  | Integer ledger           | Marketplace unit suite | Verified in sandbox |
-| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter     | Closed  | Filter + trust.decide    | Unit tests             | Verified in sandbox |
-| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                 | Closed  | Transaction service      | Marketplace unit suite | Verified in sandbox |
-| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                 | Open    | Pending                  | Not run                | Unverified          |
-| PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect      | Closed  | Write-through snapshot   | Marketplace unit suite | Verified in sandbox |
-| Watcher-only offers                    | `transaction-service.test.ts` + sell form + PDP        | watch required, checkout rejected     | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
-| Auction increment-shill auto-flag      | `transaction-service.test.ts`                          | risk signal, bid history unchanged    | Closed  | Auto-flag on `bid.place` | Marketplace unit suite | Verified in sandbox |
-| Visible bid history                    | `transaction-service.test.ts` + auction PDP            | visible prices only, no proxy max     | Closed  | Projection reconstruct   | Marketplace unit suite | Verified in sandbox |
-| Offer auto-accept                      | `transaction-service.test.ts` + sell form + vase PDP   | threshold reserves inventory          | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
-| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Guest subset recorded    | Signed-in/Bitkit open  | Unverified          |
+| Requirement                            | Verification address                                   | Expected evidence                       | Finding | Fix                      | Re-verification        | Status              |
+| -------------------------------------- | ------------------------------------------------------ | --------------------------------------- | ------- | ------------------------ | ---------------------- | ------------------- |
+| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price        | Closed  | Service + UI             | Marketplace unit suite | Verified in sandbox |
+| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky     | Closed  | Dexie v6                 | Hook test              | Verified in sandbox |
+| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger   | Closed  | Integer ledger           | Marketplace unit suite | Verified in sandbox |
+| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter       | Closed  | Filter + trust.decide    | Unit tests             | Verified in sandbox |
+| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                   | Closed  | Transaction service      | Marketplace unit suite | Verified in sandbox |
+| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                   | Open    | Pending                  | Not run                | Unverified          |
+| PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect        | Closed  | Write-through snapshot   | Marketplace unit suite | Verified in sandbox |
+| Snapshot restore drill                 | `restore-drill.test.ts` + `/v1/admin/snapshot`         | JSON hydrate keeps listing/order/ledger | Closed  | export/hydrate + ops.md  | Marketplace unit suite | Verified in sandbox |
+| Next.js document CSP                   | `src/proxy.ts` + runtime-config nonce                  | enforcing CSP, nonce on raw script      | Closed  | Next 16 proxy + ADR 0017 | CSP unit + curl        | Verified in sandbox |
+| Commerce DNS rebinding                 | `safe-resolved-url.test.ts` + instrumentation boot     | public host → private IP rejected       | Closed  | Node `checkDnsSafety`    | Unit suite             | Verified in sandbox |
+| Watcher-only offers                    | `transaction-service.test.ts` + sell form + PDP        | watch required, checkout rejected       | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
+| Auction increment-shill auto-flag      | `transaction-service.test.ts`                          | risk signal, bid history unchanged      | Closed  | Auto-flag on `bid.place` | Marketplace unit suite | Verified in sandbox |
+| Visible bid history                    | `transaction-service.test.ts` + auction PDP            | visible prices only, no proxy max       | Closed  | Projection reconstruct   | Marketplace unit suite | Verified in sandbox |
+| Offer auto-accept                      | `transaction-service.test.ts` + sell form + vase PDP   | threshold reserves inventory            | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                      | Open    | Guest subset recorded    | Signed-in/Bitkit open  | Unverified          |
 
 Required gates:
 
