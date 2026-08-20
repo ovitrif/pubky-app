@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { MARKETPLACE_GUEST_CART_OWNER } from '@/libs/commerce/guest-cart';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -68,6 +69,30 @@ describe('CommerceController', () => {
     );
 
     expect(useCommerceStore.getState().pendingEntityIds).toEqual([]);
+  });
+
+  it('scopes guest cart reads and writes to the reserved local owner', async () => {
+    useAuthStore.setState({ currentUserPubky: null });
+    const getCartItems = vi.spyOn(CommerceApplication, 'getCartItems').mockResolvedValue([]);
+    const add = vi.spyOn(CommerceApplication, 'commitAddCartItem').mockResolvedValue(undefined);
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:boots_01`;
+
+    await CommerceController.getCartItems();
+    await CommerceController.commitAddCartItem(listingId, 'variant_01', 2);
+
+    expect(getCartItems).toHaveBeenCalledWith(MARKETPLACE_GUEST_CART_OWNER);
+    expect(add).toHaveBeenCalledWith(MARKETPLACE_GUEST_CART_OWNER, listingId, 'variant_01', 2);
+  });
+
+  it('merges the reserved guest cart only after a real session appears', async () => {
+    const merge = vi.spyOn(CommerceApplication, 'mergeGuestCart').mockResolvedValue(undefined);
+    useAuthStore.setState({ currentUserPubky: null });
+    await CommerceController.mergeGuestCart();
+    expect(merge).not.toHaveBeenCalled();
+
+    useAuthStore.setState({ currentUserPubky: COMMERCE_FIXTURE_BUYER });
+    await CommerceController.mergeGuestCart();
+    expect(merge).toHaveBeenCalledWith(MARKETPLACE_GUEST_CART_OWNER, COMMERCE_FIXTURE_BUYER);
   });
 
   it('scopes favorite writes to the signed-in owner', async () => {

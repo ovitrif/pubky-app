@@ -11,12 +11,26 @@ export function sandboxListingAutoAcceptAmount(
   return listing.sale.format === 'auction' ? null : (listing.sale.autoAcceptAmount ?? null);
 }
 
+export function sandboxListingCatalogQuantity(listing: CommerceListingRecord): number {
+  return listing.variants.reduce((total, variant) => total + variant.quantity, 0);
+}
+
 export function sandboxListingNeedsReregister(
-  existing: { autoAcceptAmount?: CommerceMoney | null } | null,
+  existing: {
+    autoAcceptAmount?: CommerceMoney | null;
+    availableQuantity?: number;
+    reservedQuantity?: number;
+    soldQuantity?: number;
+  } | null,
   listing: CommerceListingRecord,
 ): boolean {
   if (!existing) return true;
-  return JSON.stringify(existing.autoAcceptAmount ?? null) !== JSON.stringify(sandboxListingAutoAcceptAmount(listing));
+  if (JSON.stringify(existing.autoAcceptAmount ?? null) !== JSON.stringify(sandboxListingAutoAcceptAmount(listing))) {
+    return true;
+  }
+  const serviceQuantity =
+    (existing.availableQuantity ?? 0) + (existing.reservedQuantity ?? 0) + (existing.soldQuantity ?? 0);
+  return serviceQuantity !== sandboxListingCatalogQuantity(listing);
 }
 
 export function sandboxAuctionSeedPlan(

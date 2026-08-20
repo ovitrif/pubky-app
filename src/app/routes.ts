@@ -102,6 +102,8 @@ export const PUBLIC_ROUTES: string[] = [
   // already dynamic public routes; the index is not, and would otherwise stay
   // on the RouteGuard spinner until persist finishes.
   APP_ROUTES.MARKETPLACE,
+  // Guest carts stay local until checkout, which still requires a signed-in session.
+  MARKETPLACE_ROUTES.CART,
   // Profile is public to prevent RouteGuard redirect during logout.
   // The profile page components handle unauthenticated state gracefully.
   APP_ROUTES.PROFILE,

@@ -1,5 +1,6 @@
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
+import { MARKETPLACE_GUEST_CART_OWNER, marketplaceCartOwner } from '@/libs/commerce/guest-cart';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -254,30 +255,47 @@ export class CommerceController {
   }
 
   static async getCartItems() {
-    return await CommerceApplication.getCartItems(this.getCurrentUserPubky());
+    return await CommerceApplication.getCartItems(this.getCartOwnerPubky());
   }
 
   static async commitUpsertCartItem(listingCompositeId: unknown, variantId: unknown, quantity: unknown): Promise<void> {
     const parsedQuantity =
       typeof quantity === 'number' && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : Number.NaN;
     await CommerceApplication.commitUpsertCartItem(
-      this.getCurrentUserPubky(),
+      this.getCartOwnerPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
       CommerceRecordNormalizer.entityId(variantId),
       parsedQuantity,
     );
   }
 
+  static async commitAddCartItem(listingCompositeId: unknown, variantId: unknown, quantity: unknown): Promise<void> {
+    const parsedQuantity =
+      typeof quantity === 'number' && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : Number.NaN;
+    await CommerceApplication.commitAddCartItem(
+      this.getCartOwnerPubky(),
+      CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
+      CommerceRecordNormalizer.entityId(variantId),
+      parsedQuantity,
+    );
+  }
+
+  static async mergeGuestCart(): Promise<void> {
+    const currentUserPubky = useAuthStore.getState().currentUserPubky;
+    if (!currentUserPubky) return;
+    await CommerceApplication.mergeGuestCart(MARKETPLACE_GUEST_CART_OWNER, currentUserPubky);
+  }
+
   static async commitDeleteCartItem(listingCompositeId: unknown, variantId: unknown): Promise<void> {
     await CommerceApplication.commitDeleteCartItem(
-      this.getCurrentUserPubky(),
+      this.getCartOwnerPubky(),
       CommerceRecordNormalizer.listingCompositeId(listingCompositeId),
       CommerceRecordNormalizer.entityId(variantId),
     );
   }
 
   static async commitClearCart(): Promise<void> {
-    await CommerceApplication.commitClearCart(this.getCurrentUserPubky());
+    await CommerceApplication.commitClearCart(this.getCartOwnerPubky());
   }
 
   static async getFavorites() {
@@ -411,6 +429,10 @@ export class CommerceController {
 
   private static getCurrentUserPubky(): string {
     return useAuthStore.getState().selectCurrentUserPubky();
+  }
+
+  private static getCartOwnerPubky(): string {
+    return marketplaceCartOwner(useAuthStore.getState().currentUserPubky);
   }
 
   private static async withPending(entityId: string, operation: () => Promise<void>): Promise<void> {

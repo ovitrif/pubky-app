@@ -7,6 +7,7 @@ import {
 import {
   sandboxAuctionSeedPlan,
   sandboxListingAutoAcceptAmount,
+  sandboxListingCatalogQuantity,
   sandboxListingNeedsReregister,
 } from '@/libs/commerce/sandbox-bootstrap';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
@@ -257,6 +258,19 @@ export class CommerceApplication {
     await LocalCommerceService.upsertCartItem(ownerPubky, listingId, variantId, quantity, Date.now());
   }
 
+  static async commitAddCartItem(
+    ownerPubky: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+  ): Promise<void> {
+    await LocalCommerceService.addCartItem(ownerPubky, listingId, variantId, quantity, Date.now());
+  }
+
+  static async mergeGuestCart(fromOwnerPubky: string, toOwnerPubky: string): Promise<void> {
+    await LocalCommerceService.mergeCart(fromOwnerPubky, toOwnerPubky, Date.now());
+  }
+
   static async commitDeleteCartItem(ownerPubky: string, listingId: string, variantId: string): Promise<void> {
     await LocalCommerceService.deleteCartItem(ownerPubky, listingId, variantId);
   }
@@ -384,7 +398,7 @@ export class CommerceApplication {
           title: listing.title,
           listingRevision: existing?.listingRevision ? existing.listingRevision + 1 : listing.revision,
           contentHash: listing.media[0].contentHash,
-          quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
+          quantity: sandboxListingCatalogQuantity(listing),
           unitPrice,
           saleFormat: listing.sale.format,
           offersOpenTo: listing.sale.format === 'offer' ? listing.sale.offersOpenTo : undefined,

@@ -92,10 +92,27 @@ describe('marketplace', () => {
     });
   });
 
+  it('lets a guest add a multi-quantity listing to a local cart', () => {
+    const seller = 'y'.repeat(52);
+    cy.visit(`/marketplace/listing/${seller}/leather_boots`);
+    cy.contains('h1', 'Vintage leather boots').should('be.visible');
+    cy.contains('4 available').should('be.visible');
+    cy.contains('button', 'Increase Vintage leather boots quantity').click();
+    cy.contains('button', 'Add to cart').click();
+    cy.contains('Added to cart').should('be.visible');
+    cy.visit('/marketplace/cart');
+    cy.location('pathname').should('eq', '/marketplace/cart');
+    cy.contains('h1', 'Cart').should('be.visible');
+    cy.contains('Vintage leather boots').should('be.visible');
+    cy.contains('2 items').should('be.visible');
+    cy.contains('Sign in to check out').should('be.visible');
+    cy.contains('Place sandbox order').should('not.exist');
+    cy.screenshot('guest-cart-quantity', { overwrite: true });
+  });
+
   it('keeps seller and transaction routes authentication protected', () => {
     const gated = [
       '/marketplace/sell',
-      '/marketplace/cart',
       '/marketplace/orders',
       '/marketplace/dashboard',
       '/marketplace/moderation',

@@ -91,7 +91,7 @@ export function Marketplace() {
               <Button
                 variant="ghost"
                 className="rounded-full"
-                onClick={() => requireAuth(() => router.push(MARKETPLACE_ROUTES.CART))}
+                onClick={() => router.push(MARKETPLACE_ROUTES.CART)}
               >
                 <ShoppingCart className="mr-2 size-4" />
                 Cart

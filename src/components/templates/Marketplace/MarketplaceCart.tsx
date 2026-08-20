@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Trash2 } from 'lucide-react';
 import { Controller } from 'react-hook-form';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -11,23 +11,30 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
-import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { COMMERCE_SANDBOX_PAYMENT_ENDPOINTS } from '@/config/commerce';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceQuantityStepper } from '@/organisms/Marketplace/MarketplaceQuantityStepper';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceCart() {
   const router = useRouter();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const { requireAuth } = useRequireAuth();
   const cart = useMarketplaceCart();
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
 
   const submit = async () => {
-    if (await checkout.submit()) router.push(MARKETPLACE_ROUTES.ORDERS);
+    const result = requireAuth(async () => checkout.submit());
+    if (!result) return;
+    if (await result) router.push(MARKETPLACE_ROUTES.ORDERS);
   };
 
   return (
@@ -87,27 +94,12 @@ export function MarketplaceCart() {
                         )}
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          aria-label={`Decrease ${item.listing.record.title} quantity`}
-                          disabled={item.quantity <= 1}
-                          onClick={() => void cart.update(item.listingId, item.variantId, item.quantity - 1)}
-                        >
-                          <Minus className="size-4" />
-                        </Button>
-                        <Typography as="span" className="min-w-8 text-center">
-                          {item.quantity}
-                        </Typography>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          aria-label={`Increase ${item.listing.record.title} quantity`}
-                          disabled={!variant || item.quantity >= variant.quantity}
-                          onClick={() => void cart.update(item.listingId, item.variantId, item.quantity + 1)}
-                        >
-                          <Plus className="size-4" />
-                        </Button>
+                        <MarketplaceQuantityStepper
+                          value={item.quantity}
+                          max={variant?.quantity ?? item.quantity}
+                          label={item.listing.record.title}
+                          onChange={(next) => void cart.update(item.listingId, item.variantId, next)}
+                        />
                         <Button
                           size="icon"
                           variant="ghost"
@@ -126,54 +118,63 @@ export function MarketplaceCart() {
             <Card className="h-fit border">
               <CardContent className="grid gap-4 px-6">
                 <Typography as="h2" className="text-xl font-semibold">
-                  Delivery and guarantee
+                  {currentUserPubky ? 'Delivery and guarantee' : 'Sign in to check out'}
                 </Typography>
-                <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                  <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                  <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                  <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                </div>
-                <ControlledInputField name="couponCode" control={checkout.form.control} label="Coupon (optional)" />
-                <Controller
-                  name="paymentEndpoint"
-                  control={checkout.form.control}
-                  render={({ field }) => (
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="paymentEndpoint">Sandbox payment endpoint</Label>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger id="paymentEndpoint" className="h-11 w-full rounded-md border px-3">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COMMERCE_SANDBOX_PAYMENT_ENDPOINTS.map((endpoint) => (
-                            <SelectItem key={endpoint.id} value={endpoint.id}>
-                              {endpoint.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Typography as="p" className="text-xs text-muted-foreground">
-                        Simulated Paykit discovery only. This does not open Bitkit or move Bitcoin.
-                      </Typography>
+                {currentUserPubky ? (
+                  <>
+                    <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
+                    <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
+                    <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <ControlledInputField name="city" control={checkout.form.control} label="City" />
+                      <ControlledInputField name="region" control={checkout.form.control} label="Region" />
+                      <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
+                      <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
                     </div>
-                  )}
-                />
-                <Controller
-                  name="acceptsGuarantee"
-                  control={checkout.form.control}
-                  render={({ field }) => (
-                    <Label className="items-start gap-3">
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                      <span>
-                        I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.
-                      </span>
-                    </Label>
-                  )}
-                />
+                    <ControlledInputField name="couponCode" control={checkout.form.control} label="Coupon (optional)" />
+                    <Controller
+                      name="paymentEndpoint"
+                      control={checkout.form.control}
+                      render={({ field }) => (
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="paymentEndpoint">Sandbox payment endpoint</Label>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger id="paymentEndpoint" className="h-11 w-full rounded-md border px-3">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {COMMERCE_SANDBOX_PAYMENT_ENDPOINTS.map((endpoint) => (
+                                <SelectItem key={endpoint.id} value={endpoint.id}>
+                                  {endpoint.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Typography as="p" className="text-xs text-muted-foreground">
+                            Simulated Paykit discovery only. This does not open Bitkit or move Bitcoin.
+                          </Typography>
+                        </div>
+                      )}
+                    />
+                    <Controller
+                      name="acceptsGuarantee"
+                      control={checkout.form.control}
+                      render={({ field }) => (
+                        <Label className="items-start gap-3">
+                          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                          <span>
+                            I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.
+                          </span>
+                        </Label>
+                      )}
+                    />
+                  </>
+                ) : (
+                  <Typography as="p" className="text-sm text-muted-foreground">
+                    Your cart stays on this device. Restore a Pubky session to create a sandbox order. Checkout never
+                    uses the reserved guest cart owner as a buyer.
+                  </Typography>
+                )}
                 <div className="border-t pt-4">
                   <div className="flex justify-between">
                     <Typography as="span">Items</Typography>
@@ -185,9 +186,15 @@ export function MarketplaceCart() {
                     Shipping and sandbox tax are calculated authoritatively at checkout.
                   </Typography>
                 </div>
-                <Button className="w-full rounded-full" onClick={submit}>
-                  Place sandbox order
-                </Button>
+                {currentUserPubky ? (
+                  <Button className="w-full rounded-full" onClick={submit}>
+                    Place sandbox order
+                  </Button>
+                ) : (
+                  <Button className="w-full rounded-full" onClick={() => requireAuth(() => undefined)}>
+                    Sign in to check out
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>

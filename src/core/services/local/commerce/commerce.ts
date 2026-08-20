@@ -85,6 +85,35 @@ export class LocalCommerceService {
     });
   }
 
+  static async addCartItem(
+    ownerId: string,
+    listingId: string,
+    variantId: string,
+    quantity: number,
+    now: number,
+  ): Promise<void> {
+    const current = await CommerceCartItemModel.findById(this.cartItemId(ownerId, listingId, variantId));
+    await this.upsertCartItem(ownerId, listingId, variantId, (current?.quantity ?? 0) + quantity, now);
+  }
+
+  static async mergeCart(fromOwnerId: string, toOwnerId: string, now: number): Promise<void> {
+    if (fromOwnerId === toOwnerId) return;
+    const guestItems = await this.getCartItems(fromOwnerId);
+    for (const item of guestItems) {
+      const listing = await CommerceListingModel.findById(item.listing_id);
+      const variant = listing?.record.variants.find(({ id, enabled }) => id === item.variant_id && enabled);
+      if (!listing || !variant) continue;
+      const existing = await CommerceCartItemModel.findById(
+        this.cartItemId(toOwnerId, item.listing_id, item.variant_id),
+      );
+      const nextQuantity = Math.min((existing?.quantity ?? 0) + item.quantity, variant.quantity);
+      if (nextQuantity > 0) {
+        await this.upsertCartItem(toOwnerId, item.listing_id, item.variant_id, nextQuantity, now);
+      }
+    }
+    await this.clearCart(fromOwnerId);
+  }
+
   static async deleteCartItem(ownerId: string, listingId: string, variantId: string): Promise<void> {
     await CommerceCartItemModel.deleteById(this.cartItemId(ownerId, listingId, variantId));
   }
@@ -340,7 +369,8 @@ export class LocalCommerceService {
                 return (
                   !current ||
                   currentHashes !== nextHashes ||
-                  JSON.stringify(current.record.sale) !== JSON.stringify(next.record.sale)
+                  JSON.stringify(current.record.sale) !== JSON.stringify(next.record.sale) ||
+                  JSON.stringify(current.record.variants) !== JSON.stringify(next.record.variants)
                 );
               }) ||
               shopModels.some((next) => {

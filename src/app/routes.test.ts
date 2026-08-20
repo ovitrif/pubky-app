@@ -159,6 +159,10 @@ describe('isDynamicPublicRoute', () => {
     it('exposes the catalog index during auth hydration', () => {
       expect(PUBLIC_ROUTES).toContain('/marketplace');
     });
+
+    it('exposes the local cart during guest shopping', () => {
+      expect(PUBLIC_ROUTES).toContain('/marketplace/cart');
+    });
   });
 
   describe('other routes', () => {

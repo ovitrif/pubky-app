@@ -9,9 +9,29 @@ describe('sandboxListingNeedsReregister', () => {
     expect(vase).toBeDefined();
     expect(sandboxListingNeedsReregister(null, vase!)).toBe(true);
     expect(sandboxListingNeedsReregister({ autoAcceptAmount: null }, vase!)).toBe(true);
-    expect(sandboxListingNeedsReregister({ autoAcceptAmount: { amountMinor: 6_000, currency: 'USD', exponent: 2 } }, vase!)).toBe(
-      false,
-    );
+    expect(
+      sandboxListingNeedsReregister(
+        { autoAcceptAmount: { amountMinor: 6_000, currency: 'USD', exponent: 2 }, availableQuantity: 1 },
+        vase!,
+      ),
+    ).toBe(false);
+  });
+
+  it('re-registers when catalog quantity drifts from the service projection', () => {
+    const boots = createCommerceSandboxCatalog().listings.find((listing) => listing.listingId === 'leather_boots');
+    expect(boots).toBeDefined();
+    expect(
+      sandboxListingNeedsReregister(
+        { autoAcceptAmount: null, availableQuantity: 1, reservedQuantity: 0, soldQuantity: 0 },
+        boots!,
+      ),
+    ).toBe(true);
+    expect(
+      sandboxListingNeedsReregister(
+        { autoAcceptAmount: null, availableQuantity: 4, reservedQuantity: 0, soldQuantity: 0 },
+        boots!,
+      ),
+    ).toBe(false);
   });
 });
 

@@ -1,8 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -17,9 +17,13 @@ export interface MarketplaceCartItem {
 
 export function useMarketplaceCart() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { requireAuth } = useRequireAuth();
+
+  useEffect(() => {
+    if (!currentUserPubky) return;
+    void CommerceController.mergeGuestCart();
+  }, [currentUserPubky]);
+
   const items = useLiveQuery(async () => {
-    if (!currentUserPubky) return [];
     const rows = await CommerceController.getCartItems();
     const enriched = await Promise.all(
       rows.map(async (row) => {
@@ -56,30 +60,27 @@ export function useMarketplaceCart() {
   }, [currentUserPubky]);
 
   const add = async (listingId: string, variantId: string, quantity = 1) => {
-    const mutation = requireAuth(async () => {
-      try {
-        const separator = listingId.indexOf(':');
-        const listing =
-          separator > 0
-            ? await CommerceController.getListing(listingId.slice(0, separator), listingId.slice(separator + 1))
-            : null;
-        if (listing && listing.record.sale.format !== 'fixed_price') {
-          toast({
-            variant: 'error',
-            description:
-              listing.record.sale.format === 'offer'
-                ? 'This listing is watcher-offer only and cannot be added to the cart.'
-                : 'Auction listings cannot be added to the cart.',
-          });
-          return;
-        }
-        await CommerceController.commitUpsertCartItem(listingId, variantId, quantity);
-        toast({ title: 'Added to cart' });
-      } catch {
-        toast({ variant: 'error', description: 'Could not add this item to the cart.' });
+    try {
+      const separator = listingId.indexOf(':');
+      const listing =
+        separator > 0
+          ? await CommerceController.getListing(listingId.slice(0, separator), listingId.slice(separator + 1))
+          : null;
+      if (listing && listing.record.sale.format !== 'fixed_price') {
+        toast({
+          variant: 'error',
+          description:
+            listing.record.sale.format === 'offer'
+              ? 'This listing is watcher-offer only and cannot be added to the cart.'
+              : 'Auction listings cannot be added to the cart.',
+        });
+        return;
       }
-    });
-    await mutation;
+      await CommerceController.commitAddCartItem(listingId, variantId, quantity);
+      toast({ title: 'Added to cart' });
+    } catch {
+      toast({ variant: 'error', description: 'Could not add this item to the cart.' });
+    }
   };
 
   const update = async (listingId: string, variantId: string, quantity: number) => {

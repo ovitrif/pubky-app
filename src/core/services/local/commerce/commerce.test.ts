@@ -320,6 +320,42 @@ describe('LocalCommerceService', () => {
     expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
   });
 
+  it('increments cart quantity and merges a reserved guest cart into a signed-in owner', async () => {
+    const listing = createCommerceListingFixture();
+    listing.variants[0].quantity = 4;
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:${listing.listingId}`;
+    const guestOwner = '1'.repeat(52);
+
+    await LocalCommerceService.addCartItem(guestOwner, listingId, 'variant_01', 2, 100);
+    await LocalCommerceService.addCartItem(guestOwner, listingId, 'variant_01', 1, 150);
+    await LocalCommerceService.upsertCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 1, 80);
+    await LocalCommerceService.mergeCart(guestOwner, COMMERCE_FIXTURE_BUYER, 200);
+
+    expect(await LocalCommerceService.getCartItems(guestOwner)).toEqual([]);
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([
+      expect.objectContaining({ listing_id: listingId, variant_id: 'variant_01', quantity: 4, added_at: 80 }),
+    ]);
+  });
+
+  it('refreshes sandbox variant quantities without wiping later local listings', async () => {
+    const catalog = createCommerceSandboxCatalog();
+    await LocalCommerceService.seedSandboxCatalog(catalog);
+    const boots = catalog.listings.find((listing) => listing.listingId === 'leather_boots');
+    if (!boots) throw new Error('Expected leather boots catalog listing');
+    await LocalCommerceService.upsertListing(
+      { ...boots, variants: [{ ...boots.variants[0], quantity: 1 }] },
+      'synced',
+    );
+    const extra = createCommerceListingFixture();
+    await LocalCommerceService.upsertListing(extra, 'synced');
+
+    await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
+    const refreshed = await LocalCommerceService.getListing(`${boots.ownerPubky}:${boots.listingId}`);
+    expect(refreshed?.record.variants[0].quantity).toBe(4);
+    expect(await LocalCommerceService.getListing(`${extra.ownerPubky}:boots_01`)).not.toBeNull();
+  });
+
   it('exports and deletes account-scoped local marketplace data without dropping public listings', async () => {
     const listing = createCommerceListingFixture();
     await LocalCommerceService.upsertListing(listing, 'synced');

@@ -37,6 +37,18 @@ describe('CommerceApplication', () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
+  it('adds and merges cart lines through the local commerce service', async () => {
+    const add = vi.spyOn(LocalCommerceService, 'addCartItem').mockResolvedValue(undefined);
+    const merge = vi.spyOn(LocalCommerceService, 'mergeCart').mockResolvedValue(undefined);
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:boots_01`;
+
+    await CommerceApplication.commitAddCartItem('1'.repeat(52), listingId, 'variant_01', 2);
+    await CommerceApplication.mergeGuestCart('1'.repeat(52), COMMERCE_FIXTURE_SELLER);
+
+    expect(add).toHaveBeenCalledWith('1'.repeat(52), listingId, 'variant_01', 2, expect.any(Number));
+    expect(merge).toHaveBeenCalledWith('1'.repeat(52), COMMERCE_FIXTURE_SELLER, expect.any(Number));
+  });
+
   it('seeds catalog data only when sandbox mode is explicit', async () => {
     const seed = vi.spyOn(LocalCommerceService, 'seedSandboxCatalog').mockResolvedValue(true);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);

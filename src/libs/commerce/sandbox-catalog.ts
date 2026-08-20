@@ -29,6 +29,7 @@ type CatalogEntry = {
   colorHash: string;
   vacationMode?: boolean;
   autoAcceptAmountMinor?: number;
+  quantity?: number;
 };
 
 const CATALOG_ENTRIES: CatalogEntry[] = [
@@ -44,6 +45,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     tags: ['vintage', 'leather'],
     saleFormat: 'fixed_price',
     colorHash: 'a',
+    quantity: 4,
   },
   {
     seller: 'b'.repeat(52),
@@ -111,6 +113,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     tags: ['outdoor', 'running'],
     saleFormat: 'fixed_price',
     colorHash: 'f',
+    quantity: 3,
   },
   {
     seller: 'g'.repeat(52),
@@ -137,6 +140,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     tags: ['keyboard', 'custom'],
     saleFormat: 'fixed_price',
     colorHash: '1',
+    quantity: 2,
   },
   {
     seller: 'k'.repeat(52),
@@ -151,6 +155,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     saleFormat: 'fixed_price',
     fulfillment: 'digital',
     colorHash: '2',
+    quantity: 25,
   },
   {
     seller: 'o'.repeat(52),
@@ -197,7 +202,7 @@ export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
       content_hash: listing.media[0].contentHash,
       server_revision: 1,
       state: 'available' as const,
-      available_quantity: 1,
+      available_quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
       current_price: price,
       auction_state: listing.sale.format === 'auction' ? ('active' as const) : null,
       bid_count: listing.sale.format === 'auction' ? index + 2 : 0,
@@ -286,7 +291,7 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
       {
         id: 'default',
         options: {},
-        quantity: 1,
+        quantity: entry.quantity ?? 1,
         mediaIds: [imageId, `${imageId}_detail`],
         enabled: true,
       },

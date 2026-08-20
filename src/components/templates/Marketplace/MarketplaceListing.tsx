@@ -33,6 +33,7 @@ import { MarketplaceListingShare } from '@/organisms/Marketplace/MarketplaceList
 import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
+import { MarketplaceQuantityStepper } from '@/organisms/Marketplace/MarketplaceQuantityStepper';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 import { MarketplaceSellerPolicies } from '@/organisms/Marketplace/MarketplaceSellerPolicies';
 import { MarketplaceVacationNotice } from '@/organisms/Marketplace/MarketplaceVacationNotice';
@@ -48,6 +49,7 @@ export interface MarketplaceListingProps {
 export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListingProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState('');
+  const [quantity, setQuantity] = useState(1);
   const [reputation, setReputation] = useState<MarketplaceSellerReputation | null>(null);
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
@@ -91,6 +93,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       setSelectedVariantId(firstVariant);
     }
   }, [listing, selectedVariantId]);
+
+  useEffect(() => {
+    setQuantity(1);
+  }, [selectedVariantId]);
 
   if (listing === undefined || shop === undefined) {
     return (
@@ -230,6 +236,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             <Typography as="p" className="text-sm text-muted-foreground">
               {selectedVariant ? `${selectedVariant.quantity} available` : 'Unavailable'}
             </Typography>
+            {record.sale.format === 'fixed_price' && selectedVariant && (
+              <div>
+                <Typography as="p" className="mb-2 text-sm font-semibold">
+                  Quantity
+                </Typography>
+                <MarketplaceQuantityStepper
+                  value={Math.min(quantity, selectedVariant.quantity)}
+                  max={selectedVariant.quantity}
+                  label={record.title}
+                  onChange={setQuantity}
+                />
+              </div>
+            )}
             <MarketplaceSellerPolicies shop={shop?.record} listingReturn={record.returnPolicy} />
 
             <div className="flex flex-wrap gap-2">
@@ -362,7 +381,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     disabled={adapterMode === 'unavailable' || !selectedVariant || selectedVariant.quantity === 0}
                     onClick={() =>
                       selectedVariant &&
-                      void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1)
+                      void cart.add(
+                        `${record.ownerPubky}:${record.listingId}`,
+                        selectedVariant.id,
+                        Math.min(quantity, selectedVariant.quantity),
+                      )
                     }
                   >
                     <ShoppingCart className="mr-2 size-4" />
