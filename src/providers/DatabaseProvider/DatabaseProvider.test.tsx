@@ -16,6 +16,7 @@ describe('DatabaseProvider', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('should initialize database successfully', async () => {

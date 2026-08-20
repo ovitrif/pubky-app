@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: (query: () => unknown) => query(),
+  useLiveQuery: () => [],
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
