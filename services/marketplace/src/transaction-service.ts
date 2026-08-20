@@ -1468,7 +1468,7 @@ export class MarketplaceTransactionService {
       soldQuantity,
       totalQuantity,
       sellThroughPercent: ratio(soldQuantity, totalQuantity),
-      conversionPercent: ratio(paidOrders, views),
+      conversionPercent: Math.min(100, ratio(paidOrders, views)),
       paidOrders,
       toShip: orders.filter((order) => ['paid', 'processing'].includes(order.state)).length,
       returnsOpen: orders.filter((order) =>
