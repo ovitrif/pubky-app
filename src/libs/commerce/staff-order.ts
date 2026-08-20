@@ -10,7 +10,7 @@ export interface MarketplaceStaffRedactableOrder {
     region: string;
     postalCode: string;
     countryCode: string;
-  };
+  } | null;
   digitalDelivery: { credentialId: string } | null;
   reviews: Array<{ text: string; reply?: string | null }>;
   cancellationReason: string | null;
@@ -28,13 +28,15 @@ export function redactMarketplaceOrderForStaff<T extends MarketplaceStaffRedacta
 ): T {
   return {
     ...order,
-    deliveryAddress: {
-      ...order.deliveryAddress,
-      name: MARKETPLACE_REDACTED,
-      line1: MARKETPLACE_REDACTED,
-      line2: '',
-      postalCode: MARKETPLACE_REDACTED,
-    },
+    deliveryAddress: order.deliveryAddress
+      ? {
+          ...order.deliveryAddress,
+          name: MARKETPLACE_REDACTED,
+          line1: MARKETPLACE_REDACTED,
+          line2: '',
+          postalCode: MARKETPLACE_REDACTED,
+        }
+      : null,
     digitalDelivery: order.digitalDelivery
       ? { ...order.digitalDelivery, credentialId: MARKETPLACE_REDACTED_CREDENTIAL_ID }
       : null,
@@ -69,9 +71,9 @@ export function redactMarketplaceOrderForStaff<T extends MarketplaceStaffRedacta
 
 export function orderContainsStaffSecrets(order: MarketplaceStaffRedactableOrder): boolean {
   const values = [
-    order.deliveryAddress.name,
-    order.deliveryAddress.line1,
-    order.deliveryAddress.postalCode,
+    order.deliveryAddress?.name,
+    order.deliveryAddress?.line1,
+    order.deliveryAddress?.postalCode,
     order.digitalDelivery?.credentialId,
     ...order.reviews.flatMap((review) => [review.text, review.reply]),
     order.cancellationReason,

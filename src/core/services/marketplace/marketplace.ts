@@ -40,6 +40,7 @@ const listingProjectionSchema = z
       .optional(),
     auction: z
       .object({
+        status: z.enum(['scheduled', 'active', 'sold', 'unsold', 'cancelled']).optional(),
         startsAt: z.string(),
         endsAt: z.string(),
         minimumIncrement: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
@@ -139,6 +140,7 @@ const notificationSchema = z
       'auction_won',
       'auction_ended',
       'order_created',
+      'order_address_confirmed',
       'payment_confirmed',
       'order_cancelled',
       'order_shipped',
@@ -229,6 +231,7 @@ const orderSchema = z
     couponCode: z.string().nullable().optional(),
     payoutState: z.enum(['held', 'released', 'blocked']).optional(),
     guaranteePolicyVersion: z.literal(1),
+    origin: z.enum(['checkout', 'auction', 'buy_now', 'offer', 'second_chance']).optional(),
     deliveryAddress: z
       .object({
         name: z.string(),
@@ -239,6 +242,7 @@ const orderSchema = z
         postalCode: z.string(),
         countryCode: z.string(),
       })
+      .nullable()
       .optional(),
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),

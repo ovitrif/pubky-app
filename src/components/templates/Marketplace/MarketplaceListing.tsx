@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, Bell, Heart, MapPin, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -18,6 +18,7 @@ import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavo
 import { useMarketplaceBuyNow } from '@/hooks/useMarketplaceBuyNow/useMarketplaceBuyNow';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { relatedMarketplaceListings } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
+import { useMarketplaceCloseAuction } from '@/hooks/useMarketplaceCloseAuction/useMarketplaceCloseAuction';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useRecordRecentlyViewedListing } from '@/hooks/useRecentlyViewedListings/useRecentlyViewedListings';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
@@ -60,6 +61,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const cart = useMarketplaceCart();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
   const buyNow = useMarketplaceBuyNow(aggregateId, negotiation.projection?.serverRevision ?? null);
+  const closeAuction = useMarketplaceCloseAuction(aggregateId, negotiation.projection?.serverRevision ?? null);
   useRecordRecentlyViewedListing(sellerPubky, listingId);
 
   useEffect(() => {
@@ -157,6 +159,13 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       : shippingMinor === 0
         ? 'Free shipping'
         : `Quoted shipping ${formatCommerceMoney({ amountMinor: shippingMinor, currency: 'USD', exponent: 2 })}`;
+  const auctionStatus = negotiation.projection?.auction?.status;
+  const canCloseAuction =
+    auctionStatus !== 'sold' &&
+    auctionStatus !== 'unsold' &&
+    (currentUserPubky === sellerPubky ||
+      (currentUserPubky === negotiation.projection?.auction?.leaderPubky &&
+        Boolean(negotiation.projection?.auction?.reserveMet)));
 
   return (
     <ContentLayout
@@ -342,30 +351,67 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               <MarketplaceBidHistory history={negotiation.projection?.visibleBidHistory ?? []} />
             )}
 
-            <div className="mt-auto flex gap-3">
+            <div className="mt-auto flex flex-wrap gap-3">
               {record.sale.format === 'auction' ? (
                 <>
-                  <MarketplaceBidDialog
-                    aggregateId={aggregateId}
-                    projection={negotiation.projection}
-                    onAccepted={negotiation.refresh}
-                  />
-                  {record.sale.buyNowPrice && currentUserPubky !== sellerPubky && (
+                  {auctionStatus !== 'sold' && auctionStatus !== 'unsold' && (
+                    <MarketplaceBidDialog
+                      aggregateId={aggregateId}
+                      projection={negotiation.projection}
+                      onAccepted={negotiation.refresh}
+                    />
+                  )}
+                  {record.sale.buyNowPrice &&
+                    currentUserPubky !== sellerPubky &&
+                    auctionStatus !== 'sold' &&
+                    auctionStatus !== 'unsold' && (
+                      <Button
+                        size="lg"
+                        variant="secondary"
+                        className="rounded-full"
+                        disabled={negotiation.projection?.serverRevision == null}
+                        onClick={() => {
+                          void buyNow.submit().then((ok) => {
+                            if (ok) void negotiation.refresh();
+                          });
+                        }}
+                      >
+                        Buy now {formatCommerceMoney(record.sale.buyNowPrice)}
+                      </Button>
+                    )}
+                  {canCloseAuction && (
                     <Button
                       size="lg"
                       variant="secondary"
                       className="rounded-full"
                       disabled={negotiation.projection?.serverRevision == null}
                       onClick={() => {
-                        void buyNow.submit().then((ok) => {
+                        void closeAuction.submit().then((ok) => {
                           if (ok) void negotiation.refresh();
                         });
                       }}
                     >
-                      Buy now {formatCommerceMoney(record.sale.buyNowPrice)}
+                      Close auction
                     </Button>
                   )}
-                  {currentUserPubky === sellerPubky && (
+                  {auctionStatus === 'sold' && currentUserPubky === negotiation.projection?.auction?.leaderPubky && (
+                    <Button asChild size="lg" className="rounded-full">
+                      <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
+                        Complete winning order
+                      </Link>
+                    </Button>
+                  )}
+                  {currentUserPubky === sellerPubky && auctionStatus === 'unsold' && (
+                    <MarketplaceOfferDialog
+                      aggregateId={aggregateId}
+                      expectedRevision={negotiation.projection?.serverRevision ?? null}
+                      onAccepted={negotiation.refresh}
+                      asSeller
+                      secondChance
+                      label="Second-chance offer"
+                    />
+                  )}
+                  {currentUserPubky === sellerPubky && auctionStatus !== 'unsold' && auctionStatus !== 'sold' && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}

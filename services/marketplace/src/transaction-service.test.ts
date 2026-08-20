@@ -755,9 +755,39 @@ describe('MarketplaceTransactionService', () => {
       },
     });
     expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('auction_won');
+    expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('order_created');
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        order: {
+          origin: 'auction',
+          state: 'pending_payment',
+          deliveryAddress: null,
+          buyerPubky: BUYER,
+          lines: [{ quantity: 1 }],
+        },
+        payment: { state: 'awaiting_entitlement', buyerPubky: BUYER },
+      },
+    });
+    expect(service.getOrders(BUYER)).toHaveLength(1);
+    expect(service.getLedger(BUYER).length).toBeGreaterThan(0);
     await expect(service.execute(SELLER, closeAuctionCommand(4, 951))).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_STATE' },
+    });
+  });
+
+  it('lets the winning bidder close an ended reserve-met auction', async () => {
+    let now = new Date(NOW);
+    const service = new MarketplaceTransactionService(new InMemoryMarketplaceRepository(), () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(20, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(21, 8_000, 2));
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+
+    await expect(service.execute(BUYER, closeAuctionCommand(3, 952))).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'auction_result', outcome: 'sold', winnerPubky: BUYER, order: { origin: 'auction' } },
     });
   });
 
@@ -1457,8 +1487,128 @@ describe('MarketplaceTransactionService', () => {
         outcome: 'sold',
         winnerPubky: BUYER,
         listing: { state: 'reserved', auction: { status: 'sold', currentPrice: { amountMinor: 20_000 } } },
+        order: { origin: 'buy_now', deliveryAddress: null, lines: [{ unitPrice: { amountMinor: 20_000 } }] },
       },
     });
+    expect(service.getOrders(BUYER)[0]?.origin).toBe('buy_now');
+  });
+
+  it('requires a confirmed address before shipping an auction-won order', async () => {
+    let now = new Date(NOW);
+    const service = new MarketplaceTransactionService(new InMemoryMarketplaceRepository(), () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(20, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(21, 8_000, 2));
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+    const closed = await service.execute(SELLER, closeAuctionCommand(3));
+    if (!closed.ok || closed.result.kind !== 'auction_result' || !closed.result.order || !closed.result.payment) {
+      throw new Error('Expected a winning auction order');
+    }
+    const orderId = closed.result.order.id;
+    await service.execute(BUYER, paymentCommand(closed.result.payment.id, 1, 'confirmed', 1, 1_400));
+    await expect(
+      service.execute(
+        SELLER,
+        orderCommand('fulfillment.ship', orderId, 2, { carrier: 'Sandbox Post', trackingNumber: 'TRACK-1' }, 1_401),
+      ),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
+    await expect(
+      service.execute(
+        BUYER,
+        orderCommand(
+          'order.confirm_address',
+          orderId,
+          2,
+          {
+            deliveryAddress: {
+              name: 'Alice Buyer',
+              line1: '1 Market Street',
+              line2: '',
+              city: 'New York',
+              region: 'NY',
+              postalCode: '10001',
+              countryCode: 'US',
+            },
+          },
+          1_402,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'order', order: { deliveryAddress: { city: 'New York' } } },
+    });
+    expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('order_address_confirmed');
+  });
+
+  it('reopens an unpaid auction as unsold and allows a second-chance offer to an underbidder', async () => {
+    let now = new Date(NOW);
+    const service = new MarketplaceTransactionService(new InMemoryMarketplaceRepository(), () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(20, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(21, 8_000, 2));
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+    const closed = await service.execute(SELLER, closeAuctionCommand(3));
+    if (!closed.ok || closed.result.kind !== 'auction_result' || !closed.result.order || !closed.result.payment) {
+      throw new Error('Expected a winning auction order');
+    }
+    await service.execute(BUYER, paymentCommand(closed.result.payment.id, 1, 'expired', 0, 1_410));
+    expect(service.getListingProjection(AGGREGATE_ID)?.auction?.status).toBe('unsold');
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001411',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 5,
+        issuedAt: now.toISOString(),
+        kind: 'offer.create_second_chance',
+        payload: {
+          recipientPubky: OTHER_BUYER,
+          amount: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          expiresInSeconds: 3_600,
+          message: 'Second chance at your bid.',
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { secondChance: true, buyerPubky: OTHER_BUYER } },
+    });
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001412',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 5,
+        issuedAt: now.toISOString(),
+        kind: 'offer.create_second_chance',
+        payload: {
+          recipientPubky: BUYER,
+          amount: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          expiresInSeconds: 3_600,
+          message: 'Not for the unpaid winner.',
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+  });
+
+  it('creates a pending-payment order when an offer is accepted', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand(2));
+    await service.execute(BUYER, createOfferCommand());
+    const accepted = await service.execute(
+      SELLER,
+      offerAction('offer.accept', 1, '00000000-0000-4000-8000-000000000502'),
+    );
+    expect(accepted).toMatchObject({
+      ok: true,
+      result: {
+        kind: 'accepted_offer',
+        order: { origin: 'offer', deliveryAddress: null, buyerPubky: BUYER },
+        payment: { state: 'awaiting_entitlement' },
+      },
+    });
+    expect(service.getOrders(BUYER)).toHaveLength(1);
   });
 
   it('lets a seller send a private offer to a watcher and posts a balanced checkout ledger', async () => {
@@ -2118,7 +2268,7 @@ describe('MarketplaceTransactionService', () => {
     });
     const supportOrders = service.getOrders(MARKETPLACE_SANDBOX_SUPPORT);
     expect(supportOrders).toHaveLength(1);
-    expect(supportOrders[0]?.deliveryAddress.line1).toBe(MARKETPLACE_REDACTED);
+    expect(supportOrders[0]?.deliveryAddress?.line1).toBe(MARKETPLACE_REDACTED);
     expect(JSON.stringify(supportOrders)).not.toContain('1 Market Street');
     expect(service.getReports(MARKETPLACE_SANDBOX_SUPPORT)).toEqual([]);
     expect(service.getLedger(MARKETPLACE_SANDBOX_SUPPORT)).toEqual([]);
@@ -2264,6 +2414,8 @@ describe('MarketplaceTransactionService', () => {
     expect(results.filter(({ ok }) => !ok)).toHaveLength(99);
     expect(repository.getListing(AGGREGATE_ID)?.auction?.status).toBe('sold');
     expect(repository.getEvents().filter((event) => event.kind.startsWith('auction.closed_'))).toHaveLength(1);
+    expect(repository.getEvents().filter((event) => event.kind === 'order.created')).toHaveLength(1);
+    expect(service.getOrders(BUYER)).toHaveLength(1);
   });
 
   it('confirms a sandbox payment at most once under 100 concurrent advances', async () => {

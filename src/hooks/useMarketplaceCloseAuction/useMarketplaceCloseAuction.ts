@@ -3,7 +3,7 @@
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { toast } from '@/molecules/Toaster/use-toast';
 
-export function useMarketplaceBuyNow(aggregateId: string, expectedRevision: number | null) {
+export function useMarketplaceCloseAuction(aggregateId: string, expectedRevision: number | null) {
   const submit = async (): Promise<boolean> => {
     if (expectedRevision === null) return false;
     try {
@@ -13,7 +13,7 @@ export function useMarketplaceBuyNow(aggregateId: string, expectedRevision: numb
         aggregateId,
         expectedRevision,
         issuedAt: new Date().toISOString(),
-        kind: 'auction.buy_now',
+        kind: 'auction.close',
         payload: {},
       });
       if (!response.ok) {
@@ -21,12 +21,12 @@ export function useMarketplaceBuyNow(aggregateId: string, expectedRevision: numb
         return false;
       }
       toast({
-        title: 'Buy now accepted',
-        description: 'Order created at the buy-now price. Confirm delivery in Orders.',
+        title: 'Auction closed',
+        description: 'A winning order was created when reserve was met. Confirm delivery in Orders.',
       });
       return true;
     } catch {
-      toast({ variant: 'error', description: 'Could not complete buy-now.' });
+      toast({ variant: 'error', description: 'Could not close this auction.' });
       return false;
     }
   };

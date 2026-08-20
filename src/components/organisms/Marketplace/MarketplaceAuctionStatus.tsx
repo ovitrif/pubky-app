@@ -32,6 +32,15 @@ export function MarketplaceAuctionStatus({
     auction?.leaderPubky,
     history.map((bid) => bid.bidderPubky),
   );
+  const status = auction?.status;
+  const standingCopy =
+    status === 'sold' && standing === 'leading'
+      ? 'You won — confirm delivery in Orders'
+      : status === 'sold'
+        ? 'Auction ended sold'
+        : status === 'unsold'
+          ? 'Auction ended unsold'
+          : marketplaceAuctionStandingCopy(standing);
 
   return (
     <section aria-labelledby="marketplace-auction-status-heading" className="rounded-xl border bg-card/60 p-4">
@@ -76,7 +85,7 @@ export function MarketplaceAuctionStatus({
             Your standing
           </Typography>
           <Typography as="p" role="status" className="text-sm font-semibold">
-            {marketplaceAuctionStandingCopy(standing)}
+            {standingCopy}
           </Typography>
         </div>
       </div>

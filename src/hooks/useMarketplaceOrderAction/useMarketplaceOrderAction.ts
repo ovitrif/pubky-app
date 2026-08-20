@@ -111,6 +111,19 @@ export function useMarketplaceOrderAction(
             notes: data.reason,
           });
           break;
+        case 'confirm_address':
+          succeeded = await actOnOrder(order, 'order.confirm_address', {
+            deliveryAddress: {
+              name: data.name,
+              line1: data.line1,
+              line2: data.line2,
+              city: data.city,
+              region: data.region,
+              postalCode: data.postalCode,
+              countryCode: data.countryCode.toUpperCase(),
+            },
+          });
+          break;
         case 'review_report': {
           const commandId = crypto.randomUUID();
           const response = await CommerceController.executeMarketplaceCommand({

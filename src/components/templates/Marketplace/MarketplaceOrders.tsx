@@ -90,6 +90,14 @@ export function MarketplaceOrders() {
                           {buyerPaymentStatus(payment.state).detail}
                         </Typography>
                       )}
+                      {order.origin && order.origin !== 'checkout' && (
+                        <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                          Created from {order.origin.replaceAll('_', ' ')}
+                          {!order.deliveryAddress && order.fulfillment !== 'digital'
+                            ? ' · Delivery address required before shipping'
+                            : ''}
+                        </Typography>
+                      )}
                       {order.reviews?.map((review) => (
                         <Typography key={review.id} as="p" className="mt-2 text-sm text-muted-foreground">
                           Review {review.rating}/5{review.editedAt ? ' · edited' : ''}: {review.text}

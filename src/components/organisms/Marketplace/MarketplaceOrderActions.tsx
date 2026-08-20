@@ -41,6 +41,14 @@ export function MarketplaceOrderActions({
   return (
     <>
       <div className="flex flex-wrap gap-2">
+        {isBuyer &&
+          !order.deliveryAddress &&
+          ['pending_payment', 'paid', 'processing'].includes(order.state) &&
+          order.fulfillment !== 'digital' && (
+            <Button size="sm" className="rounded-full" onClick={() => begin('confirm_address')}>
+              Confirm delivery address
+            </Button>
+          )}
         {isBuyer && ['pending_payment', 'paid', 'processing'].includes(order.state) && (
           <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
             Cancel order
@@ -305,6 +313,17 @@ export function MarketplaceOrderActions({
           {actionType === 'review_report' && (
             <ControlledTextareaField name="text" control={action.form.control} label="Why report this review?" />
           )}
+          {actionType === 'confirm_address' && (
+            <>
+              <ControlledInputField name="name" control={action.form.control} label="Recipient name" />
+              <ControlledInputField name="line1" control={action.form.control} label="Address" />
+              <ControlledInputField name="line2" control={action.form.control} label="Apartment or suite" />
+              <ControlledInputField name="city" control={action.form.control} label="City" />
+              <ControlledInputField name="region" control={action.form.control} label="Region" />
+              <ControlledInputField name="postalCode" control={action.form.control} label="Postal code" />
+              <ControlledInputField name="countryCode" control={action.form.control} label="Country code" />
+            </>
+          )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
               Cancel
@@ -349,5 +368,7 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Report this review';
     case 'exception':
       return 'Record delivery exception';
+    case 'confirm_address':
+      return 'Confirm delivery address';
   }
 }

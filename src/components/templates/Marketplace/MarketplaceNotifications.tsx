@@ -160,6 +160,8 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Auction ended';
     case 'order_created':
       return 'New order created';
+    case 'order_address_confirmed':
+      return 'Delivery address confirmed';
     case 'payment_confirmed':
       return 'Payment confirmed';
     case 'order_cancelled':

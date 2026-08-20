@@ -40,6 +40,7 @@ import {
   buildMarketplacePromotionAggregateId,
   type BuyNowAuctionCommand,
   type CloseAuctionCommand,
+  type ConfirmOrderAddressCommand,
   type ConfirmOrderDeliveryCommand,
   type CounterOfferCommand,
   type CreateMarketplaceCheckoutCommand,
@@ -48,6 +49,7 @@ import {
   type CreatePrivateOfferCommand,
   type CreatePromotionCommand,
   type CreateReviewCommand,
+  type CreateSecondChanceOfferCommand,
   type DecideMarketplaceReportCommand,
   type EditReviewCommand,
   type FlagMarketplaceRiskCommand,
@@ -172,6 +174,7 @@ export interface MarketplaceOffer {
   createdAt: string;
   updatedAt: string;
   history: MarketplaceOfferHistoryEntry[];
+  secondChance: boolean;
 }
 
 export interface MarketplaceBid {
@@ -283,6 +286,7 @@ export interface MarketplaceNotification {
     | 'auction_won'
     | 'auction_ended'
     | 'order_created'
+    | 'order_address_confirmed'
     | 'payment_confirmed'
     | 'order_cancelled'
     | 'order_shipped'
@@ -469,7 +473,8 @@ export interface MarketplaceOrder {
     | 'refunded_external'
     | 'closed';
   lines: MarketplaceOrderLine[];
-  deliveryAddress: MarketplaceDeliveryAddress;
+  origin: 'checkout' | 'auction' | 'buy_now' | 'offer' | 'second_chance';
+  deliveryAddress: MarketplaceDeliveryAddress | null;
   subtotal: MarketplaceListingAggregate['unitPrice'];
   shipping: MarketplaceListingAggregate['unitPrice'];
   tax: MarketplaceListingAggregate['unitPrice'];
@@ -567,6 +572,8 @@ export interface MarketplaceEvent {
     | 'notification.read'
     | 'notification.preferences_updated'
     | 'order.created'
+    | 'order.address_confirmed'
+    | 'offer.created_second_chance'
     | 'payment.detected'
     | 'payment.confirmed'
     | 'payment.expired'
@@ -638,6 +645,8 @@ export type MarketplaceCommandSuccess = {
         offer: MarketplaceOffer;
         listing: MarketplaceListingAggregate;
         reservation: MarketplaceReservation;
+        order?: MarketplaceOrder;
+        payment?: MarketplacePayment;
       }
     | {
         kind: 'auction_result';
@@ -645,6 +654,8 @@ export type MarketplaceCommandSuccess = {
         winnerPubky: string | null;
         listing: MarketplaceListingAggregate;
         reservation: MarketplaceReservation | null;
+        order?: MarketplaceOrder;
+        payment?: MarketplacePayment;
       }
     | { kind: 'notification'; notification: MarketplaceNotification }
     | { kind: 'notification_preferences'; preferences: MarketplaceNotificationPreferences }
@@ -1480,12 +1491,14 @@ export class MarketplaceTransactionService {
     return {
       orders: this.getOrders(actorPubky).map((order) => ({
         ...order,
-        deliveryAddress: {
-          ...order.deliveryAddress,
-          line1: '[redacted]',
-          line2: '',
-          postalCode: '[redacted]',
-        },
+        deliveryAddress: order.deliveryAddress
+          ? {
+              ...order.deliveryAddress,
+              line1: '[redacted]',
+              line2: '',
+              postalCode: '[redacted]',
+            }
+          : null,
       })),
       offers: this.getOffers(actorPubky),
       conversations: this.getParticipantConversations(actorPubky).map((conversation) => ({
@@ -1657,6 +1670,8 @@ export class MarketplaceTransactionService {
         return this.createOffer(actorPubky, command);
       case 'offer.create_private':
         return this.createPrivateOffer(actorPubky, command);
+      case 'offer.create_second_chance':
+        return this.createSecondChanceOffer(actorPubky, command);
       case 'offer.counter':
         return this.counterOffer(actorPubky, command);
       case 'offer.accept':
@@ -1687,6 +1702,8 @@ export class MarketplaceTransactionService {
         return this.requestCancellation(actorPubky, command);
       case 'order.cancel_approve':
         return this.approveCancellation(actorPubky, command);
+      case 'order.confirm_address':
+        return this.confirmOrderAddress(actorPubky, command);
       case 'fulfillment.ship':
         return this.shipOrder(actorPubky, command);
       case 'fulfillment.ready_for_pickup':
@@ -2052,6 +2069,7 @@ export class MarketplaceTransactionService {
           occurredAt,
         },
       ],
+      secondChance: false,
     };
     const event = this.createEvent(actorPubky, command, offer.revision, 'offer.created', occurredAt);
     this.repository.putOffer(offer);
@@ -2126,6 +2144,7 @@ export class MarketplaceTransactionService {
           occurredAt,
         },
       ],
+      secondChance: false,
     };
     const event = this.createEvent(actorPubky, command, offer.revision, 'offer.created_private', occurredAt);
     this.repository.putOffer(offer);
@@ -2137,6 +2156,103 @@ export class MarketplaceTransactionService {
       actorPubky,
       offer.buyerPubky,
       `Private offer created for ${formatSandboxMoney(offer.amount)}.`,
+      offerCard(listing, offer),
+      occurredAt,
+    );
+    return success(command, offer.revision, event.id, { kind: 'offer', offer });
+  }
+
+  private createSecondChanceOffer(
+    actorPubky: string,
+    command: CreateSecondChanceOfferCommand,
+  ): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (listing.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the seller may send a second-chance offer.');
+    }
+    if (command.payload.recipientPubky === actorPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot send a second-chance offer to themselves.');
+    }
+    if (!listing.auction || listing.saleFormat !== 'auction' || listing.auction.status !== 'unsold') {
+      return failure('INVALID_STATE', 'Second-chance offers require an unsold auction.');
+    }
+    if (command.expectedRevision !== listing.serverRevision) {
+      return failure('REVISION_CONFLICT', 'The listing revision is stale.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    if (listing.availableQuantity < command.payload.quantity) {
+      return failure('INSUFFICIENT_INVENTORY', 'The requested offer quantity is unavailable.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    if (!sameAsset(listing.unitPrice, command.payload.amount)) {
+      return failure('INVALID_COMMAND', 'Offer amount must use the listing asset and exponent.');
+    }
+    const recipientBid = this.repository
+      .getBidsForListing(listing.aggregateId)
+      .filter((bid) => bid.bidderPubky === command.payload.recipientPubky)
+      .sort((left, right) => right.maximumAmount.amountMinor - left.maximumAmount.amountMinor)[0];
+    if (!recipientBid) {
+      return failure('UNAUTHORIZED', 'Second-chance offers may be sent only to bidders.');
+    }
+    if (command.payload.amount.amountMinor > recipientBid.maximumAmount.amountMinor) {
+      return failure('INVALID_COMMAND', 'A second-chance offer cannot exceed the bidder proxy maximum.');
+    }
+    const unpaidWinner = this.repository
+      .exportSnapshot()
+      .orders.some(
+        (order) =>
+          (order.origin === 'auction' || order.origin === 'buy_now') &&
+          order.state === 'cancelled' &&
+          order.buyerPubky === command.payload.recipientPubky &&
+          order.lines.some((line) => line.listingAggregateId === listing.aggregateId),
+      );
+    if (unpaidWinner) {
+      return failure('UNAUTHORIZED', 'The unpaid winner is not eligible for a second-chance offer.');
+    }
+
+    const now = this.now();
+    const occurredAt = now.toISOString();
+    const offer: MarketplaceOffer = {
+      id: command.commandId,
+      aggregateId: buildMarketplaceOfferAggregateId(command.commandId),
+      listingAggregateId: listing.aggregateId,
+      buyerPubky: command.payload.recipientPubky,
+      sellerPubky: listing.sellerPubky,
+      revision: 1,
+      state: 'pending',
+      offeredBy: actorPubky,
+      amount: command.payload.amount,
+      quantity: command.payload.quantity,
+      message: command.payload.message,
+      expiresAt: new Date(now.getTime() + command.payload.expiresInSeconds * 1_000).toISOString(),
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+      history: [
+        {
+          revision: 1,
+          actorPubky,
+          action: 'created',
+          amount: command.payload.amount,
+          quantity: command.payload.quantity,
+          message: command.payload.message,
+          occurredAt,
+        },
+      ],
+      secondChance: true,
+    };
+    const event = this.createEvent(actorPubky, command, offer.revision, 'offer.created_second_chance', occurredAt);
+    this.repository.putOffer(offer);
+    this.repository.appendEvent(event);
+    this.notify(offer.buyerPubky, actorPubky, 'offer_received', offer.aggregateId, occurredAt);
+    this.recordConversationSystemEvent(
+      listing,
+      offer.buyerPubky,
+      actorPubky,
+      offer.buyerPubky,
+      `Second-chance offer created for ${formatSandboxMoney(offer.amount)}.`,
       offerCard(listing, offer),
       occurredAt,
     );
@@ -2305,12 +2421,31 @@ export class MarketplaceTransactionService {
       offerCard(listing, acceptedOffer),
       occurredAt,
     );
-    return success(command, acceptedOffer.revision, [...extraEventIds, offerEvent.id, inventoryEvent.id], {
-      kind: 'accepted_offer',
-      offer: acceptedOffer,
+    const purchase = this.createPurchaseOrder({
+      actorPubky,
+      command,
+      buyerPubky: acceptedOffer.buyerPubky,
       listing: updatedListing,
-      reservation,
+      quantity: acceptedOffer.quantity,
+      unitPrice: acceptedOffer.amount,
+      deliveryAddress: null,
+      origin: acceptedOffer.secondChance ? 'second_chance' : 'offer',
+      occurredAt,
     });
+    if (!purchase.ok) return purchase.failure;
+    return success(
+      command,
+      acceptedOffer.revision,
+      [...extraEventIds, offerEvent.id, inventoryEvent.id, purchase.eventId],
+      {
+        kind: 'accepted_offer',
+        offer: acceptedOffer,
+        listing: updatedListing,
+        reservation,
+        order: purchase.order,
+        payment: purchase.payment,
+      },
+    );
   }
 
   private rejectOffer(actorPubky: string, command: RejectOfferCommand): MarketplaceCommandResult {
@@ -2541,8 +2676,11 @@ export class MarketplaceTransactionService {
   private closeAuction(actorPubky: string, command: CloseAuctionCommand): MarketplaceCommandResult {
     const listing = this.repository.getListing(command.aggregateId);
     if (!listing) return failure('NOT_FOUND', 'The auction listing is not registered.');
-    if (listing.sellerPubky !== actorPubky) {
-      return failure('UNAUTHORIZED', 'Only the seller may close this sandbox auction.');
+    const reserveMet = Boolean(listing.auction?.leaderPubky && listing.auction.reserveMet);
+    const isSeller = listing.sellerPubky === actorPubky;
+    const isWinningBidder = listing.auction?.leaderPubky === actorPubky;
+    if (!isSeller && !(isWinningBidder && reserveMet)) {
+      return failure('UNAUTHORIZED', 'Only the seller or the winning bidder may close this auction.');
     }
     if (!listing.auction || listing.saleFormat !== 'auction' || listing.auction.status !== 'active') {
       return failure('INVALID_STATE', 'The auction is not active.');
@@ -2596,12 +2734,34 @@ export class MarketplaceTransactionService {
     if (reservation) {
       this.notify(reservation.buyerPubky, actorPubky, 'auction_won', listing.aggregateId, occurredAt);
     }
-    return success(command, updatedListing.serverRevision, event.id, {
+    const eventIds = [event.id];
+    let order: MarketplaceOrder | undefined;
+    let payment: MarketplacePayment | undefined;
+    if (sold && reservation && updatedListing.auction) {
+      const purchase = this.createPurchaseOrder({
+        actorPubky,
+        command,
+        buyerPubky: reservation.buyerPubky,
+        listing: updatedListing,
+        quantity: 1,
+        unitPrice: updatedListing.auction.currentPrice,
+        deliveryAddress: null,
+        origin: 'auction',
+        occurredAt,
+      });
+      if (!purchase.ok) return purchase.failure;
+      eventIds.push(purchase.eventId);
+      order = purchase.order;
+      payment = purchase.payment;
+    }
+    return success(command, updatedListing.serverRevision, eventIds, {
       kind: 'auction_result',
       outcome: sold ? 'sold' : 'unsold',
       winnerPubky: reservation?.buyerPubky ?? null,
       listing: updatedListing,
       reservation,
+      order,
+      payment,
     });
   }
 
@@ -2664,12 +2824,26 @@ export class MarketplaceTransactionService {
     this.repository.putReservation(reservation);
     this.repository.appendEvent(event);
     this.notify(listing.sellerPubky, actorPubky, 'auction_ended', listing.aggregateId, occurredAt);
-    return success(command, updatedListing.serverRevision, event.id, {
+    const purchase = this.createPurchaseOrder({
+      actorPubky,
+      command,
+      buyerPubky: actorPubky,
+      listing: updatedListing,
+      quantity: 1,
+      unitPrice: listing.auction.buyNowPrice,
+      deliveryAddress: null,
+      origin: 'buy_now',
+      occurredAt,
+    });
+    if (!purchase.ok) return purchase.failure;
+    return success(command, updatedListing.serverRevision, [event.id, purchase.eventId], {
       kind: 'auction_result',
       outcome: 'sold',
       winnerPubky: actorPubky,
       listing: updatedListing,
       reservation,
+      order: purchase.order,
+      payment: purchase.payment,
     });
   }
 
@@ -2950,6 +3124,7 @@ export class MarketplaceTransactionService {
         discount: { ...asset, amountMinor: discountMinor },
         total: { ...asset, amountMinor: totalMinor },
         couponCode,
+        origin: 'checkout',
         payoutState: 'held',
         guaranteePolicyVersion: command.payload.guaranteePolicyVersion,
         paymentId,
@@ -3151,6 +3326,37 @@ export class MarketplaceTransactionService {
     });
   }
 
+  private confirmOrderAddress(actorPubky: string, command: ConfirmOrderAddressCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the buyer may confirm a delivery address.');
+    }
+    if (order.deliveryAddress) {
+      return failure('INVALID_STATE', 'This order already has a delivery address.');
+    }
+    if (!['pending_payment', 'paid', 'processing'].includes(order.state)) {
+      return failure('INVALID_STATE', 'This order can no longer accept a delivery address.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      deliveryAddress: command.payload.deliveryAddress,
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'order.address_confirmed',
+      order.sellerPubky,
+      'order_address_confirmed',
+      occurredAt,
+    );
+  }
+
   private requestCancellation(actorPubky: string, command: RequestOrderCancellationCommand): MarketplaceCommandResult {
     const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
     if (!resolved.ok) return resolved.failure;
@@ -3219,6 +3425,8 @@ export class MarketplaceTransactionService {
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may ship this order.');
     if (!['paid', 'processing'].includes(order.state))
       return failure('INVALID_STATE', 'The order is not ready to ship.');
+    const addressReady = this.requireConfirmedDeliveryAddress(order);
+    if (!addressReady.ok) return addressReady.failure;
     const trackingNumber = normalizeSandboxTrackingNumber(command.payload.trackingNumber);
     if (!trackingNumber) return failure('INVALID_COMMAND', 'A normalized tracking number is required.');
     const occurredAt = this.now().toISOString();
@@ -4216,6 +4424,8 @@ export class MarketplaceTransactionService {
     if (!['paid', 'processing'].includes(order.state)) {
       return failure('INVALID_STATE', 'The order is not ready for pickup.');
     }
+    const addressReady = this.requireConfirmedDeliveryAddress(order);
+    if (!addressReady.ok) return addressReady.failure;
     const occurredAt = this.now().toISOString();
     const updated: MarketplaceOrder = {
       ...order,
@@ -4281,6 +4491,121 @@ export class MarketplaceTransactionService {
   private hasEnforcement(subjectPubky: string, actions: MarketplaceEnforcementAction[]): boolean {
     const current = this.repository.getEnforcement(subjectPubky);
     return Boolean(current?.actions.some((action) => actions.includes(action)));
+  }
+
+  private createPurchaseOrder({
+    actorPubky,
+    command,
+    buyerPubky,
+    listing,
+    quantity,
+    unitPrice,
+    deliveryAddress,
+    origin,
+    occurredAt,
+  }: {
+    actorPubky: string;
+    command: MarketplaceCommand;
+    buyerPubky: string;
+    listing: MarketplaceListingAggregate;
+    quantity: number;
+    unitPrice: MarketplaceListingAggregate['unitPrice'];
+    deliveryAddress: MarketplaceDeliveryAddress | null;
+    origin: MarketplaceOrder['origin'];
+    occurredAt: string;
+  }):
+    | { ok: true; order: MarketplaceOrder; payment: MarketplacePayment; eventId: string }
+    | { ok: false; failure: MarketplaceCommandFailure } {
+    const fulfillment = listing.fulfillment;
+    const subtotalMinor = unitPrice.amountMinor * quantity;
+    const quote = quoteSandboxCheckoutTotals({
+      subtotalMinor,
+      discountMinor: 0,
+      fulfillment,
+      shippingMinor:
+        fulfillment === 'digital' ? 0 : (listing.shippingQuoteMinor ?? MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR),
+    });
+    const orderId = randomUUID();
+    const paymentId = randomUUID();
+    const money = { currency: unitPrice.currency, exponent: unitPrice.exponent };
+    const order: MarketplaceOrder = {
+      id: orderId,
+      buyerPubky,
+      sellerPubky: listing.sellerPubky,
+      revision: 1,
+      state: 'pending_payment',
+      lines: [
+        {
+          listingAggregateId: listing.aggregateId,
+          listingRevision: listing.listingRevision,
+          contentHash: listing.contentHash,
+          title: listing.title,
+          quantity,
+          unitPrice,
+          subtotal: { ...money, amountMinor: subtotalMinor },
+        },
+      ],
+      origin,
+      deliveryAddress,
+      subtotal: { ...money, amountMinor: subtotalMinor },
+      shipping: { ...money, amountMinor: quote.shippingMinor },
+      tax: { ...money, amountMinor: quote.taxMinor },
+      discount: { ...money, amountMinor: 0 },
+      total: { ...money, amountMinor: quote.totalMinor },
+      couponCode: null,
+      payoutState: 'held',
+      guaranteePolicyVersion: 1,
+      paymentId,
+      receiptId: null,
+      cancellationReason: null,
+      shipment: null,
+      returnRequest: null,
+      dispute: null,
+      externalRefund: null,
+      reviews: [],
+      fulfillment,
+      digitalDelivery: null,
+      inventoryState: 'reserved',
+      taxAdapterVersion: quote.taxAdapterVersion,
+      shippingAdapterVersion: quote.shippingAdapterVersion,
+      supportNotes: [],
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+    };
+    const payment: MarketplacePayment = {
+      id: paymentId,
+      orderId,
+      buyerPubky,
+      sellerPubky: listing.sellerPubky,
+      revision: 1,
+      adapter: 'sandbox',
+      endpointId: 'sandbox_paykit_btc',
+      state: 'awaiting_entitlement',
+      confirmations: 0,
+      locksBundleId: randomUUID(),
+      amount: order.total,
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+    };
+    const ledger = this.postOrderLedger(order, occurredAt);
+    if (!ledger.ok) return { ok: false, failure: ledger.failure };
+    this.repository.putOrder(order);
+    this.repository.putPayment(payment);
+    const event = this.createEvent(actorPubky, command, 1, 'order.created', occurredAt, `order:${orderId}`);
+    this.repository.appendEvent(event);
+    this.notify(listing.sellerPubky, actorPubky, 'order_created', `order:${orderId}`, occurredAt);
+    this.notify(buyerPubky, listing.sellerPubky, 'order_created', `order:${orderId}`, occurredAt);
+    return { ok: true, order, payment, eventId: event.id };
+  }
+
+  private requireConfirmedDeliveryAddress(
+    order: MarketplaceOrder,
+  ): { ok: true } | { ok: false; failure: MarketplaceCommandFailure } {
+    if (order.fulfillment === 'digital' || order.deliveryAddress) return { ok: true };
+    return {
+      ok: false,
+      failure: failure('INVALID_STATE', 'Confirm a delivery address before fulfillment.'),
+    };
   }
 
   private postOrderLedger(
@@ -4488,6 +4813,7 @@ export class MarketplaceTransactionService {
     const preferences = this.getNotificationPreferences(recipientPubky);
     const enabled = [
       'order_created',
+      'order_address_confirmed',
       'payment_confirmed',
       'order_cancelled',
       'order_shipped',
@@ -4704,6 +5030,10 @@ function applyListingQuantityDelta(
     reservedQuantity,
     soldQuantity,
     state,
+    auction:
+      listing.auction && delta.available > 0 && listing.auction.status === 'sold'
+        ? { ...listing.auction, status: 'unsold' }
+        : listing.auction,
     updatedAt: occurredAt,
   };
 }

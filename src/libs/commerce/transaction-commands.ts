@@ -177,6 +177,11 @@ export const createPrivateOfferCommandSchema = createCommerceCommandSchema(
   offerTermsSchema.extend({ recipientPubky: commercePubkySchema }).strict(),
 );
 
+export const createSecondChanceOfferCommandSchema = createCommerceCommandSchema(
+  'offer.create_second_chance',
+  offerTermsSchema.extend({ recipientPubky: commercePubkySchema }).strict(),
+);
+
 export const counterOfferCommandSchema = createCommerceCommandSchema(
   'offer.counter',
   offerTermsSchema.extend({ offerId: z.uuid() }).strict(),
@@ -220,22 +225,24 @@ const checkoutLineSchema = z.object({
   quantity: z.number().int().positive().max(1_000_000),
 });
 
+const deliveryAddressSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    line1: z.string().trim().min(1).max(200),
+    line2: z.string().trim().max(200),
+    city: z.string().trim().min(1).max(100),
+    region: z.string().trim().min(1).max(100),
+    postalCode: z.string().trim().min(1).max(32),
+    countryCode: z.string().regex(/^[A-Z]{2}$/),
+  })
+  .strict();
+
 export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchema(
   'checkout.create',
   z
     .object({
       lines: z.array(checkoutLineSchema).min(1).max(50),
-      deliveryAddress: z
-        .object({
-          name: z.string().trim().min(1).max(100),
-          line1: z.string().trim().min(1).max(200),
-          line2: z.string().trim().max(200),
-          city: z.string().trim().min(1).max(100),
-          region: z.string().trim().min(1).max(100),
-          postalCode: z.string().trim().min(1).max(32),
-          countryCode: z.string().regex(/^[A-Z]{2}$/),
-        })
-        .strict(),
+      deliveryAddress: deliveryAddressSchema,
       guaranteePolicyVersion: z.literal(1),
       couponCode: z
         .string()
@@ -275,6 +282,11 @@ export const requestOrderCancellationCommandSchema = createCommerceCommandSchema
 export const approveOrderCancellationCommandSchema = createCommerceCommandSchema(
   'order.cancel_approve',
   orderIdPayload,
+);
+
+export const confirmOrderAddressCommandSchema = createCommerceCommandSchema(
+  'order.confirm_address',
+  orderIdPayload.extend({ deliveryAddress: deliveryAddressSchema }).strict(),
 );
 
 export const shipOrderCommandSchema = createCommerceCommandSchema(
@@ -612,6 +624,7 @@ export const marketplaceCommandSchema = z.union([
   reconcilePaidInventoryCommandSchema,
   createOfferCommandSchema,
   createPrivateOfferCommandSchema,
+  createSecondChanceOfferCommandSchema,
   counterOfferCommandSchema,
   acceptOfferCommandSchema,
   rejectOfferCommandSchema,
@@ -626,6 +639,7 @@ export const marketplaceCommandSchema = z.union([
   advanceSandboxPaymentCommandSchema,
   requestOrderCancellationCommandSchema,
   approveOrderCancellationCommandSchema,
+  confirmOrderAddressCommandSchema,
   shipOrderCommandSchema,
   readyForPickupCommandSchema,
   confirmOrderDeliveryCommandSchema,
@@ -721,6 +735,7 @@ export type ViewListingCommand = z.infer<typeof viewListingCommandSchema>;
 export type ReconcilePaidInventoryCommand = z.infer<typeof reconcilePaidInventoryCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CreatePrivateOfferCommand = z.infer<typeof createPrivateOfferCommandSchema>;
+export type CreateSecondChanceOfferCommand = z.infer<typeof createSecondChanceOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;
 export type AcceptOfferCommand = z.infer<typeof acceptOfferCommandSchema>;
 export type RejectOfferCommand = z.infer<typeof rejectOfferCommandSchema>;
@@ -737,6 +752,7 @@ export type CreateMarketplaceCheckoutCommand = z.infer<typeof createMarketplaceC
 export type AdvanceSandboxPaymentCommand = z.infer<typeof advanceSandboxPaymentCommandSchema>;
 export type RequestOrderCancellationCommand = z.infer<typeof requestOrderCancellationCommandSchema>;
 export type ApproveOrderCancellationCommand = z.infer<typeof approveOrderCancellationCommandSchema>;
+export type ConfirmOrderAddressCommand = z.infer<typeof confirmOrderAddressCommandSchema>;
 export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
 export type ReadyForPickupCommand = z.infer<typeof readyForPickupCommandSchema>;
 export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;

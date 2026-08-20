@@ -44,6 +44,11 @@ describe('redactMarketplaceOrderForStaff', () => {
   it('keeps refund evidence for finance', () => {
     const redacted = redactMarketplaceOrderForStaff(order, { keepRefundEvidence: true });
     expect(redacted.externalRefund?.transactionId).toBe('txid-secret-abc');
-    expect(redacted.deliveryAddress.line1).toBe(MARKETPLACE_REDACTED);
+    expect(redacted.deliveryAddress?.line1).toBe(MARKETPLACE_REDACTED);
+  });
+
+  it('keeps a pending auction address as null', () => {
+    const redacted = redactMarketplaceOrderForStaff({ ...order, deliveryAddress: null });
+    expect(redacted.deliveryAddress).toBeNull();
   });
 });

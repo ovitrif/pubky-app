@@ -154,8 +154,8 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [x] Buyer and seller can open a listing-scoped conversation.
 - [x] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — share listing/offer cards; offer lifecycle and block append system events
-- [x] Buyers can make, withdraw, accept, reject, and counter offers.
-- [x] Sellers can send private offers to watchers.
+- [x] Buyers can make, withdraw, accept, reject, and counter offers. — acceptance creates a pending-payment order; the buyer confirms delivery address before shipping
+- [x] Sellers can send private offers to watchers and second-chance offers to unsold-auction bidders at or below each bidder's proxy maximum.
 - [x] Dedicated watcher-only offer listings reject cart/checkout and require `listing.watch` before `offer.create`.
 - [x] Offer expiry, currency, quantity, inventory reservation, and optional seller auto-accept thresholds are enforced.
 - [x] Duplicate events are idempotent and transitions reject stale revisions.
@@ -167,7 +167,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Bids reject closed auctions, seller self-bids, invalid increments, stale revisions, and unaffordable sandbox balances.
 - [x] Proxy maximum bidding determines the winner and visible price deterministically.
 - [x] Buy-now closes the auction when policy allows it.
-- [x] Closing creates one winning order or an unsold result exactly once.
+- [x] Closing creates one winning order or an unsold result exactly once. — close and buy-now post a pending-payment order and ledger; the winner confirms delivery address before shipping; unpaid expiry reopens the auction as unsold for a second-chance offer to an underbidder
 
 ### Cart and checkout
 
@@ -417,7 +417,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 - [x] Build cart, checkout, totals, private delivery capture, order creation, seller payment setup, invoice presentation, polling, recovery, and status UI.
 - [~] Integrate Locks proof/credential APIs and Paykit-backed invoice/status lifecycle. — client adapter; live companion unproven
-- [~] Add balanced sandbox ledger postings, tax/shipping quotes, guarantee disclosures, digital delivery, and explicit external-refund evidence. — quotes + guarantee + refund evidence; no ledger
+- [x] Add balanced sandbox ledger postings, tax/shipping quotes, guarantee disclosures, digital delivery, and explicit external-refund evidence. — checkout, auction, buy-now, and accepted-offer orders post balanced integer-minor ledgers
 
 ### T6 — Fulfillment and post-purchase `[x]`
 

@@ -20,6 +20,7 @@ export function useMarketplaceOffer(
   aggregateId: string,
   expectedRevision: number | null,
   asSeller = false,
+  secondChance = false,
 ): UseMarketplaceOfferResult {
   const form = useForm<MarketplaceOfferData>({
     resolver: zodResolver(marketplaceOfferSchema),
@@ -38,7 +39,7 @@ export function useMarketplaceOffer(
           aggregateId,
           expectedRevision,
           issuedAt: new Date().toISOString(),
-          kind: asSeller ? 'offer.create_private' : 'offer.create',
+          kind: secondChance ? 'offer.create_second_chance' : asSeller ? 'offer.create_private' : 'offer.create',
           payload: {
             amount: { amountMinor: Math.round(Number(data.amount) * 100), currency: 'USD', exponent: 2 },
             quantity: Number(data.quantity),
@@ -52,7 +53,12 @@ export function useMarketplaceOffer(
           return;
         }
         succeeded = true;
-        toast({ title: 'Offer sent', description: 'The seller has 24 hours to respond.' });
+        toast({
+          title: secondChance ? 'Second-chance offer sent' : 'Offer sent',
+          description: secondChance
+            ? 'The bidder has 24 hours to accept the unsold auction offer.'
+            : 'The seller has 24 hours to respond.',
+        });
       } catch {
         toast({ variant: 'error', description: 'Could not send this offer.' });
       }

@@ -71,4 +71,26 @@ describe('MarketplaceAuctionStatus', () => {
     expect(screen.getByRole('status')).toHaveTextContent('You are the high bidder');
     expect(container.textContent).not.toContain('maximumAmount');
   });
+
+  it('tells the winner to confirm delivery after a sold auction', () => {
+    render(
+      <MarketplaceAuctionStatus
+        fallback={fallback}
+        auction={{
+          status: 'sold',
+          startsAt: fallback.startsAt,
+          endsAt: fallback.endsAt,
+          minimumIncrement: fallback.minimumIncrement,
+          currentPrice: fallback.startingPrice,
+          leaderPubky: MARKETPLACE_SANDBOX_BIDDER_A,
+          bidCount: 1,
+          reserveMet: true,
+        }}
+        history={[]}
+        currentUserPubky={MARKETPLACE_SANDBOX_BIDDER_A}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('You won — confirm delivery in Orders');
+  });
 });

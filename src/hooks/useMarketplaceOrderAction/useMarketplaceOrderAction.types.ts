@@ -17,8 +17,16 @@ export const marketplaceOrderActionSchema = z
       'review_reply',
       'review_report',
       'exception',
+      'confirm_address',
     ]),
     reason: z.string().trim().max(2_000),
+    name: z.string().trim().max(100),
+    line1: z.string().trim().max(200),
+    line2: z.string().trim().max(200),
+    city: z.string().trim().max(100),
+    region: z.string().trim().max(100),
+    postalCode: z.string().trim().max(32),
+    countryCode: z.string().trim().max(2),
     exceptionCode: z.enum(['delayed', 'lost', 'damaged', 'refused']),
     carrier: z.string().trim().max(100),
     trackingNumber: z.string().trim().max(200),
@@ -68,6 +76,18 @@ export const marketplaceOrderActionSchema = z
     if (data.action === 'review_report' && (!data.reviewId || !data.text)) {
       context.addIssue({ code: 'custom', path: ['text'], message: 'Explain why this review is being reported.' });
     }
+    if (data.action === 'confirm_address') {
+      if (!data.name) context.addIssue({ code: 'custom', path: ['name'], message: 'Recipient name is required.' });
+      if (!data.line1) context.addIssue({ code: 'custom', path: ['line1'], message: 'Address is required.' });
+      if (!data.city) context.addIssue({ code: 'custom', path: ['city'], message: 'City is required.' });
+      if (!data.region) context.addIssue({ code: 'custom', path: ['region'], message: 'Region is required.' });
+      if (!data.postalCode) {
+        context.addIssue({ code: 'custom', path: ['postalCode'], message: 'Postal code is required.' });
+      }
+      if (!/^[A-Za-z]{2}$/.test(data.countryCode)) {
+        context.addIssue({ code: 'custom', path: ['countryCode'], message: 'Use a two-letter country code.' });
+      }
+    }
   });
 
 export type MarketplaceOrderActionData = z.infer<typeof marketplaceOrderActionSchema>;
@@ -88,4 +108,11 @@ export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   mediaHashes: '',
   requestedRemedy: 'refund',
   exceptionCode: 'delayed',
+  name: '',
+  line1: '',
+  line2: '',
+  city: '',
+  region: '',
+  postalCode: '',
+  countryCode: 'US',
 };
