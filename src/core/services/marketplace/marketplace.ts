@@ -37,6 +37,16 @@ const listingProjectionSchema = z
       })
       .passthrough()
       .nullable(),
+    visibleBidHistory: z
+      .array(
+        z.object({
+          sequence: z.number().int().positive(),
+          bidderPubky: commercePubkySchema,
+          visiblePrice: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
+          createdAt: z.string(),
+        }),
+      )
+      .optional(),
   })
   .passthrough();
 

@@ -1,8 +1,8 @@
 import { db } from '@/database/franky/franky';
 import {
   type CommerceListingRecord,
-  type CommerceShopRecord,
   commerceListingSalePrice,
+  type CommerceShopRecord,
 } from '@/libs/commerce/marketplace-records';
 import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -328,14 +328,25 @@ export class LocalCommerceService {
           }
 
           const existingListings = await CommerceListingModel.table.toArray();
+          const existingShops = await CommerceShopModel.table.toArray();
           if (existingListings.length > 0) {
             const existingById = new Map(existingListings.map((listing) => [listing.id, listing]));
-            const needsRefresh = listingModels.some((next) => {
-              const current = existingById.get(next.id);
-              const currentHashes = current?.record.media.map((item) => item.contentHash).join(':') ?? '';
-              const nextHashes = next.record.media.map((item) => item.contentHash).join(':');
-              return !current || currentHashes !== nextHashes;
-            });
+            const existingShopsById = new Map(existingShops.map((shop) => [shop.id, shop]));
+            const needsRefresh =
+              listingModels.some((next) => {
+                const current = existingById.get(next.id);
+                const currentHashes = current?.record.media.map((item) => item.contentHash).join(':') ?? '';
+                const nextHashes = next.record.media.map((item) => item.contentHash).join(':');
+                return (
+                  !current ||
+                  currentHashes !== nextHashes ||
+                  JSON.stringify(current.record.sale) !== JSON.stringify(next.record.sale)
+                );
+              }) ||
+              shopModels.some((next) => {
+                const current = existingShopsById.get(next.id);
+                return !current || current.record.vacationMode !== next.record.vacationMode;
+              });
             if (!needsRefresh) return false;
           }
 

@@ -273,9 +273,19 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
                 disabled={isPublishing}
               />
             )}
+            {(saleFormat === 'fixed_price' || saleFormat === 'offer') && (
+              <ControlledInputField
+                name={CREATE_MARKETPLACE_LISTING_FIELDS.AUTO_ACCEPT_PRICE}
+                control={form.control}
+                label="Auto-accept at (USD, optional)"
+                placeholder="60.00"
+                disabled={isPublishing}
+              />
+            )}
             {saleFormat === 'offer' && (
               <Typography as="p" className="text-sm text-muted-foreground sm:col-span-2">
                 Buyers must watch this listing before they can send an offer. There is no cart or buy-now checkout.
+                Offers at or above the auto-accept amount are accepted immediately.
               </Typography>
             )}
           </div>

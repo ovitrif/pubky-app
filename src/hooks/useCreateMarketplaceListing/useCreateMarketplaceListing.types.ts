@@ -16,6 +16,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   SALE_FORMAT: 'saleFormat',
   PRICE: 'price',
   BUY_NOW_PRICE: 'buyNowPrice',
+  AUTO_ACCEPT_PRICE: 'autoAcceptPrice',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
   SHIPPING_PRICE: 'shippingPrice',
@@ -78,6 +79,7 @@ export const createMarketplaceListingSchema = z
     saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
     price: moneyInputSchema,
     buyNowPrice: z.string().trim(),
+    autoAcceptPrice: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical', 'digital']),
     shippingPrice: z.string().trim(),
@@ -129,6 +131,16 @@ export const createMarketplaceListingSchema = z
         });
       }
     }
+    if ((data.saleFormat === 'fixed_price' || data.saleFormat === 'offer') && data.autoAcceptPrice) {
+      const parsed = moneyInputSchema.safeParse(data.autoAcceptPrice);
+      if (!parsed.success || Number(data.autoAcceptPrice) > Number(data.price)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['autoAcceptPrice'],
+          message: 'Auto-accept must be a valid amount at or below the asking price.',
+        });
+      }
+    }
     if ((data.saleFormat === 'auction' || data.saleFormat === 'offer') && data.variants.length !== 1) {
       context.addIssue({
         code: 'custom',
@@ -160,6 +172,7 @@ export const createMarketplaceListingDraftSchema = z
     saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
     price: z.string(),
     buyNowPrice: z.string(),
+    autoAcceptPrice: z.string(),
     variants: z.array(
       z.object({
         sku: z.string(),
@@ -194,6 +207,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   saleFormat: 'fixed_price',
   price: '',
   buyNowPrice: '',
+  autoAcceptPrice: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
   shippingPrice: '',

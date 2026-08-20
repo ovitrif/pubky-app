@@ -29,6 +29,7 @@ const registerListingPayloadSchema = z
     unitPrice: commercePositiveMoneySchema,
     saleFormat: z.enum(['fixed_price', 'auction', 'offer']).default('fixed_price'),
     offersOpenTo: z.enum(['anyone', 'watchers']).optional(),
+    autoAcceptAmount: commercePositiveMoneySchema.optional(),
     fulfillment: z.enum(['physical', 'digital', 'pickup']).default('physical'),
     digitalLock: z
       .object({
@@ -68,6 +69,32 @@ const registerListingPayloadSchema = z
         path: ['offersOpenTo'],
         message: 'Offer-format listings are watcher-only.',
       });
+    }
+    if (payload.autoAcceptAmount) {
+      if (payload.saleFormat === 'auction') {
+        context.addIssue({
+          code: 'custom',
+          path: ['autoAcceptAmount'],
+          message: 'Auction listings cannot auto-accept offers.',
+        });
+      }
+      if (
+        payload.autoAcceptAmount.currency !== payload.unitPrice.currency ||
+        payload.autoAcceptAmount.exponent !== payload.unitPrice.exponent
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['autoAcceptAmount'],
+          message: 'Auto-accept must use the listing asset and exponent.',
+        });
+      }
+      if (payload.autoAcceptAmount.amountMinor > payload.unitPrice.amountMinor) {
+        context.addIssue({
+          code: 'custom',
+          path: ['autoAcceptAmount'],
+          message: 'Auto-accept cannot exceed the asking price.',
+        });
+      }
     }
     if (payload.auctionTerms) {
       if (Date.parse(payload.auctionTerms.endsAt) <= Date.parse(payload.auctionTerms.startsAt)) {

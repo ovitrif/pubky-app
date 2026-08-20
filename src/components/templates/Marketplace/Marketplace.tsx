@@ -9,6 +9,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
+import { useRecentlyViewedListings } from '@/hooks/useRecentlyViewedListings/useRecentlyViewedListings';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -24,6 +25,7 @@ export function Marketplace() {
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
   const { listings, shopsBySeller, sections, showFeedSections, isLoading, initializationError, adapterMode } =
     useMarketplaceCatalog();
+  const recentlyViewed = useRecentlyViewedListings();
 
   return (
     <ContentLayout
@@ -134,6 +136,9 @@ export function Marketplace() {
             <FeedSection title="Following" listings={sections.following} shopsBySeller={shopsBySeller} />
             <FeedSection title="New" listings={sections.newest} shopsBySeller={shopsBySeller} />
             <FeedSection title="Ending soon" listings={sections.endingSoon} shopsBySeller={shopsBySeller} />
+            {recentlyViewed.length > 0 && (
+              <FeedSection title="Recently viewed" listings={recentlyViewed} shopsBySeller={shopsBySeller} />
+            )}
           </div>
         )}
 

@@ -134,6 +134,9 @@ function buildListingRecord(
   const listingId = crypto.randomUUID().replaceAll('-', '');
   const amountMinor = Math.round(Number(data.price) * 100);
   const unitPrice = { amountMinor, currency: 'USD', exponent: 2 };
+  const autoAcceptAmount = data.autoAcceptPrice
+    ? { amountMinor: Math.round(Number(data.autoAcceptPrice) * 100), currency: 'USD', exponent: 2 }
+    : undefined;
   const sale: CommerceListingRecord['sale'] =
     data.saleFormat === 'auction'
       ? {
@@ -153,11 +156,13 @@ function buildListingRecord(
             format: 'offer',
             unitPrice,
             offersOpenTo: 'watchers',
+            ...(autoAcceptAmount ? { autoAcceptAmount } : {}),
           }
         : {
             format: 'fixed_price',
             unitPrice,
             acceptsOffers: true,
+            ...(autoAcceptAmount ? { autoAcceptAmount } : {}),
           };
   const isPhysical = data.fulfillment === 'physical';
   const isDigital = data.fulfillment === 'digital';

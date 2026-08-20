@@ -331,6 +331,14 @@ describe('watcher-only offer listings', () => {
     if (!parsed.success) return;
     expect(commerceListingSalePrice(parsed.data.sale)).toEqual(usd(7_200));
   });
+
+  it('accepts an auto-accept threshold at or below asking price', () => {
+    const listing = makeFixedListing();
+    listing.sale = { format: 'fixed_price', unitPrice: usd(6_400), acceptsOffers: true, autoAcceptAmount: usd(6_000) };
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+    listing.sale = { format: 'fixed_price', unitPrice: usd(6_400), acceptsOffers: true, autoAcceptAmount: usd(6_500) };
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(false);
+  });
 });
 
 describe('other public marketplace records', () => {

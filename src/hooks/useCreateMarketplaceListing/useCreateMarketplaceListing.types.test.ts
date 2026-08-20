@@ -86,6 +86,19 @@ describe('createMarketplaceListingSchema', () => {
         buyNowPrice: '100',
       }).success,
     ).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        autoAcceptPrice: '130',
+      }).success,
+    ).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        price: '125',
+        autoAcceptPrice: '120',
+      }).success,
+    ).toBe(true);
   });
 
   it('requires unique non-empty seller SKUs', () => {

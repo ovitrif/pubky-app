@@ -1648,4 +1648,128 @@ describe('MarketplaceTransactionService', () => {
     );
     expect(service.getListingProjection(AGGREGATE_ID)?.auction?.leaderPubky).toBe(BUYER);
   });
+
+  it('reconstructs public bid history without leaking proxy maximums', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(1, 20_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(2, 5_500, 2));
+
+    const projection = service.getListingProjection(AGGREGATE_ID);
+    expect(projection?.visibleBidHistory).toEqual([
+      expect.objectContaining({
+        sequence: 1,
+        bidderPubky: BUYER,
+        visiblePrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      }),
+      expect.objectContaining({
+        sequence: 2,
+        bidderPubky: OTHER_BUYER,
+        visiblePrice: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
+      }),
+    ]);
+    expect(JSON.stringify(projection)).not.toContain('maximumAmount');
+    expect(JSON.stringify(projection?.visibleBidHistory)).not.toContain('20000');
+  });
+
+  it('auto-accepts buyer offers at or above the seller threshold', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, {
+      ...registerCommand(),
+      payload: {
+        ...registerCommand().payload,
+        autoAcceptAmount: { amountMinor: 10_000, currency: 'USD', exponent: 2 },
+      },
+    });
+
+    await expect(service.execute(BUYER, createOfferCommand())).resolves.toMatchObject({
+      ok: true,
+      result: {
+        kind: 'accepted_offer',
+        offer: { state: 'accepted', amount: { amountMinor: 10_000 } },
+        listing: { reservedQuantity: 1, availableQuantity: 0 },
+      },
+    });
+  });
+
+  it('leaves offers below the auto-accept threshold pending', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, {
+      ...registerCommand(),
+      payload: {
+        ...registerCommand().payload,
+        autoAcceptAmount: { amountMinor: 11_000, currency: 'USD', exponent: 2 },
+      },
+    });
+
+    await expect(service.execute(BUYER, createOfferCommand())).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { state: 'pending', amount: { amountMinor: 10_000 } } },
+    });
+  });
+
+  it('rejects auction auto-accept, oversize titles, and oversize offer messages', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.execute(SELLER, {
+        ...registerAuctionCommand(),
+        payload: {
+          ...registerAuctionCommand().payload,
+          autoAcceptAmount: { amountMinor: 4_000, currency: 'USD', exponent: 2 },
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_COMMAND' } });
+
+    await expect(
+      service.execute(SELLER, {
+        ...registerCommand(),
+        payload: { ...registerCommand().payload, title: 'x'.repeat(81) },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_COMMAND' } });
+
+    await service.execute(SELLER, registerCommand());
+    await expect(
+      service.execute(BUYER, {
+        ...createOfferCommand(),
+        payload: { ...createOfferCommand().payload, message: 'x'.repeat(501) },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_COMMAND' } });
+  });
+
+  it('stores script-like offer text as data and blocks third-party accept plus bid replay mutation', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+
+    await expect(
+      service.execute(BUYER, {
+        ...createOfferCommand(),
+        payload: { ...createOfferCommand().payload, message: '<script>alert(1)</script>' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { offer: { message: '<script>alert(1)</script>', state: 'pending' } },
+    });
+    expect(service.getOffers(BUYER)[0]?.message).toBe('<script>alert(1)</script>');
+
+    await expect(
+      service.execute(OTHER_BUYER, offerAction('offer.accept', 1, '00000000-0000-4000-8000-000000000512')),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+  });
+
+  it('replays identical bids and rejects the same command id with different input', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+    const firstBid = await service.execute(BUYER, placeBidCommand(1, 20_000, 1));
+    await expect(service.execute(BUYER, placeBidCommand(1, 20_000, 1))).resolves.toEqual(firstBid);
+    await expect(
+      service.execute(BUYER, {
+        ...placeBidCommand(1, 21_000, 1),
+        commandId: placeBidCommand(1, 20_000, 1).commandId,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'IDEMPOTENCY_CONFLICT' } });
+  });
 });

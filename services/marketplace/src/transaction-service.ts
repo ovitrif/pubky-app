@@ -7,7 +7,9 @@ import {
   type AdvanceSandboxPaymentCommand,
   type ApproveOrderCancellationCommand,
   type ApproveReturnCommand,
+  type AssignMarketplaceReportCommand,
   type BlockBuyerCommand,
+  type BlockMarketplaceConversationCommand,
   buildMarketplaceBlockedBuyersAggregateId,
   buildMarketplaceCheckoutAggregateId,
   buildMarketplaceConversationAggregateId,
@@ -26,8 +28,6 @@ import {
   type CreatePrivateOfferCommand,
   type CreatePromotionCommand,
   type CreateReviewCommand,
-  type AssignMarketplaceReportCommand,
-  type BlockMarketplaceConversationCommand,
   type DecideMarketplaceReportCommand,
   type EditReviewCommand,
   type FlagMarketplaceRiskCommand,
@@ -36,6 +36,7 @@ import {
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
+  type OfferPartialReturnCommand,
   type OpenDisputeCommand,
   type PlaceBidCommand,
   type ReadyForPickupCommand,
@@ -60,7 +61,6 @@ import {
   type UpdateMarketplaceNotificationPreferencesCommand,
   type WatchListingCommand,
   type WithdrawOfferCommand,
-  type OfferPartialReturnCommand,
 } from './contracts';
 
 export interface MarketplaceListingAggregate {
@@ -83,6 +83,7 @@ export interface MarketplaceListingAggregate {
   };
   saleFormat: 'fixed_price' | 'auction' | 'offer';
   offersOpenTo: 'anyone' | 'watchers';
+  autoAcceptAmount: MarketplaceListingAggregate['unitPrice'] | null;
   fulfillment: 'physical' | 'digital' | 'pickup';
   digitalLock: {
     policyUri: string;
@@ -154,6 +155,17 @@ export interface MarketplaceBid {
   sequence: number;
   createdAt: string;
 }
+
+export interface MarketplaceVisibleBid {
+  sequence: number;
+  bidderPubky: string;
+  visiblePrice: MarketplaceListingAggregate['unitPrice'];
+  createdAt: string;
+}
+
+export type MarketplacePublicListingProjection = MarketplaceListingAggregate & {
+  visibleBidHistory: MarketplaceVisibleBid[];
+};
 
 export interface MarketplaceAttachmentMetadata {
   id: string;
@@ -982,6 +994,7 @@ export class InMemoryMarketplaceRepository {
           fulfillment: listing.fulfillment ?? 'physical',
           digitalLock: listing.digitalLock ?? null,
           offersOpenTo: listing.offersOpenTo ?? 'anyone',
+          autoAcceptAmount: listing.autoAcceptAmount ?? null,
         },
       ]),
     );
@@ -1073,8 +1086,19 @@ export class MarketplaceTransactionService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  getListingProjection(aggregateId: string): MarketplaceListingAggregate | undefined {
-    return this.repository.getListing(aggregateId);
+  getListingProjection(aggregateId: string): MarketplacePublicListingProjection | undefined {
+    const listing = this.repository.getListing(aggregateId);
+    if (!listing) return undefined;
+    return {
+      ...listing,
+      visibleBidHistory: listing.auction
+        ? reconstructVisibleBidHistory(
+            listing.unitPrice,
+            listing.auction.minimumIncrement,
+            this.repository.getBidsForListing(listing.aggregateId),
+          )
+        : [],
+    };
   }
 
   getParticipantOffers(actorPubky: string, listingAggregateId: string): MarketplaceOffer[] {
@@ -1552,6 +1576,7 @@ export class MarketplaceTransactionService {
       unitPrice: payload.unitPrice,
       saleFormat: payload.saleFormat,
       offersOpenTo: payload.offersOpenTo ?? (payload.saleFormat === 'offer' ? 'watchers' : 'anyone'),
+      autoAcceptAmount: payload.autoAcceptAmount ?? null,
       fulfillment: payload.fulfillment,
       digitalLock: payload.digitalLock ?? null,
       auction: payload.auctionTerms
@@ -1731,6 +1756,12 @@ export class MarketplaceTransactionService {
       offerCard(listing, offer),
       occurredAt,
     );
+    if (this.shouldAutoAcceptOffer(listing, offer)) {
+      return this.settleAcceptedOffer(listing.sellerPubky, command, listing, offer, occurredAt, {
+        autoAccepted: true,
+        extraEventIds: [event.id],
+      });
+    }
     return success(command, offer.revision, event.id, { kind: 'offer', offer });
   }
 
@@ -1890,16 +1921,38 @@ export class MarketplaceTransactionService {
       });
     }
 
-    const now = this.now();
-    const occurredAt = now.toISOString();
-    const acceptedOffer = this.finishOffer(offer.value, actorPubky, 'accepted', occurredAt);
+    return this.settleAcceptedOffer(actorPubky, command, listing, offer.value, this.now().toISOString(), {
+      autoAccepted: false,
+    });
+  }
+
+  private shouldAutoAcceptOffer(listing: MarketplaceListingAggregate, offer: MarketplaceOffer): boolean {
+    const threshold = listing.autoAcceptAmount;
+    return (
+      threshold != null &&
+      sameAsset(threshold, offer.amount) &&
+      offer.amount.amountMinor >= threshold.amountMinor &&
+      listing.availableQuantity >= offer.quantity
+    );
+  }
+
+  private settleAcceptedOffer(
+    actorPubky: string,
+    command: MarketplaceCommand,
+    listing: MarketplaceListingAggregate,
+    offer: MarketplaceOffer,
+    occurredAt: string,
+    options: { autoAccepted: boolean; extraEventIds?: string[] },
+  ): MarketplaceCommandResult {
+    const extraEventIds = options.extraEventIds ?? [];
+    const acceptedOffer = this.finishOffer(offer, actorPubky, 'accepted', occurredAt);
     const reservation: MarketplaceReservation = {
       id: command.commandId,
       aggregateId: listing.aggregateId,
       buyerPubky: acceptedOffer.buyerPubky,
       quantity: acceptedOffer.quantity,
       status: 'active',
-      expiresAt: new Date(now.getTime() + 30 * 60 * 1_000).toISOString(),
+      expiresAt: new Date(Date.parse(occurredAt) + 30 * 60 * 1_000).toISOString(),
       createdAt: occurredAt,
     };
     const updatedListing: MarketplaceListingAggregate = {
@@ -1936,11 +1989,13 @@ export class MarketplaceTransactionService {
       acceptedOffer.buyerPubky,
       actorPubky,
       actorPubky === acceptedOffer.sellerPubky ? acceptedOffer.buyerPubky : acceptedOffer.sellerPubky,
-      `Offer accepted at ${formatSandboxMoney(acceptedOffer.amount)}.`,
+      options.autoAccepted
+        ? `Offer auto-accepted at ${formatSandboxMoney(acceptedOffer.amount)}.`
+        : `Offer accepted at ${formatSandboxMoney(acceptedOffer.amount)}.`,
       offerCard(listing, acceptedOffer),
       occurredAt,
     );
-    return success(command, acceptedOffer.revision, [offerEvent.id, inventoryEvent.id], {
+    return success(command, acceptedOffer.revision, [...extraEventIds, offerEvent.id, inventoryEvent.id], {
       kind: 'accepted_offer',
       offer: acceptedOffer,
       listing: updatedListing,
@@ -4143,6 +4198,33 @@ function defaultCardText(kind: MarketplaceMessageKind, card: MarketplaceMessageC
     return `Shared offer: ${amount}`;
   }
   return '';
+}
+
+export function reconstructVisibleBidHistory(
+  startingPrice: MarketplaceListingAggregate['unitPrice'],
+  increment: MarketplaceListingAggregate['unitPrice'],
+  bids: MarketplaceBid[],
+): MarketplaceVisibleBid[] {
+  const ordered = [...bids].sort((left, right) => left.sequence - right.sequence);
+  const seen: MarketplaceBid[] = [];
+  return ordered.map((bid) => {
+    seen.push(bid);
+    const ranked = [...latestBidderMaximums(seen).values()].sort(
+      (left, right) =>
+        right.maximumAmount.amountMinor - left.maximumAmount.amountMinor || left.sequence - right.sequence,
+    );
+    const leader = ranked[0];
+    const runnerUp = ranked[1];
+    const visibleAmount = runnerUp
+      ? Math.min(leader.maximumAmount.amountMinor, runnerUp.maximumAmount.amountMinor + increment.amountMinor)
+      : startingPrice.amountMinor;
+    return {
+      sequence: bid.sequence,
+      bidderPubky: bid.bidderPubky,
+      visiblePrice: { ...startingPrice, amountMinor: visibleAmount },
+      createdAt: bid.createdAt,
+    };
+  });
 }
 
 function latestBidderMaximums(bids: MarketplaceBid[]): Map<string, MarketplaceBid> {

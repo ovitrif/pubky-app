@@ -111,13 +111,44 @@ export const commerceVariantSchema = z
     }
   });
 
+const autoAcceptAmountSchema = commercePositiveMoneySchema.optional();
+
+function refineAutoAcceptAmount(
+  sale: {
+    unitPrice: z.infer<typeof commercePositiveMoneySchema>;
+    autoAcceptAmount?: z.infer<typeof commercePositiveMoneySchema>;
+  },
+  context: z.RefinementCtx,
+) {
+  if (!sale.autoAcceptAmount) return;
+  if (
+    sale.autoAcceptAmount.currency !== sale.unitPrice.currency ||
+    sale.autoAcceptAmount.exponent !== sale.unitPrice.exponent
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['autoAcceptAmount'],
+      message: 'Auto-accept must use the listing asset and exponent',
+    });
+  }
+  if (sale.autoAcceptAmount.amountMinor > sale.unitPrice.amountMinor) {
+    context.addIssue({
+      code: 'custom',
+      path: ['autoAcceptAmount'],
+      message: 'Auto-accept cannot exceed the asking price',
+    });
+  }
+}
+
 const fixedPriceSaleSchema = z
   .object({
     format: z.literal('fixed_price'),
     unitPrice: commercePositiveMoneySchema,
     acceptsOffers: z.boolean(),
+    autoAcceptAmount: autoAcceptAmountSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(refineAutoAcceptAmount);
 
 const auctionSaleSchema = z
   .object({
@@ -138,8 +169,10 @@ const offerSaleSchema = z
     format: z.literal('offer'),
     unitPrice: commercePositiveMoneySchema,
     offersOpenTo: z.enum(['anyone', 'watchers']).default('watchers'),
+    autoAcceptAmount: autoAcceptAmountSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(refineAutoAcceptAmount);
 
 export const commerceSaleSchema = z.discriminatedUnion('format', [
   fixedPriceSaleSchema,

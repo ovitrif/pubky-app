@@ -47,6 +47,39 @@ describe('LocalCommerceService', () => {
     expect(await CommerceListingProjectionModel.table.count()).toBe(10);
   });
 
+  it('refreshes sandbox shop vacation mode and listing sale terms without wiping later local listings', async () => {
+    const catalog = createCommerceSandboxCatalog();
+    await LocalCommerceService.seedSandboxCatalog(catalog);
+    const vase = catalog.listings.find((listing) => listing.listingId === 'ceramic_vase');
+    const shopRecord = catalog.shops.find((shop) => shop.ownerPubky === vase?.ownerPubky);
+    if (!vase || !shopRecord) throw new Error('Expected ceramic vase catalog listing');
+    await LocalCommerceService.upsertShop({ ...shopRecord, vacationMode: false }, 'synced');
+    await LocalCommerceService.upsertListing(
+      {
+        ...vase,
+        sale: {
+          format: 'fixed_price',
+          unitPrice:
+            vase.sale.format === 'fixed_price'
+              ? vase.sale.unitPrice
+              : { amountMinor: 6_400, currency: 'USD', exponent: 2 },
+          acceptsOffers: true,
+        },
+      },
+      'synced',
+    );
+    const extra = createCommerceListingFixture();
+    await LocalCommerceService.upsertListing(extra, 'synced');
+
+    await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
+
+    const shop = await LocalCommerceService.getShop(vase.ownerPubky);
+    const refreshed = await LocalCommerceService.getListing(`${vase.ownerPubky}:${vase.listingId}`);
+    expect(shop?.record.vacationMode).toBe(true);
+    expect(refreshed?.record.sale).toMatchObject({ autoAcceptAmount: { amountMinor: 6_000 } });
+    expect(await LocalCommerceService.getListing(`${extra.ownerPubky}:boots_01`)).not.toBeNull();
+  });
+
   it('refreshes sandbox listing media without wiping later local listings', async () => {
     const catalog = createCommerceSandboxCatalog();
     await LocalCommerceService.seedSandboxCatalog(catalog);

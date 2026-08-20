@@ -27,6 +27,8 @@ type CatalogEntry = {
   saleFormat: CommerceListingRecord['sale']['format'];
   fulfillment?: CommerceListingRecord['fulfillmentMethods'][number];
   colorHash: string;
+  vacationMode?: boolean;
+  autoAcceptAmountMinor?: number;
 };
 
 const CATALOG_ENTRIES: CatalogEntry[] = [
@@ -81,6 +83,8 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     tags: ['ceramics', 'handmade'],
     saleFormat: 'fixed_price',
     colorHash: 'd',
+    vacationMode: true,
+    autoAcceptAmountMinor: 6_000,
   },
   {
     seller: 'r'.repeat(52),
@@ -165,20 +169,20 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
 ];
 
 export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
-  const shops = CATALOG_ENTRIES.map(({ seller, shopName }, index) =>
+  const shops = CATALOG_ENTRIES.map((entry, index) =>
     commerceShopRecordSchema.parse({
       schemaVersion: COMMERCE_CONTRACT_VERSION,
       recordType: 'shop',
-      ownerPubky: seller,
+      ownerPubky: entry.seller,
       revision: 1,
       createdAt: '2026-08-19T20:00:00.000Z',
       updatedAt: `2026-08-19T21:${index.toString().padStart(2, '0')}:00.000Z`,
-      name: shopName,
+      name: entry.shopName,
       bio: 'Independent seller on the Pubky marketplace.',
       location: { countryCode: 'US' },
       shippingPolicy: 'Ships within three business days.',
       returnPolicy: 'Returns accepted within 30 days.',
-      vacationMode: false,
+      vacationMode: entry.vacationMode ?? false,
     }),
   );
 
@@ -225,11 +229,17 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
             format: 'offer',
             unitPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
             offersOpenTo: 'watchers',
+            ...(entry.autoAcceptAmountMinor
+              ? { autoAcceptAmount: { amountMinor: entry.autoAcceptAmountMinor, currency: 'USD', exponent: 2 } }
+              : {}),
           }
         : {
             format: 'fixed_price',
             unitPrice: { amountMinor: entry.amountMinor, currency: 'USD', exponent: 2 },
             acceptsOffers: true,
+            ...(entry.autoAcceptAmountMinor
+              ? { autoAcceptAmount: { amountMinor: entry.autoAcceptAmountMinor, currency: 'USD', exponent: 2 } }
+              : {}),
           };
 
   return commerceListingRecordSchema.parse({

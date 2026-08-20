@@ -158,6 +158,28 @@ describe('useCreateMarketplaceListing', () => {
     });
   });
 
+  it('publishes an auto-accept threshold on a fixed-price listing', async () => {
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Hand-thrown ceramic vase');
+      result.current.form.setValue('description', 'One-of-one stoneware vase.');
+      result.current.form.setValue('price', '64.00');
+      result.current.form.setValue('autoAcceptPrice', '60.00');
+      result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('altText', 'Ceramic vase');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const listing = vi.mocked(CommerceController.commitUpsertListing).mock.calls[0][0];
+    expect(listing).toMatchObject({
+      sale: { format: 'fixed_price', autoAcceptAmount: { amountMinor: 6_000, currency: 'USD', exponent: 2 } },
+    });
+  });
+
   it('does not publish when media preparation fails', async () => {
     mediaState.prepared = false;
     const { result } = renderHook(() => useCreateMarketplaceListing());

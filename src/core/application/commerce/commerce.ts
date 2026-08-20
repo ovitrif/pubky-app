@@ -1,8 +1,8 @@
 import { getCommerceAdapterMode } from '@/config/commerce';
 import {
   type CommerceListingRecord,
-  type CommerceShopRecord,
   commerceListingSalePrice,
+  type CommerceShopRecord,
 } from '@/libs/commerce/marketplace-records';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
@@ -374,6 +374,7 @@ export class CommerceApplication {
         unitPrice,
         saleFormat: listing.sale.format,
         offersOpenTo: listing.sale.format === 'offer' ? listing.sale.offersOpenTo : undefined,
+        autoAcceptAmount: listing.sale.format === 'auction' ? undefined : listing.sale.autoAcceptAmount,
         fulfillment: listing.fulfillmentMethods.includes('digital')
           ? 'digital'
           : listing.fulfillmentMethods.includes('physical')

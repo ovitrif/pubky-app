@@ -19,17 +19,20 @@ import { useMarketplaceBuyNow } from '@/hooks/useMarketplaceBuyNow/useMarketplac
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { relatedMarketplaceListings } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
+import { useRecordRecentlyViewedListing } from '@/hooks/useRecentlyViewedListings/useRecentlyViewedListings';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { commerceListingSalePrice } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
+import { MarketplaceBidHistory } from '@/organisms/Marketplace/MarketplaceBidHistory';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceListingGallery } from '@/organisms/Marketplace/MarketplaceListingGallery';
 import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
+import { MarketplaceVacationNotice } from '@/organisms/Marketplace/MarketplaceVacationNotice';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -48,6 +51,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const cart = useMarketplaceCart();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
   const buyNow = useMarketplaceBuyNow(aggregateId, negotiation.projection?.serverRevision ?? null);
+  useRecordRecentlyViewedListing(sellerPubky, listingId);
 
   useEffect(() => {
     let active = true;
@@ -170,7 +174,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   {negotiation.projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
                 </Typography>
               )}
+              {record.sale.format !== 'auction' && record.sale.autoAcceptAmount && (
+                <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                  Seller auto-accepts offers at or above {formatCommerceMoney(record.sale.autoAcceptAmount)}.
+                </Typography>
+              )}
             </div>
+
+            {shop?.record.vacationMode && <MarketplaceVacationNotice />}
 
             <Card className="gap-4 border py-5">
               <CardContent className="flex items-center justify-between gap-4 px-5">
@@ -262,6 +273,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 lockResource={record.digitalLock.policyUri}
                 criterionId={record.digitalLock.criterionId}
               />
+            )}
+
+            {record.sale.format === 'auction' && (
+              <MarketplaceBidHistory history={negotiation.projection?.visibleBidHistory ?? []} />
             )}
 
             <div className="mt-auto flex gap-3">

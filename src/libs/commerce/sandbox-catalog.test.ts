@@ -15,6 +15,15 @@ describe('createCommerceSandboxCatalog', () => {
       first.listings.some((listing) => listing.fulfillmentMethods.includes('digital') && listing.digitalLock),
     ).toBe(true);
     expect(first.listings.some((listing) => listing.sale.format === 'offer')).toBe(true);
+    expect(first.shops.some((shop) => shop.vacationMode && shop.name === 'Soft Fork Studio')).toBe(true);
+    expect(
+      first.listings.some(
+        (listing) =>
+          listing.listingId === 'ceramic_vase' &&
+          listing.sale.format === 'fixed_price' &&
+          listing.sale.autoAcceptAmount?.amountMinor === 6_000,
+      ),
+    ).toBe(true);
     expect(first.shops.every((shop) => commerceShopRecordSchema.safeParse(shop).success)).toBe(true);
     expect(first.listings.every((listing) => commerceListingRecordSchema.safeParse(listing).success)).toBe(true);
 

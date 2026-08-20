@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (watcher-only offer product, auction manipulation auto-flags, digital listings, relist/returns landed; live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (visible bid history, vacation PDP, recently viewed, offer auto-accept, adversarial/E2E expansion landed; live Paykit/videos remain)
 
 Legend:
 
@@ -19,16 +19,16 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Task graph
 
-- [x] **T0 — Evidence and protocol audit** — upstream pins and constraints recorded; acceptance-to-test ledger still missing
+- [x] **T0 — Evidence and protocol audit** — upstream pins and constraints recorded; acceptance-to-test ledger in `docs/ecommerce/acceptance-to-test-ledger.md`
 - [x] **T1 — Architecture and contracts** — ADRs 0019/0020, Zod contracts, threat model; PostgreSQL schema applied on connect
 - [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory tests plus PostgreSQL write-through repository
 - [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
-- [x] **T4 — Messaging, offers, and auctions** — proxy bids, anti-sniping, watcher-only offer listings, private watcher offers, buy-now close, increment-shill auto-flags
+- [x] **T4 — Messaging, offers, and auctions** — proxy bids, visible bid history, anti-sniping, watcher-only offers, auto-accept thresholds, increment-shill auto-flags
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
-- [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; no staff assignment/reversal
+- [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — marketplace unit/hook tests, catalog VRT, thin Cypress; full a11y/security/E2E gates and videos remain
-- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook; feature videos not recorded
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — marketplace unit/hook tests, catalog VRT, Cypress browse/auth/auction/watcher/vacation; live Bitkit and signed-in videos remain
+- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in/Bitkit feature videos not recorded
 
 ### Delivery slices
 
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: watcher-only offer listings (`listing.watch` / `listing.unwatch`, catalog **Sample-room wool coat**), auction increment-shill auto-flags that never rewrite bid history, listing/offer conversation cards, digital Locks credentials, relist studio, and contract-aligned return tracking.
+Last shipped feature work: public **visible** bid history (no proxy maximums), vacation banners on listing PDPs, sessionStorage recently viewed, seller auto-accept thresholds, Soft Fork Studio vacation + ceramic vase auto-accept catalog, adversarial command guards, and expanded Cypress.
 
 Next required work, in order:
 
@@ -141,7 +141,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Discovery and social shopping
 
-- [x] Marketplace home exposes recommended, following, new, ending-soon, and category sections.
+- [x] Marketplace home exposes recommended, following, new, ending-soon, recently viewed, and category sections.
 - [x] Search supports text, seller, category, condition, format, price range, delivery, location, sort, and saved searches.
 - [x] Listing grids support pagination, empty/error/loading states, responsive layouts, and deep links.
 - [x] Buyers can favorite listings, follow sellers, save searches, and receive relevant notifications.
@@ -154,13 +154,13 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Buyers can make, withdraw, accept, reject, and counter offers.
 - [x] Sellers can send private offers to watchers.
 - [x] Dedicated watcher-only offer listings reject cart/checkout and require `listing.watch` before `offer.create`.
-- [x] Offer expiry, currency, quantity, and inventory reservation are enforced.
+- [x] Offer expiry, currency, quantity, inventory reservation, and optional seller auto-accept thresholds are enforced.
 - [x] Duplicate events are idempotent and transitions reject stale revisions.
 
 ### Auctions
 
 - [x] Sellers set start price, optional reserve, optional buy-now, bid increment policy, start/end times, and anti-sniping extension.
-- [x] Buyers see bid count, current price, reserve status, minimum next bid, end time, and their standing.
+- [x] Buyers see bid count, current price, reserve status, minimum next bid, end time, their standing, and a public visible-price bid history that never exposes proxy maximums.
 - [x] Bids reject closed auctions, seller self-bids, invalid increments, stale revisions, and unaffordable sandbox balances.
 - [x] Proxy maximum bidding determines the winner and visible price deterministically.
 - [x] Buy-now closes the auction when policy allows it.
@@ -384,7 +384,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 - [x] Inventory existing auth, storage, media, notifications, routes, tests, and design primitives.
 - [x] Pin upstream revisions and contracts for Paykit, Paykit Server, Locks, Homeserver, Ring/Bitkit, and Docker.
 - [x] Resolve or explicitly replace the unavailable `pubky/design.md` source.
-- [ ] Produce the acceptance-to-test traceability ledger.
+- [x] Produce the acceptance-to-test traceability ledger.
 
 ### T1 — Architecture and contracts `[x]`
 
@@ -419,11 +419,11 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T6 — Fulfillment and post-purchase `[x]`
 
 - [x] Build order work queues/timelines, shipping presets/tracking, pickup, digital access, cancellations, returns, partial resolutions, disputes, reviews, and reputation.
-- [~] Add moderation queues and immutable audit history. — report list + event log; no staff assignment UI
+- [x] Add moderation queues and immutable audit history. — assign, decide, reverse, risk flag, event log
 
 ### T7 — Seller operations `[x]`
 
-- [~] Build dashboard, analytics, inventory bulk actions, CSV preview/export, promotions, statements, policies, payment status, vacation mode, notification settings, and blocked-buyer controls. — dashboard/CSV export/policies/vacation; no promotions, statements, or blocked buyers
+- [x] Build dashboard, analytics, inventory bulk actions, CSV preview/export, promotions, statements, policies, payment status, vacation mode, notification settings, and blocked-buyer controls.
 
 ### T8 — Hardening and parity audit `[~]` `[!]` stopped here
 
@@ -461,7 +461,9 @@ Ledger format:
 | PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect      | Closed  | Write-through snapshot   | Marketplace unit suite | Verified in sandbox |
 | Watcher-only offers                    | `transaction-service.test.ts` + sell form + PDP        | watch required, checkout rejected     | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
 | Auction increment-shill auto-flag      | `transaction-service.test.ts`                          | risk signal, bid history unchanged    | Closed  | Auto-flag on `bid.place` | Marketplace unit suite | Verified in sandbox |
-| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Pending                  | Not recorded           | Unverified          |
+| Visible bid history                    | `transaction-service.test.ts` + auction PDP            | visible prices only, no proxy max     | Closed  | Projection reconstruct   | Marketplace unit suite | Verified in sandbox |
+| Offer auto-accept                      | `transaction-service.test.ts` + sell form + vase PDP   | threshold reserves inventory          | Closed  | Service + catalog        | Marketplace unit suite | Verified in sandbox |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Guest subset recorded    | Signed-in/Bitkit open  | Unverified          |
 
 Required gates:
 
