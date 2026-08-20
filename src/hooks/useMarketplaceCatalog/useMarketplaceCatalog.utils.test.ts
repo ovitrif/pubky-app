@@ -65,7 +65,11 @@ describe('filterMarketplaceCatalog', () => {
       }),
     );
 
-    expect(results.map(({ listing_id }) => listing_id).sort()).toEqual(['mechanical_keyboard', 'selvedge_jacket']);
+    expect(results.map(({ listing_id }) => listing_id).sort()).toEqual([
+      'denim_jacket',
+      'mechanical_keyboard',
+      'selvedge_jacket',
+    ]);
   });
 
   it('sorts price in both directions', () => {
