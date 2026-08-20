@@ -52,6 +52,7 @@ describe('marketplace', () => {
     cy.contains('Proxy maximums stay private').should('be.visible');
     cy.contains('Buying policies').should('be.visible');
     cy.contains('maximumAmount').should('not.exist');
+    cy.screenshot('auction-status-seeded-bids', { overwrite: true });
   });
 
   it('shows watcher-only offer and vacation listing surfaces', () => {
@@ -69,6 +70,7 @@ describe('marketplace', () => {
     cy.contains('Seller auto-accepts offers at or above $60.00').should('be.visible');
     cy.contains('Buying policies').should('be.visible');
     cy.contains('button', 'Share').should('be.visible');
+    cy.screenshot('vase-vacation-auto-accept', { overwrite: true });
   });
 
   it('opens a public shop and filters watcher-only offers', () => {
@@ -77,6 +79,7 @@ describe('marketplace', () => {
     cy.contains('h1', 'Satoshi Vintage').should('be.visible');
     cy.contains('Buying policies').should('be.visible');
     cy.contains('Vintage leather boots').should('be.visible');
+    cy.screenshot('shop-buying-policies', { overwrite: true });
 
     cy.visit('/marketplace');
     cy.get('body').then(($body) => {
