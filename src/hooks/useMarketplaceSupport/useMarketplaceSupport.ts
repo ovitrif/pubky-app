@@ -34,6 +34,8 @@ export function useMarketplaceSupport() {
     refresh()
       .catch(() => setError('This account does not have marketplace support access.'))
       .finally(() => setIsLoading(false));
+    // refresh is recreated each render; React Compiler memoizes the hook body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/query refresh only
   }, [currentUserPubky, query, staff.ready]);
 
   const addNote = async (order: MarketplaceOrder) => {

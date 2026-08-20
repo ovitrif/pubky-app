@@ -37,6 +37,8 @@ export function useMarketplaceRisk() {
     refresh()
       .catch(() => setError('This account does not have marketplace risk access.'))
       .finally(() => setIsLoading(false));
+    // refresh is recreated each render; React Compiler memoizes the hook body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount refresh only
   }, [currentUserPubky, staff.ready]);
 
   const flagRisk = async () => {

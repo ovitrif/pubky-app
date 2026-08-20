@@ -42,6 +42,8 @@ export function useMarketplaceFinance() {
     refresh()
       .catch(() => setError('This account does not have marketplace finance access.'))
       .finally(() => setIsLoading(false));
+    // refresh is recreated each render; React Compiler memoizes the hook body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount refresh only
   }, [currentUserPubky, staff.ready]);
 
   const recordRefund = async () => {
