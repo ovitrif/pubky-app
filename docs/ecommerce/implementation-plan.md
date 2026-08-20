@@ -174,7 +174,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Fixed-price items can be added, edited, removed, and grouped by seller. — guests use a reserved local cart owner; checkout still requires a real session
 - [x] Cart validation refreshes price, stock, delivery availability, and listing state before checkout.
 - [x] Checkout captures delivery/contact details without placing raw private data in public records or telemetry.
-- [~] Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order. — sandbox shipping/tax plus coupon discount
+- [x] Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order. — sandbox shipping/tax plus SAVE10 cart quote
 - [~] Buyers select an eligible Paykit payment endpoint and explicitly confirm order creation. — labeled sandbox endpoint picker; live Bitkit picker unproven
 - [x] Duplicate checkout submission reuses the same idempotency key and cannot create duplicate orders/invoices.
 
