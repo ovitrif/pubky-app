@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { printMarketplaceShippingLabel } from './shipping-label';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
+import { printMarketplaceShippingLabel } from './shipping-label';
 
 const order = {
   id: '43a8f872-ce9b-4481-82e2-a7abef0c9ac7',

@@ -1,7 +1,7 @@
 'use client';
 
-import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, CheckCircle2, Clock3, ReceiptText } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';

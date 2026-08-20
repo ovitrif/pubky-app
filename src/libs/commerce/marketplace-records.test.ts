@@ -3,8 +3,8 @@ import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/c
 import {
   commerceCollectionRecordSchema,
   type CommerceListingRecord,
-  commerceListingSalePrice,
   commerceListingRecordSchema,
+  commerceListingSalePrice,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
   commerceShopRecordSchema,

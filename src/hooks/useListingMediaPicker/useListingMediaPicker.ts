@@ -54,7 +54,10 @@ export function useListingMediaPicker(
   const itemsRef = useRef<ListingMediaItem[]>([]);
   const [items, setItems] = useState<ListingMediaItem[]>([]);
   const [error, setError] = useState<ListingMediaPickerError | null>(null);
-  itemsRef.current = items;
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   useEffect(
     () => () => {

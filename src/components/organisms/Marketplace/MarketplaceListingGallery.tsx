@@ -5,8 +5,8 @@ import { Gavel, PackageCheck } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
-import { isDisplayableCommerceMediaUrl } from '@/libs/commerce/media';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { isDisplayableCommerceMediaUrl } from '@/libs/commerce/media';
 import { cn } from '@/libs/utils/utils';
 
 const MEDIA_BACKGROUNDS = [

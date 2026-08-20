@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
-import { useAuthStore } from '@/stores/auth/auth.store';
-import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MARKETPLACE_GUEST_CART_OWNER } from '@/libs/commerce/guest-cart';
 import {
   MARKETPLACE_SANDBOX_MODERATOR,
   MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY,
 } from '@/libs/commerce/sandbox-actors';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,

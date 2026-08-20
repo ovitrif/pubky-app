@@ -1,11 +1,11 @@
 import { Pool } from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { applyMarketplaceSchema, PostgresMarketplaceRepository } from './postgres-repository';
 import {
   buildMarketplaceCheckoutAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplacePaymentAggregateId,
 } from './contracts';
+import { applyMarketplaceSchema, PostgresMarketplaceRepository } from './postgres-repository';
 import { MarketplaceTransactionService } from './transaction-service';
 
 const DATABASE_URL =
