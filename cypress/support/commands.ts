@@ -239,7 +239,7 @@ Cypress.Commands.add('signInWithRecoveryPhrase', (recoveryPhrase: string) => {
 function inputRecoveryPhraseWords(recoveryPhrase: string): void {
   const words = recoveryPhrase.split(' ');
   words.forEach((word, index) => {
-    cy.get(`#word-slot-input-${index + 1}`).type(word);
+    cy.get(`#word-slot-input-${index + 1}`).type(word, { log: false });
   });
 }
 

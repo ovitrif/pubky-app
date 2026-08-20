@@ -134,6 +134,11 @@ export default defineConfig({
           appendFileSync('cypress.log', `\nTest: ${testName}\nTime: ${new Date().toISOString()}\n${message}`);
           return null; // return null to indicate task completion
         },
+
+        getStagingRecoveryPhrase() {
+          const phrase = typeof process.env.STAGING_RECOVERY_PHRASE === 'string' ? process.env.STAGING_RECOVERY_PHRASE.trim() : '';
+          return phrase.split(/\s+/).filter(Boolean).length === 12 ? phrase : null;
+        },
       });
     },
     experimentalModifyObstructiveThirdPartyCode: true,

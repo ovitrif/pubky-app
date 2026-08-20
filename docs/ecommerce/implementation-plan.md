@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: **guest local cart** (reserved Dexie owner, merge on sign-in); PDP/cart **quantity stepper**; sandbox stock > 1 on boots/runners/keyboard/pattern pack; DatabaseProvider **init timeout** with retry; auction standing/min next bid; buying policies.
+Last shipped feature work: staging recovery phrase restores a real session; signed-in cart shows the checkout form; sell studio, seller dashboard, and orders are reachable. Guest cart, quantity steppers, and DatabaseProvider init timeout remain.
 
 Next required work, in order:
 
