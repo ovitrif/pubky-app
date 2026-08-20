@@ -28,7 +28,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
 - [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — signed-in Cypress now places a sandbox order, confirms payment, fulfills pickup, reviews, ships a seller listing, and dismisses a report as sandbox operator; live Bitkit, axe/SSRF, and remaining videos remain
-- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in/Bitkit feature videos not recorded
+- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills recorded; Bitkit and motion demos remain
 
 ### Delivery slices
 
