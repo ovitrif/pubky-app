@@ -10,10 +10,16 @@ import { useMarketplaceReport } from '@/hooks/useMarketplaceReport/useMarketplac
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
-export function MarketplaceReportDialog({ targetId }: { targetId: string }) {
+export function MarketplaceReportDialog({
+  targetId,
+  targetType = 'listing',
+}: {
+  targetId: string;
+  targetType?: 'listing' | 'user' | 'message' | 'review';
+}) {
   const [open, setOpen] = useState(false);
   const { requireAuth } = useRequireAuth();
-  const report = useMarketplaceReport(targetId);
+  const report = useMarketplaceReport(targetId, targetType);
 
   const submit = async () => {
     if (await report.submit()) setOpen(false);
@@ -33,7 +39,7 @@ export function MarketplaceReportDialog({ targetId }: { targetId: string }) {
       <DialogTrigger asChild>
         <Button variant="ghost" size="sm" className="rounded-full">
           <Flag className="mr-2 size-4" />
-          Report listing
+          Report {targetType}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">

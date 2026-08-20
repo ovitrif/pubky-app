@@ -1,15 +1,22 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { commerceAggregateIdSchema, commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
-import { InMemoryMarketplaceRepository, MarketplaceTransactionService } from './transaction-service';
+import { PostgresMarketplaceRepository } from './postgres-repository';
+import {
+  InMemoryMarketplaceRepository,
+  MARKETPLACE_SANDBOX_MODERATOR,
+  MarketplaceTransactionService,
+} from './transaction-service';
 
 export type MarketplaceServerMode = 'disabled' | 'sandbox';
+export type MarketplaceStorageMode = 'memory' | 'postgres';
 
 export interface MarketplaceServerOptions {
   mode: MarketplaceServerMode;
   service?: MarketplaceTransactionService;
   maxBodyBytes?: number;
   allowedOrigin?: string;
+  storage?: MarketplaceStorageMode;
 }
 
 export function createMarketplaceHttpServer({
@@ -17,6 +24,7 @@ export function createMarketplaceHttpServer({
   service = new MarketplaceTransactionService(new InMemoryMarketplaceRepository()),
   maxBodyBytes = 1_000_000,
   allowedOrigin = '*',
+  storage = 'memory',
 }: MarketplaceServerOptions): Server {
   return createServer(async (request, response) => {
     try {
@@ -44,7 +52,7 @@ export function createMarketplaceHttpServer({
           {
             status: ready ? 'ready' : 'not_ready',
             mode,
-            storage: 'memory',
+            storage,
           },
           mode,
         );
@@ -339,6 +347,45 @@ export function createMarketplaceHttpServer({
         return;
       }
 
+      if (request.method === 'GET' && request.url === '/v1/invariants') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success || actorResult.data !== MARKETPLACE_SANDBOX_MODERATOR) {
+          writeJson(
+            response,
+            403,
+            { error: { code: 'UNAUTHORIZED', message: 'Operator identity is required.' } },
+            mode,
+          );
+          return;
+        }
+        writeJson(response, 200, service.getInvariants(), mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/admin/search')) {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        const query = new URL(request.url, 'http://marketplace.local').searchParams.get('q') ?? '';
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Admin identity is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, service.searchAdmin(actorResult.data, query), mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/account/export') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Account identity is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, service.exportAccount(actorResult.data), mode);
+        return;
+      }
+
       if (request.method === 'GET' && request.url === '/v1/reports') {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
@@ -351,13 +398,11 @@ export function createMarketplaceHttpServer({
           );
           return;
         }
-        const reports = service.getReports(actorResult.data);
-        writeJson(
-          response,
-          reports.length ? 200 : 403,
-          reports.length ? { reports } : { error: { code: 'UNAUTHORIZED', message: 'Moderator role required.' } },
-          mode,
-        );
+        if (actorResult.data !== MARKETPLACE_SANDBOX_MODERATOR) {
+          writeJson(response, 403, { error: { code: 'UNAUTHORIZED', message: 'Moderator role required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, { reports: service.getReports(actorResult.data) }, mode);
         return;
       }
 
@@ -440,8 +485,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const mode: MarketplaceServerMode = process.env.MARKETPLACE_MODE === 'sandbox' ? 'sandbox' : 'disabled';
   const port = Number.parseInt(process.env.MARKETPLACE_PORT ?? '3100', 10);
   const host = process.env.MARKETPLACE_HOST ?? '127.0.0.1';
-  const server = createMarketplaceHttpServer({ mode });
+  const databaseUrl = process.env.DATABASE_URL;
+  const repository = databaseUrl
+    ? await PostgresMarketplaceRepository.connect(databaseUrl)
+    : new InMemoryMarketplaceRepository();
+  const service = new MarketplaceTransactionService(repository);
+  const server = createMarketplaceHttpServer({
+    mode,
+    service,
+    storage: databaseUrl ? 'postgres' : 'memory',
+  });
   server.listen(port, host, () => {
-    console.info(`[marketplace] listening on ${host}:${port} (${mode})`);
+    console.info(`[marketplace] listening on ${host}:${port} (${mode}, ${databaseUrl ? 'postgres' : 'memory'})`);
   });
 }

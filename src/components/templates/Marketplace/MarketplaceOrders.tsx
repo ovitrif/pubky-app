@@ -1,5 +1,6 @@
 'use client';
 
+import { QRCodeSVG } from 'qrcode.react';
 import { ArrowLeft, CheckCircle2, Clock3, ReceiptText } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -101,7 +102,22 @@ export function MarketplaceOrders() {
                       {order.returnRequest && (
                         <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                           Return {order.returnRequest.state}: {order.returnRequest.reason}
+                          {order.returnRequest.offeredAmountMinor
+                            ? ` · Partial offer $${(order.returnRequest.offeredAmountMinor / 100).toFixed(2)}`
+                            : ''}
                         </Typography>
+                      )}
+                      {isBuyer && payment && payment.state !== 'confirmed' && (
+                        <div className="mt-3 w-fit rounded-xl border bg-card p-3">
+                          <QRCodeSVG
+                            value={`sandbox:paykit:${payment.id}?amount=${order.total.amountMinor}&asset=${order.total.currency}`}
+                            size={96}
+                            className="text-foreground"
+                          />
+                          <Typography as="p" className="mt-2 text-xs text-amber-200">
+                            Simulated invoice QR · not a real Bitcoin payment
+                          </Typography>
+                        </div>
                       )}
                       {order.externalRefund && (
                         <Typography as="p" className="mt-2 text-sm text-brand">

@@ -222,6 +222,8 @@ export const confirmOrderDeliveryCommandSchema = createCommerceCommandSchema(
   orderIdPayload,
 );
 
+export const readyForPickupCommandSchema = createCommerceCommandSchema('fulfillment.ready_for_pickup', orderIdPayload);
+
 export const requestReturnCommandSchema = createCommerceCommandSchema(
   'return.request',
   orderIdPayload
@@ -234,6 +236,11 @@ export const requestReturnCommandSchema = createCommerceCommandSchema(
 
 export const approveReturnCommandSchema = createCommerceCommandSchema('return.approve', orderIdPayload);
 export const receiveReturnCommandSchema = createCommerceCommandSchema('return.receive', orderIdPayload);
+
+export const offerPartialReturnCommandSchema = createCommerceCommandSchema(
+  'return.offer_partial',
+  orderIdPayload.extend({ offeredAmountMinor: z.number().int().positive() }).strict(),
+);
 
 export const recordExternalRefundCommandSchema = createCommerceCommandSchema(
   'refund.record_external',
@@ -269,6 +276,10 @@ const reviewDimensionsSchema = {
   itemAccuracy: z.number().int().min(1).max(5).optional(),
   shipping: z.number().int().min(1).max(5).optional(),
   communication: z.number().int().min(1).max(5).optional(),
+  mediaHashes: z
+    .array(z.string().regex(/^[a-f0-9]{64}$/))
+    .max(4)
+    .optional(),
 };
 
 export const createReviewCommandSchema = createCommerceCommandSchema(
@@ -341,7 +352,37 @@ export const decideMarketplaceReportCommandSchema = createCommerceCommandSchema(
   z
     .object({
       reportId: z.uuid(),
-      decision: z.enum(['dismiss', 'warn', 'restrict_listing', 'delist']),
+      decision: z.enum([
+        'dismiss',
+        'warn',
+        'restrict_listing',
+        'delist',
+        'visibility_limit',
+        'message_limit',
+        'transaction_hold',
+        'suspend',
+        'ban',
+      ]),
+      notes: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
+export const assignMarketplaceReportCommandSchema = createCommerceCommandSchema(
+  'trust.assign',
+  z
+    .object({
+      reportId: z.uuid(),
+      assigneePubky: commercePubkySchema,
+    })
+    .strict(),
+);
+
+export const reverseMarketplaceReportCommandSchema = createCommerceCommandSchema(
+  'trust.reverse',
+  z
+    .object({
+      reportId: z.uuid(),
       notes: z.string().trim().min(1).max(2_000),
     })
     .strict(),
@@ -391,10 +432,12 @@ export const marketplaceCommandSchema = z.union([
   requestOrderCancellationCommandSchema,
   approveOrderCancellationCommandSchema,
   shipOrderCommandSchema,
+  readyForPickupCommandSchema,
   confirmOrderDeliveryCommandSchema,
   requestReturnCommandSchema,
   approveReturnCommandSchema,
   receiveReturnCommandSchema,
+  offerPartialReturnCommandSchema,
   recordExternalRefundCommandSchema,
   openDisputeCommandSchema,
   resolveDisputeCommandSchema,
@@ -407,6 +450,8 @@ export const marketplaceCommandSchema = z.union([
   unblockBuyerCommandSchema,
   createMarketplaceReportCommandSchema,
   decideMarketplaceReportCommandSchema,
+  assignMarketplaceReportCommandSchema,
+  reverseMarketplaceReportCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -477,10 +522,12 @@ export type AdvanceSandboxPaymentCommand = z.infer<typeof advanceSandboxPaymentC
 export type RequestOrderCancellationCommand = z.infer<typeof requestOrderCancellationCommandSchema>;
 export type ApproveOrderCancellationCommand = z.infer<typeof approveOrderCancellationCommandSchema>;
 export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
+export type ReadyForPickupCommand = z.infer<typeof readyForPickupCommandSchema>;
 export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
 export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
 export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;
+export type OfferPartialReturnCommand = z.infer<typeof offerPartialReturnCommandSchema>;
 export type RecordExternalRefundCommand = z.infer<typeof recordExternalRefundCommandSchema>;
 export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;
 export type ResolveDisputeCommand = z.infer<typeof resolveDisputeCommandSchema>;
@@ -493,6 +540,8 @@ export type BlockBuyerCommand = z.infer<typeof blockBuyerCommandSchema>;
 export type UnblockBuyerCommand = z.infer<typeof unblockBuyerCommandSchema>;
 export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceReportCommandSchema>;
 export type DecideMarketplaceReportCommand = z.infer<typeof decideMarketplaceReportCommandSchema>;
+export type AssignMarketplaceReportCommand = z.infer<typeof assignMarketplaceReportCommandSchema>;
+export type ReverseMarketplaceReportCommand = z.infer<typeof reverseMarketplaceReportCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 

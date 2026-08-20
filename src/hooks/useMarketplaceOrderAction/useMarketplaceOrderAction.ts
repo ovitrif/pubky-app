@@ -2,6 +2,8 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import { CommerceController } from '@/controllers/commerce/commerce';
+import { buildMarketplaceReportAggregateId } from '@/libs/commerce/transaction-commands';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import {
   type MarketplaceOrderActionData,
@@ -36,6 +38,14 @@ export function useMarketplaceOrderAction(
             trackingNumber: data.trackingNumber,
           });
           break;
+        case 'pickup':
+          succeeded = await actOnOrder(order, 'fulfillment.ready_for_pickup', {});
+          break;
+        case 'partial':
+          succeeded = await actOnOrder(order, 'return.offer_partial', {
+            offeredAmountMinor: Math.round(Number(data.amount) * 100),
+          });
+          break;
         case 'return':
           succeeded = await actOnOrder(order, 'return.request', {
             reason: data.reason,
@@ -61,6 +71,10 @@ export function useMarketplaceOrderAction(
             itemAccuracy: Number(data.itemAccuracy) || undefined,
             shipping: Number(data.shipping) || undefined,
             communication: Number(data.communication) || undefined,
+            mediaHashes: data.mediaHashes
+              .split(/[\s,]+/)
+              .map((value) => value.trim())
+              .filter((value) => /^[a-f0-9]{64}$/.test(value)),
           });
           break;
         case 'review_edit':
@@ -79,6 +93,25 @@ export function useMarketplaceOrderAction(
             text: data.text,
           });
           break;
+        case 'review_report': {
+          const commandId = crypto.randomUUID();
+          const response = await CommerceController.executeMarketplaceCommand({
+            version: 1,
+            commandId,
+            aggregateId: buildMarketplaceReportAggregateId(commandId),
+            expectedRevision: 0,
+            issuedAt: new Date().toISOString(),
+            kind: 'trust.report',
+            payload: {
+              targetType: 'review',
+              targetId: data.reviewId,
+              reason: 'other',
+              details: data.text || 'Reported marketplace review.',
+            },
+          });
+          succeeded = response.ok;
+          break;
+        }
       }
     })();
     return succeeded;

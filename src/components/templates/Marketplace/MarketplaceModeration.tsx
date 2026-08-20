@@ -7,14 +7,35 @@ import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
+import { Input } from '@/atoms/Input/Input';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
-import { useMarketplaceModeration } from '@/hooks/useMarketplaceModeration/useMarketplaceModeration';
+import {
+  type MarketplaceModerationDecision,
+  useMarketplaceModeration,
+} from '@/hooks/useMarketplaceModeration/useMarketplaceModeration';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+
+const DECISIONS: Array<{ value: MarketplaceModerationDecision; label: string }> = [
+  { value: 'dismiss', label: 'Dismiss' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'restrict_listing', label: 'Restrict listing' },
+  { value: 'visibility_limit', label: 'Visibility limit' },
+  { value: 'delist', label: 'Delist' },
+  { value: 'message_limit', label: 'Message limit' },
+  { value: 'transaction_hold', label: 'Hold transactions' },
+  { value: 'suspend', label: 'Suspend' },
+  { value: 'ban', label: 'Ban' },
+];
 
 export function MarketplaceModeration() {
   const moderation = useMarketplaceModeration();
+  const alertCount =
+    (moderation.invariants?.unbalancedOrders.length ?? 0) +
+    (moderation.invariants?.oversoldListings.length ?? 0) +
+    (moderation.invariants?.duplicateAuctionWinners.length ?? 0) +
+    (moderation.invariants?.stuckFulfillment.length ?? 0);
 
   return (
     <ContentLayout
@@ -35,9 +56,28 @@ export function MarketplaceModeration() {
             Moderation queue
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            Structured reports are role-scoped and append-only.
+            Assignment, decisions, reversals, and invariant alerts are append-only.
           </Typography>
         </div>
+
+        <Input
+          value={moderation.query}
+          onChange={(event) => moderation.setQuery(event.target.value)}
+          placeholder="Search reports, listings, or order ids"
+          aria-label="Admin search"
+        />
+
+        {alertCount > 0 && (
+          <div
+            role="status"
+            className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200"
+          >
+            Invariant alerts: {moderation.invariants?.unbalancedOrders.length ?? 0} unbalanced ledgers,{' '}
+            {moderation.invariants?.oversoldListings.length ?? 0} oversold listings,{' '}
+            {moderation.invariants?.duplicateAuctionWinners.length ?? 0} duplicate winners,{' '}
+            {moderation.invariants?.stuckFulfillment.length ?? 0} stuck fulfillments.
+          </div>
+        )}
 
         {moderation.isLoading ? (
           <Skeleton className="h-40 w-full" />
@@ -53,6 +93,8 @@ export function MarketplaceModeration() {
                   <div className="flex flex-wrap gap-2">
                     <Badge>{report.reason.replaceAll('_', ' ')}</Badge>
                     <Badge variant="secondary">{report.targetType}</Badge>
+                    <Badge variant="outline">{report.state}</Badge>
+                    {report.assignedTo && <Badge variant="outline">Assigned</Badge>}
                   </div>
                   <Typography as="p" className="font-semibold">
                     {report.targetId}
@@ -60,25 +102,41 @@ export function MarketplaceModeration() {
                   <Typography as="p" className="text-sm text-muted-foreground">
                     {report.details}
                   </Typography>
-                  {report.state === 'open' && (
-                    <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {report.state === 'open' && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="rounded-full"
+                          onClick={() => void moderation.assign(report)}
+                        >
+                          Assign to me
+                        </Button>
+                        {DECISIONS.map((decision) => (
+                          <Button
+                            key={decision.value}
+                            size="sm"
+                            variant={decision.value === 'ban' ? 'default' : 'secondary'}
+                            className="rounded-full"
+                            onClick={() => void moderation.decide(report, decision.value)}
+                          >
+                            {decision.label}
+                          </Button>
+                        ))}
+                      </>
+                    )}
+                    {report.state !== 'open' && (
                       <Button
                         size="sm"
-                        variant="secondary"
+                        variant="ghost"
                         className="rounded-full"
-                        onClick={() => void moderation.decide(report.id, 'dismiss')}
+                        onClick={() => void moderation.reverse(report)}
                       >
-                        Dismiss
+                        Reverse
                       </Button>
-                      <Button
-                        size="sm"
-                        className="rounded-full"
-                        onClick={() => void moderation.decide(report.id, 'restrict_listing')}
-                      >
-                        Restrict listing
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ))}

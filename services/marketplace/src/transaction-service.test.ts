@@ -1305,6 +1305,78 @@ describe('MarketplaceTransactionService', () => {
       itemAccuracy: 5,
       shipping: 4,
       communication: 5,
+      responseTimeHours: null,
     });
+  });
+
+  it('marks pickup ready, offers a partial return, and assigns then reverses a report', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const created = await service.execute(BUYER, checkoutCommand());
+    expect(created.ok).toBe(true);
+    if (!created.ok || created.result.kind !== 'checkout') return;
+    const order = created.result.orders[0];
+    const payment = created.result.payments[0];
+    await service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 1, 1_400));
+    await expect(
+      service.execute(SELLER, orderCommand('fulfillment.ready_for_pickup', order.id, 2, {}, 1_401)),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'ready_for_pickup' } } });
+    await service.execute(BUYER, orderCommand('fulfillment.confirm_delivery', order.id, 3, {}, 1_402));
+    await service.execute(
+      BUYER,
+      orderCommand('return.request', order.id, 4, { reason: 'Too large.', requestedAmountMinor: 12_500 }, 1_403),
+    );
+    await expect(
+      service.execute(SELLER, orderCommand('return.offer_partial', order.id, 5, { offeredAmountMinor: 4_000 }, 1_404)),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { order: { returnRequest: { state: 'partial_offered', offeredAmountMinor: 4_000 } } },
+    });
+
+    const reportId = '00000000-0000-4000-8000-000000001405';
+    await service.execute(BUYER, {
+      version: 1,
+      commandId: reportId,
+      aggregateId: `report:${reportId}`,
+      expectedRevision: 0,
+      issuedAt: NOW.toISOString(),
+      kind: 'trust.report',
+      payload: { targetType: 'review', targetId: reportId, reason: 'other', details: 'Review looks fake.' },
+    });
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001406',
+        aggregateId: `report:${reportId}`,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.assign',
+        payload: { reportId, assigneePubky: MARKETPLACE_SANDBOX_MODERATOR },
+      }),
+    ).resolves.toMatchObject({ ok: true, result: { report: { assignedTo: MARKETPLACE_SANDBOX_MODERATOR } } });
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001407',
+        aggregateId: `report:${reportId}`,
+        expectedRevision: 2,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.decide',
+        payload: { reportId, decision: 'warn', notes: 'Warning recorded.' },
+      }),
+    ).resolves.toMatchObject({ ok: true, result: { report: { state: 'warned' } } });
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001408',
+        aggregateId: `report:${reportId}`,
+        expectedRevision: 3,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.reverse',
+        payload: { reportId, notes: 'Reopen after appeal.' },
+      }),
+    ).resolves.toMatchObject({ ok: true, result: { report: { state: 'open' } } });
+    expect(service.getInvariants().unbalancedOrders).toEqual([]);
+    expect(service.searchAdmin(MARKETPLACE_SANDBOX_MODERATOR, 'fake').reports).toHaveLength(1);
   });
 });

@@ -2,7 +2,19 @@ import { z } from 'zod';
 
 export const marketplaceOrderActionSchema = z
   .object({
-    action: z.enum(['cancel', 'ship', 'return', 'refund', 'dispute', 'review', 'review_edit', 'review_reply']),
+    action: z.enum([
+      'cancel',
+      'ship',
+      'pickup',
+      'return',
+      'partial',
+      'refund',
+      'dispute',
+      'review',
+      'review_edit',
+      'review_reply',
+      'review_report',
+    ]),
     reason: z.string().trim().max(2_000),
     carrier: z.string().trim().max(100),
     trackingNumber: z.string().trim().max(200),
@@ -14,6 +26,7 @@ export const marketplaceOrderActionSchema = z
     shipping: z.string().trim(),
     communication: z.string().trim(),
     reviewId: z.string().trim(),
+    mediaHashes: z.string().trim(),
     requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
   })
   .superRefine((data, context) => {
@@ -40,6 +53,14 @@ export const marketplaceOrderActionSchema = z
     if (data.action === 'review_reply' && (!data.reviewId || !data.text)) {
       context.addIssue({ code: 'custom', path: ['text'], message: 'Reply text is required.' });
     }
+    if (data.action === 'partial') {
+      if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount) || Number(data.amount) <= 0) {
+        context.addIssue({ code: 'custom', path: ['amount'], message: 'Enter a valid partial amount.' });
+      }
+    }
+    if (data.action === 'review_report' && (!data.reviewId || !data.text)) {
+      context.addIssue({ code: 'custom', path: ['text'], message: 'Explain why this review is being reported.' });
+    }
   });
 
 export type MarketplaceOrderActionData = z.infer<typeof marketplaceOrderActionSchema>;
@@ -57,5 +78,6 @@ export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   shipping: '5',
   communication: '5',
   reviewId: '',
+  mediaHashes: '',
   requestedRemedy: 'refund',
 };

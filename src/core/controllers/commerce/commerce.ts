@@ -362,6 +362,26 @@ export class CommerceController {
     );
   }
 
+  static async getMarketplaceInvariants() {
+    return await CommerceApplication.getMarketplaceInvariants(this.getCurrentUserPubky());
+  }
+
+  static async searchMarketplaceAdmin(query: unknown) {
+    return await CommerceApplication.searchMarketplaceAdmin(
+      this.getCurrentUserPubky(),
+      typeof query === 'string' ? query : '',
+    );
+  }
+
+  static async exportMarketplaceAccount() {
+    return await CommerceApplication.exportMarketplaceAccount(this.getCurrentUserPubky());
+  }
+
+  static async deleteMarketplaceLocalData() {
+    await CommerceApplication.deleteMarketplaceLocalData(this.getCurrentUserPubky());
+    useCommerceStore.getState().reset();
+  }
+
   static async commitCreateMedia(mediaId: unknown, bytes: Uint8Array): Promise<string> {
     const id = CommerceRecordNormalizer.entityId(mediaId);
     if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > IMAGE_MAX_UPLOAD_SIZE) {

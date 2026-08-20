@@ -52,6 +52,22 @@ export function MarketplaceShopSettingsForm() {
         <Button className="w-full rounded-full" onClick={() => void settings.submit()}>
           Save shop settings
         </Button>
+        <div className="grid gap-3 rounded-xl border p-4">
+          <Typography as="h3" className="font-semibold">
+            Privacy
+          </Typography>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            Export redacts delivery lines. Deleting local data keeps public shop records and signed transaction history.
+          </Typography>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" className="rounded-full" onClick={() => void settings.exportAccount()}>
+              Export account
+            </Button>
+            <Button variant="ghost" className="rounded-full" onClick={() => void settings.deleteLocalData()}>
+              Delete local marketplace data
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

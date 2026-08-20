@@ -58,6 +58,19 @@ export function MarketplacePaymentSettings() {
         <MarketplaceShopSettingsForm />
 
         <Card className="border">
+          <CardContent className="grid gap-3 px-6">
+            <Typography as="h2" className="font-semibold">
+              Checkout payment endpoint
+            </Typography>
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Sandbox checkout uses a labeled simulated Paykit endpoint. Live Bitkit companion approval is a separate
+              setup step and does not move funds from this page.
+            </Typography>
+            <Badge variant="secondary">sandbox · simulated invoice</Badge>
+          </CardContent>
+        </Card>
+
+        <Card className="border">
           <CardContent className="grid gap-4 px-6 sm:grid-cols-[1fr_auto] sm:items-center">
             <div className="flex gap-3">
               <KeyRound className="mt-1 size-5 text-brand" />

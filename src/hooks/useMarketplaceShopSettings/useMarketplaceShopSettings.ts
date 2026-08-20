@@ -118,5 +118,34 @@ export function useMarketplaceShopSettings() {
     return succeeded;
   };
 
-  return { form, revision, submit };
+  const exportAccount = async () => {
+    try {
+      const payload = await CommerceController.exportMarketplaceAccount();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `pubky-marketplace-export-${currentUserPubky?.slice(0, 8) ?? 'account'}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: 'Account export downloaded' });
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not export this account.' });
+      return false;
+    }
+  };
+
+  const deleteLocalData = async () => {
+    try {
+      await CommerceController.deleteMarketplaceLocalData();
+      toast({ title: 'Local marketplace data cleared' });
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not clear local marketplace data.' });
+      return false;
+    }
+  };
+
+  return { form, revision, submit, exportAccount, deleteLocalData };
 }

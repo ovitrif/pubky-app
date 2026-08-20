@@ -152,6 +152,7 @@ const orderSchema = z
       'pending_payment',
       'paid',
       'processing',
+      'ready_for_pickup',
       'shipped',
       'delivered',
       'completed',
@@ -201,7 +202,7 @@ const orderSchema = z
       .object({
         carrier: z.string(),
         trackingNumber: z.string(),
-        state: z.enum(['shipped', 'delivered']),
+        state: z.enum(['ready_for_pickup', 'shipped', 'delivered']),
         shippedAt: z.string(),
         deliveredAt: z.string().nullable(),
       })
@@ -209,9 +210,10 @@ const orderSchema = z
       .optional(),
     returnRequest: z
       .object({
-        state: z.enum(['requested', 'approved', 'received', 'refunded']),
+        state: z.enum(['requested', 'approved', 'partial_offered', 'received', 'refunded']),
         reason: z.string(),
         requestedAmountMinor: z.number().int().positive(),
+        offeredAmountMinor: z.number().int().nonnegative().nullable().optional(),
         requestedAt: z.string(),
         updatedAt: z.string(),
       })
@@ -245,6 +247,7 @@ const orderSchema = z
           itemAccuracy: z.number().int().min(1).max(5).nullable().optional(),
           shipping: z.number().int().min(1).max(5).nullable().optional(),
           communication: z.number().int().min(1).max(5).nullable().optional(),
+          mediaHashes: z.array(z.string()).optional(),
           reply: z.string().nullable().optional(),
           editedAt: z.string().nullable().optional(),
           createdAt: z.string(),
@@ -286,12 +289,16 @@ const receiptSchema = z.object({
 
 const reportSchema = z.object({
   id: z.uuid(),
+  revision: z.number().int().positive().optional(),
   reporterPubky: commercePubkySchema,
   targetType: z.enum(['listing', 'user', 'message', 'review']),
   targetId: z.string(),
   reason: z.enum(['prohibited_item', 'counterfeit', 'scam', 'harassment', 'unsafe', 'other']),
   details: z.string(),
   state: z.enum(['open', 'dismissed', 'warned', 'restricted', 'delisted']),
+  assignedTo: commercePubkySchema.nullable().optional(),
+  assignedAt: z.string().nullable().optional(),
+  previousState: z.enum(['open', 'dismissed', 'warned', 'restricted', 'delisted']).nullable().optional(),
   decisionNotes: z.string().nullable().optional(),
   decidedAt: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -337,6 +344,7 @@ const reputationSchema = z.object({
   itemAccuracy: z.number().nullable(),
   shipping: z.number().nullable(),
   communication: z.number().nullable(),
+  responseTimeHours: z.number().nullable().optional(),
 });
 
 export type MarketplaceListingProjection = z.infer<typeof listingProjectionSchema>;
@@ -741,6 +749,85 @@ export class MarketplaceGatewayService {
       });
     }
     return new Blob([bytes], { type: response.headers.get('content-type') ?? 'application/octet-stream' });
+  }
+
+  static async getInvariants(actor: string): Promise<{
+    unbalancedOrders: string[];
+    oversoldListings: string[];
+    duplicateAuctionWinners: string[];
+    stuckFulfillment: string[];
+  }> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/invariants`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getInvariants',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getInvariants', url);
+    const parsed = z
+      .object({
+        unbalancedOrders: z.array(z.string()),
+        oversoldListings: z.array(z.string()),
+        duplicateAuctionWinners: z.array(z.string()),
+        stuckFulfillment: z.array(z.string()),
+      })
+      .safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid invariants.', {
+        service: ErrorService.Marketplace,
+        operation: 'getInvariants',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  static async searchAdmin(
+    actor: string,
+    query: string,
+  ): Promise<{
+    reports: MarketplaceReport[];
+    listings: Array<{ aggregateId: string; title?: string }>;
+    orders: Array<{ id: string; state: string }>;
+  }> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/admin/search?q=${encodeURIComponent(query)}`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'searchAdmin',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'searchAdmin', url);
+    const parsed = z
+      .object({
+        reports: z.array(reportSchema),
+        listings: z.array(z.object({ aggregateId: z.string(), title: z.string().optional() }).passthrough()),
+        orders: z.array(z.object({ id: z.string(), state: z.string() })),
+      })
+      .safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid admin search results.', {
+        service: ErrorService.Marketplace,
+        operation: 'searchAdmin',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  static async exportAccount(actor: string): Promise<unknown> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/account/export`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'exportAccount',
+    );
+    return parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'exportAccount', url);
   }
 
   private static assertSandbox(): void {

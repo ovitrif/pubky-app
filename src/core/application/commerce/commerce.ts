@@ -140,6 +140,26 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getSellerReputation(sellerPubky);
   }
 
+  static async getMarketplaceInvariants(actorPubky: string) {
+    return await MarketplaceGatewayService.getInvariants(actorPubky);
+  }
+
+  static async searchMarketplaceAdmin(actorPubky: string, query: string) {
+    return await MarketplaceGatewayService.searchAdmin(actorPubky, query);
+  }
+
+  static async exportMarketplaceAccount(actorPubky: string) {
+    const [server, local] = await Promise.all([
+      MarketplaceGatewayService.exportAccount(actorPubky).catch(() => null),
+      LocalCommerceService.exportAccountLocal(actorPubky),
+    ]);
+    return { exportedAt: new Date().toISOString(), ownerPubky: actorPubky, server, local };
+  }
+
+  static async deleteMarketplaceLocalData(actorPubky: string) {
+    await LocalCommerceService.deleteAccountLocal(actorPubky);
+  }
+
   static async getSavedSearches(ownerPubky: string) {
     return await LocalCommerceService.getSavedSearches(ownerPubky);
   }

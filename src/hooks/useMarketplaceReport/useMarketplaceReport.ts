@@ -11,7 +11,10 @@ import {
   marketplaceReportSchema,
 } from './useMarketplaceReport.types';
 
-export function useMarketplaceReport(targetId: string) {
+export function useMarketplaceReport(
+  targetId: string,
+  targetType: 'listing' | 'user' | 'message' | 'review' = 'listing',
+) {
   const form = useForm<MarketplaceReportData>({
     resolver: zodResolver(marketplaceReportSchema),
     defaultValues: marketplaceReportDefaults,
@@ -30,7 +33,7 @@ export function useMarketplaceReport(targetId: string) {
           expectedRevision: 0,
           issuedAt: new Date().toISOString(),
           kind: 'trust.report',
-          payload: { targetType: 'listing', targetId, reason: data.reason, details: data.details },
+          payload: { targetType, targetId, reason: data.reason, details: data.details },
         });
         if (!response.ok) {
           toast({ variant: 'error', description: response.error.message });

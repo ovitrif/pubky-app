@@ -519,6 +519,30 @@ export class LocalCommerceService {
     }
   }
 
+  static async exportAccountLocal(ownerId: string) {
+    const [shop, listings, drafts, favorites, follows, cart, savedSearches] = await Promise.all([
+      CommerceShopModel.findById(ownerId),
+      CommerceListingModel.findBySeller(ownerId),
+      CommerceListingDraftModel.findByOwner(ownerId),
+      CommerceFavoriteModel.findByOwner(ownerId),
+      CommerceShopFollowModel.findByOwner(ownerId),
+      CommerceCartItemModel.findByOwner(ownerId),
+      this.getSavedSearches(ownerId),
+    ]);
+    return { shop: shop ?? null, listings, drafts, favorites, follows, cart, savedSearches };
+  }
+
+  static async deleteAccountLocal(ownerId: string): Promise<void> {
+    await Promise.all([
+      CommerceListingDraftModel.table.where('owner_id').equals(ownerId).delete(),
+      CommerceFavoriteModel.table.where('owner_id').equals(ownerId).delete(),
+      CommerceShopFollowModel.table.where('owner_id').equals(ownerId).delete(),
+      CommerceCartItemModel.table.where('owner_id').equals(ownerId).delete(),
+      CommerceSavedSearchModel.table.where('owner_id').equals(ownerId).delete(),
+      CommerceSyncJobModel.table.where('owner_id').equals(ownerId).delete(),
+    ]);
+  }
+
   private static favoriteId(ownerId: string, listingId: string): string {
     return `${ownerId}|${listingId}`;
   }

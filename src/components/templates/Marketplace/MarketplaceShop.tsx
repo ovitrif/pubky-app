@@ -113,6 +113,14 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                         Sales
                       </Typography>
                     </div>
+                    <div>
+                      <Typography as="p" className="text-2xl font-bold">
+                        {reputation?.responseTimeHours ?? '—'}
+                      </Typography>
+                      <Typography as="p" className="text-muted-foreground">
+                        Reply hours
+                      </Typography>
+                    </div>
                   </div>
                 </div>
               </CardContent>

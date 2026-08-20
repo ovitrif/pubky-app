@@ -47,7 +47,17 @@ export function MarketplaceOrderActions({
             Add tracking
           </Button>
         )}
-        {isBuyer && order.state === 'shipped' && (
+        {!isBuyer && ['paid', 'processing'].includes(order.state) && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="rounded-full"
+            onClick={() => void actOnOrder(order, 'fulfillment.ready_for_pickup', {})}
+          >
+            Ready for pickup
+          </Button>
+        )}
+        {isBuyer && (order.state === 'shipped' || order.state === 'ready_for_pickup') && (
           <Button
             size="sm"
             className="rounded-full"
@@ -67,9 +77,14 @@ export function MarketplaceOrderActions({
           </Button>
         )}
         {!isBuyer && order.state === 'return_requested' && (
-          <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'return.approve', {})}>
-            Approve return
-          </Button>
+          <>
+            <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'return.approve', {})}>
+              Approve return
+            </Button>
+            <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('partial')}>
+              Offer partial
+            </Button>
+          </>
         )}
         {!isBuyer && order.state === 'return_approved' && (
           <Button size="sm" className="rounded-full" onClick={() => void actOnOrder(order, 'return.receive', {})}>
@@ -98,19 +113,32 @@ export function MarketplaceOrderActions({
             </Button>
           )}
         {ownReview && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-full"
-            onClick={() => {
-              action.form.setValue('reviewId', ownReview.id);
-              action.form.setValue('rating', String(ownReview.rating));
-              action.form.setValue('text', ownReview.text);
-              begin('review_edit');
-            }}
-          >
-            Edit review
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="rounded-full"
+              onClick={() => {
+                action.form.setValue('reviewId', ownReview.id);
+                action.form.setValue('rating', String(ownReview.rating));
+                action.form.setValue('text', ownReview.text);
+                begin('review_edit');
+              }}
+            >
+              Edit review
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="rounded-full"
+              onClick={() => {
+                action.form.setValue('reviewId', ownReview.id);
+                begin('review_report');
+              }}
+            >
+              Report review
+            </Button>
+          </>
         )}
         {replyableReview && (
           <Button
@@ -146,7 +174,7 @@ export function MarketplaceOrderActions({
               <ControlledInputField name="trackingNumber" control={action.form.control} label="Tracking number" />
             </>
           )}
-          {['return', 'refund'].includes(actionType) && (
+          {['return', 'refund', 'partial'].includes(actionType) && (
             <ControlledInputField name="amount" control={action.form.control} label="Amount (USD)" />
           )}
           {actionType === 'refund' && (
@@ -163,10 +191,19 @@ export function MarketplaceOrderActions({
               <ControlledInputField name="shipping" control={action.form.control} label="Shipping (1–5)" />
               <ControlledInputField name="communication" control={action.form.control} label="Communication (1–5)" />
               <ControlledTextareaField name="text" control={action.form.control} label="Review" />
+              <ControlledInputField
+                name="mediaHashes"
+                control={action.form.control}
+                label="Optional media hashes"
+                placeholder="64-character BLAKE3 hashes"
+              />
             </>
           )}
           {actionType === 'review_reply' && (
             <ControlledTextareaField name="text" control={action.form.control} label="Reply" />
+          )}
+          {actionType === 'review_report' && (
+            <ControlledTextareaField name="text" control={action.form.control} label="Why report this review?" />
           )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
@@ -188,8 +225,12 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Request cancellation';
     case 'ship':
       return 'Add shipment tracking';
+    case 'pickup':
+      return 'Mark ready for pickup';
     case 'return':
       return 'Request a return';
+    case 'partial':
+      return 'Offer a partial resolution';
     case 'refund':
       return 'Record external refund';
     case 'dispute':
@@ -200,5 +241,7 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Edit review';
     case 'review_reply':
       return 'Reply to review';
+    case 'review_report':
+      return 'Report this review';
   }
 }

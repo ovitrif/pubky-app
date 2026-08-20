@@ -271,4 +271,21 @@ describe('LocalCommerceService', () => {
     await LocalCommerceService.clearCart(COMMERCE_FIXTURE_BUYER);
     expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
   });
+
+  it('exports and deletes account-scoped local marketplace data without dropping public listings', async () => {
+    const listing = createCommerceListingFixture();
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:${listing.listingId}`;
+    await LocalCommerceService.createFavorite(COMMERCE_FIXTURE_BUYER, listingId, 100);
+    await LocalCommerceService.upsertCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 1, 100);
+
+    const exported = await LocalCommerceService.exportAccountLocal(COMMERCE_FIXTURE_BUYER);
+    expect(exported.favorites).toHaveLength(1);
+    expect(exported.cart).toHaveLength(1);
+
+    await LocalCommerceService.deleteAccountLocal(COMMERCE_FIXTURE_BUYER);
+    expect(await LocalCommerceService.getFavorites(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
+    expect(await LocalCommerceService.getListing(listingId)).toBeTruthy();
+  });
 });
