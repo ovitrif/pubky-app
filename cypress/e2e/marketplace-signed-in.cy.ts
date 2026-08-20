@@ -181,7 +181,8 @@ function checkoutBootsAndFulfill() {
   assertBuyerOrderNotifications();
 
   markBootsReadyForPickup();
-  cy.reload();
+  cy.visit('/marketplace/orders');
+  cy.contains('Vintage leather boots').should('be.visible');
   cy.contains('button', 'Confirm delivery').click();
   cy.contains('button', 'Leave review').should('be.visible');
   cy.contains('button', 'Leave review').click();
