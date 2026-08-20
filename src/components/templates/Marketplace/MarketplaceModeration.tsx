@@ -15,8 +15,8 @@ import {
   type MarketplaceModerationDecision,
   useMarketplaceModeration,
 } from '@/hooks/useMarketplaceModeration/useMarketplaceModeration';
-import { MarketplaceStaffChrome } from '@/organisms/Marketplace/MarketplaceStaffChrome';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceStaffChrome } from '@/organisms/Marketplace/MarketplaceStaffChrome';
 
 const DECISIONS: Array<{ value: MarketplaceModerationDecision; label: string }> = [
   { value: 'dismiss', label: 'Dismiss' },

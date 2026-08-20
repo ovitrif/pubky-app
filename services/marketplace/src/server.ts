@@ -6,9 +6,9 @@ import {
   MARKETPLACE_CSRF_TOKEN,
   marketplaceSecurityHeaders,
 } from '../../../src/libs/commerce/marketplace-http-security';
+import { isSandboxFinance, isSandboxModerator, isSandboxRisk } from '../../../src/libs/commerce/sandbox-roles';
 import { commerceAggregateIdSchema, commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import { PostgresMarketplaceRepository } from './postgres-repository';
-import { isSandboxFinance, isSandboxModerator, isSandboxRisk } from '../../../src/libs/commerce/sandbox-roles';
 import {
   InMemoryMarketplaceRepository,
   MARKETPLACE_SANDBOX_MODERATOR,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MARKETPLACE_REDACTED } from '../../../src/libs/commerce/staff-order';
 import {
   buildMarketplaceCheckoutAggregateId,
   buildMarketplaceConversationAggregateId,
@@ -6,7 +7,6 @@ import {
   buildMarketplaceOfferAggregateId,
   buildMarketplacePaymentAggregateId,
 } from './contracts';
-import { MARKETPLACE_REDACTED } from '../../../src/libs/commerce/staff-order';
 import {
   InMemoryMarketplaceRepository,
   MARKETPLACE_SANDBOX_FINANCE,

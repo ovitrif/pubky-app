@@ -4,8 +4,8 @@ import {
   MARKETPLACE_SANDBOX_RISK,
   MARKETPLACE_SANDBOX_STAFF_PUBKYS,
   MARKETPLACE_SANDBOX_STAFF_ROLES,
-  type MarketplaceSandboxStaffRole,
   MARKETPLACE_SANDBOX_SUPPORT,
+  type MarketplaceSandboxStaffRole,
 } from './sandbox-actors';
 
 const STAFF_COMMANDS: Record<MarketplaceSandboxStaffRole, readonly string[]> = {

@@ -12,8 +12,8 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceRisk } from '@/hooks/useMarketplaceRisk/useMarketplaceRisk';
-import { MarketplaceStaffChrome } from '@/organisms/Marketplace/MarketplaceStaffChrome';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceStaffChrome } from '@/organisms/Marketplace/MarketplaceStaffChrome';
 
 export function MarketplaceRisk() {
   const risk = useMarketplaceRisk();

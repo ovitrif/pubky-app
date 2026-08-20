@@ -12,8 +12,8 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceFinance } from '@/hooks/useMarketplaceFinance/useMarketplaceFinance';
-import { MarketplaceStaffChrome } from '@/organisms/Marketplace/MarketplaceStaffChrome';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceStaffChrome } from '@/organisms/Marketplace/MarketplaceStaffChrome';
 
 export function MarketplaceFinance() {
   const finance = useMarketplaceFinance();
