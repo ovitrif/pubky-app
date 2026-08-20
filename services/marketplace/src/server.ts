@@ -411,6 +411,9 @@ export function createMarketplaceHttpServer({
       const code = error instanceof RequestBodyError ? error.code : 'INTERNAL_ERROR';
       const status = error instanceof RequestBodyError ? error.status : 500;
       const message = error instanceof RequestBodyError ? error.message : 'Marketplace request failed.';
+      if (!(error instanceof RequestBodyError)) {
+        console.error('[marketplace] request failed', error);
+      }
       writeJson(response, status, { error: { code, message } }, mode);
     }
   });

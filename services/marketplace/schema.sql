@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS marketplace_events (
   occurred_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS marketplace_events_command_actor_idx
+DROP INDEX IF EXISTS marketplace_events_command_actor_idx;
+CREATE INDEX IF NOT EXISTS marketplace_events_command_actor_idx
   ON marketplace_events (actor_pubky, command_id);
 CREATE INDEX IF NOT EXISTS marketplace_events_aggregate_idx
   ON marketplace_events (aggregate_id, revision);
