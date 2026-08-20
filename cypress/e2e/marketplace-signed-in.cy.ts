@@ -43,7 +43,7 @@ describe('marketplace signed-in', { defaultCommandTimeout: 30_000 }, () => {
 });
 
 function publishStudioListing() {
-  cy.get('input[type="file"]').selectFile('cypress/fixtures/listing-photo.png', { force: true });
+  cy.get('input[type="file"]').selectFile('fixtures/listing-photo.png', { force: true });
   cy.get('input[placeholder="Cover description"]').type('Studio hat cover');
   cy.get('#altText').clear().type('Studio hat cover');
   cy.get('#title').clear().type('Cypress studio hat');
