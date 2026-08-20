@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
-import { filterMarketplaceCatalog, type MarketplaceCatalogFilters } from './useMarketplaceCatalog.utils';
+import {
+  buildMarketplaceFeedSections,
+  filterMarketplaceCatalog,
+  type MarketplaceCatalogFilters,
+  relatedMarketplaceListings,
+} from './useMarketplaceCatalog.utils';
 
 function catalogModels(): CommerceListingModelSchema[] {
   return createCommerceSandboxCatalog().listings.map((record) => {
@@ -75,5 +80,17 @@ describe('filterMarketplaceCatalog', () => {
     const results = filterMarketplaceCatalog(catalogModels(), filters({ sort: 'ending_soon' }));
 
     expect(results.slice(0, 2).every(({ format }) => format === 'auction')).toBe(true);
+  });
+
+  it('hides restricted listings from discovery while keeping related-item matches', () => {
+    const models = catalogModels();
+    const restricted = `listing:${models[0].seller_id}_${models[0].listing_id}`;
+    const visible = filterMarketplaceCatalog(models, filters({ restrictedAggregateIds: [restricted] }));
+    expect(visible.map(({ listing_id }) => listing_id)).not.toContain(models[0].listing_id);
+
+    const related = relatedMarketplaceListings(models, models[0]);
+    expect(related.every(({ id }) => id !== models[0].id)).toBe(true);
+    const sections = buildMarketplaceFeedSections(models, [models[0].seller_id], [restricted]);
+    expect(sections.recommended.map(({ listing_id }) => listing_id)).not.toContain(models[0].listing_id);
   });
 });

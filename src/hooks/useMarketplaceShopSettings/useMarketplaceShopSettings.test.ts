@@ -13,6 +13,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getShop: vi.fn(),
     commitUpsertShop: vi.fn(),
+    getBlockedBuyers: vi.fn(),
+    executeMarketplaceCommand: vi.fn(),
   },
 }));
 
@@ -24,6 +26,16 @@ describe('useMarketplaceShopSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(CommerceController.getShop).mockResolvedValue(null);
+    vi.mocked(CommerceController.getBlockedBuyers).mockResolvedValue([]);
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001400',
+      aggregateId: `blocked:${OWNER}`,
+      revision: 1,
+      eventIds: [],
+      result: { kind: 'blocked_buyer' },
+    });
   });
 
   it('publishes versioned owner-signed shop policies', async () => {

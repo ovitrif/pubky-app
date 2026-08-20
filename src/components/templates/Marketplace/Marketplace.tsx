@@ -22,7 +22,8 @@ export function Marketplace() {
   const { requireAuth } = useRequireAuth();
   const layout = useCommerceStore((state) => state.layout);
   const setSaleFormat = useCommerceStore((state) => state.setSaleFormat);
-  const { listings, shopsBySeller, isLoading, initializationError, adapterMode } = useMarketplaceCatalog();
+  const { listings, shopsBySeller, sections, showFeedSections, isLoading, initializationError, adapterMode } =
+    useMarketplaceCatalog();
 
   return (
     <ContentLayout
@@ -127,6 +128,15 @@ export function Marketplace() {
           ))}
         </div>
 
+        {showFeedSections && sections && (
+          <div className="grid gap-8">
+            <FeedSection title="Recommended" listings={sections.recommended} shopsBySeller={shopsBySeller} />
+            <FeedSection title="Following" listings={sections.following} shopsBySeller={shopsBySeller} />
+            <FeedSection title="New" listings={sections.newest} shopsBySeller={shopsBySeller} />
+            <FeedSection title="Ending soon" listings={sections.endingSoon} shopsBySeller={shopsBySeller} />
+          </div>
+        )}
+
         <section id="marketplace-catalog" className="flex scroll-mt-28 flex-col gap-5">
           <MarketplaceFilters resultCount={listings.length} />
 
@@ -174,5 +184,33 @@ export function Marketplace() {
         </section>
       </Container>
     </ContentLayout>
+  );
+}
+
+function FeedSection({
+  title,
+  listings,
+  shopsBySeller,
+}: {
+  title: string;
+  listings: ReturnType<typeof useMarketplaceCatalog>['listings'];
+  shopsBySeller: ReturnType<typeof useMarketplaceCatalog>['shopsBySeller'];
+}) {
+  if (!listings.length) return null;
+  return (
+    <section className="flex flex-col gap-4">
+      <Heading level={2} size="md">
+        {title}
+      </Heading>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+        {listings.map((listing) => (
+          <MarketplaceListingCard
+            key={`${title}-${listing.id}`}
+            listing={listing}
+            shopName={shopsBySeller.get(listing.seller_id)?.name}
+          />
+        ))}
+      </div>
+    </section>
   );
 }

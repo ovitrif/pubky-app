@@ -22,6 +22,9 @@ export function MarketplaceOrderActions({
   const [open, setOpen] = useState(false);
   const action = useMarketplaceOrderAction(order, actOnOrder);
   const actionType = useWatch({ control: action.form.control, name: 'action' });
+  const viewerPubky = isBuyer ? order.buyerPubky : order.sellerPubky;
+  const ownReview = order.reviews?.find(({ reviewerPubky }) => reviewerPubky === viewerPubky);
+  const replyableReview = order.reviews?.find(({ subjectPubky, reply }) => subjectPubky === viewerPubky && !reply);
 
   const begin = (next: MarketplaceOrderActionData['action']) => {
     action.setAction(next);
@@ -94,6 +97,34 @@ export function MarketplaceOrderActions({
               Leave review
             </Button>
           )}
+        {ownReview && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full"
+            onClick={() => {
+              action.form.setValue('reviewId', ownReview.id);
+              action.form.setValue('rating', String(ownReview.rating));
+              action.form.setValue('text', ownReview.text);
+              begin('review_edit');
+            }}
+          >
+            Edit review
+          </Button>
+        )}
+        {replyableReview && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full"
+            onClick={() => {
+              action.form.setValue('reviewId', replyableReview.id);
+              begin('review_reply');
+            }}
+          >
+            Reply to review
+          </Button>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -125,11 +156,17 @@ export function MarketplaceOrderActions({
               label="External Bitcoin transaction evidence"
             />
           )}
-          {actionType === 'review' && (
+          {['review', 'review_edit'].includes(actionType) && (
             <>
               <ControlledInputField name="rating" control={action.form.control} label="Rating (1–5)" />
+              <ControlledInputField name="itemAccuracy" control={action.form.control} label="Item accuracy (1–5)" />
+              <ControlledInputField name="shipping" control={action.form.control} label="Shipping (1–5)" />
+              <ControlledInputField name="communication" control={action.form.control} label="Communication (1–5)" />
               <ControlledTextareaField name="text" control={action.form.control} label="Review" />
             </>
+          )}
+          {actionType === 'review_reply' && (
+            <ControlledTextareaField name="text" control={action.form.control} label="Reply" />
           )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
@@ -159,5 +196,9 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Open a dispute';
     case 'review':
       return 'Leave a review';
+    case 'review_edit':
+      return 'Edit review';
+    case 'review_reply':
+      return 'Reply to review';
   }
 }

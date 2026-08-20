@@ -12,6 +12,7 @@ const auctionTermsSchema = z
     endsAt: z.iso.datetime({ offset: true }),
     minimumIncrement: commercePositiveMoneySchema,
     reservePrice: commercePositiveMoneySchema.optional(),
+    buyNowPrice: commercePositiveMoneySchema.optional(),
     antiSnipingWindowSeconds: z.number().int().min(0).max(3_600),
     antiSnipingExtensionSeconds: z.number().int().min(0).max(3_600),
   })
@@ -46,7 +47,11 @@ const registerListingPayloadSchema = z
           message: 'Auction end must follow start.',
         });
       }
-      for (const price of [payload.auctionTerms.minimumIncrement, payload.auctionTerms.reservePrice]) {
+      for (const price of [
+        payload.auctionTerms.minimumIncrement,
+        payload.auctionTerms.reservePrice,
+        payload.auctionTerms.buyNowPrice,
+      ]) {
         if (price && (price.currency !== payload.unitPrice.currency || price.exponent !== payload.unitPrice.exponent)) {
           context.addIssue({
             code: 'custom',
@@ -54,6 +59,16 @@ const registerListingPayloadSchema = z
             message: 'Auction amounts must use the listing asset and exponent.',
           });
         }
+      }
+      if (
+        payload.auctionTerms.buyNowPrice &&
+        payload.auctionTerms.buyNowPrice.amountMinor <= payload.unitPrice.amountMinor
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['auctionTerms', 'buyNowPrice'],
+          message: 'Buy-now must exceed the auction start price.',
+        });
       }
     }
   });
@@ -88,6 +103,11 @@ const offerTermsSchema = z
 
 export const createOfferCommandSchema = createCommerceCommandSchema('offer.create', offerTermsSchema);
 
+export const createPrivateOfferCommandSchema = createCommerceCommandSchema(
+  'offer.create_private',
+  offerTermsSchema.extend({ recipientPubky: commercePubkySchema }).strict(),
+);
+
 export const counterOfferCommandSchema = createCommerceCommandSchema(
   'offer.counter',
   offerTermsSchema.extend({ offerId: z.uuid() }).strict(),
@@ -105,6 +125,8 @@ export const placeBidCommandSchema = createCommerceCommandSchema(
 );
 
 export const closeAuctionCommandSchema = createCommerceCommandSchema('auction.close', z.object({}).strict());
+
+export const buyNowAuctionCommandSchema = createCommerceCommandSchema('auction.buy_now', z.object({}).strict());
 
 export const markMarketplaceNotificationReadCommandSchema = createCommerceCommandSchema(
   'notification.mark_read',
@@ -146,6 +168,12 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
         })
         .strict(),
       guaranteePolicyVersion: z.literal(1),
+      couponCode: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z0-9]{4,16}$/)
+        .optional(),
     })
     .strict()
     .superRefine((payload, context) => {
@@ -237,12 +265,84 @@ export const resolveDisputeCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+const reviewDimensionsSchema = {
+  itemAccuracy: z.number().int().min(1).max(5).optional(),
+  shipping: z.number().int().min(1).max(5).optional(),
+  communication: z.number().int().min(1).max(5).optional(),
+};
+
 export const createReviewCommandSchema = createCommerceCommandSchema(
   'review.create',
   orderIdPayload
     .extend({
       rating: z.number().int().min(1).max(5),
       text: z.string().trim().min(1).max(5_000),
+      ...reviewDimensionsSchema,
+    })
+    .strict(),
+);
+
+export const editReviewCommandSchema = createCommerceCommandSchema(
+  'review.edit',
+  orderIdPayload
+    .extend({
+      reviewId: z.uuid(),
+      rating: z.number().int().min(1).max(5),
+      text: z.string().trim().min(1).max(5_000),
+      ...reviewDimensionsSchema,
+    })
+    .strict(),
+);
+
+export const replyReviewCommandSchema = createCommerceCommandSchema(
+  'review.reply',
+  orderIdPayload
+    .extend({
+      reviewId: z.uuid(),
+      text: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
+export const createPromotionCommandSchema = createCommerceCommandSchema(
+  'promotion.create',
+  z
+    .object({
+      code: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z0-9]{4,16}$/),
+      percentOff: z.number().int().min(1).max(80),
+      usageLimit: z.number().int().min(1).max(10_000),
+      expiresInSeconds: z
+        .number()
+        .int()
+        .min(300)
+        .max(90 * 24 * 60 * 60),
+    })
+    .strict(),
+);
+
+export const releasePayoutCommandSchema = createCommerceCommandSchema('payout.release', orderIdPayload);
+
+export const blockBuyerCommandSchema = createCommerceCommandSchema(
+  'buyer.block',
+  z.object({ buyerPubky: commercePubkySchema }).strict(),
+);
+
+export const unblockBuyerCommandSchema = createCommerceCommandSchema(
+  'buyer.unblock',
+  z.object({ buyerPubky: commercePubkySchema }).strict(),
+);
+
+export const decideMarketplaceReportCommandSchema = createCommerceCommandSchema(
+  'trust.decide',
+  z
+    .object({
+      reportId: z.uuid(),
+      decision: z.enum(['dismiss', 'warn', 'restrict_listing', 'delist']),
+      notes: z.string().trim().min(1).max(2_000),
     })
     .strict(),
 );
@@ -275,12 +375,14 @@ export const marketplaceCommandSchema = z.union([
   registerListingCommandSchema,
   reserveInventoryCommandSchema,
   createOfferCommandSchema,
+  createPrivateOfferCommandSchema,
   counterOfferCommandSchema,
   acceptOfferCommandSchema,
   rejectOfferCommandSchema,
   withdrawOfferCommandSchema,
   placeBidCommandSchema,
   closeAuctionCommandSchema,
+  buyNowAuctionCommandSchema,
   sendMarketplaceMessageCommandSchema,
   markMarketplaceNotificationReadCommandSchema,
   updateMarketplaceNotificationPreferencesCommandSchema,
@@ -297,7 +399,14 @@ export const marketplaceCommandSchema = z.union([
   openDisputeCommandSchema,
   resolveDisputeCommandSchema,
   createReviewCommandSchema,
+  editReviewCommandSchema,
+  replyReviewCommandSchema,
+  createPromotionCommandSchema,
+  releasePayoutCommandSchema,
+  blockBuyerCommandSchema,
+  unblockBuyerCommandSchema,
   createMarketplaceReportCommandSchema,
+  decideMarketplaceReportCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -325,7 +434,9 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'payment',
             'order',
             'review',
+            'promotion',
             'report',
+            'blocked_buyer',
           ]),
         })
         .passthrough(),
@@ -348,12 +459,14 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
 export type RegisterListingCommand = z.infer<typeof registerListingCommandSchema>;
 export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
+export type CreatePrivateOfferCommand = z.infer<typeof createPrivateOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;
 export type AcceptOfferCommand = z.infer<typeof acceptOfferCommandSchema>;
 export type RejectOfferCommand = z.infer<typeof rejectOfferCommandSchema>;
 export type WithdrawOfferCommand = z.infer<typeof withdrawOfferCommandSchema>;
 export type PlaceBidCommand = z.infer<typeof placeBidCommandSchema>;
 export type CloseAuctionCommand = z.infer<typeof closeAuctionCommandSchema>;
+export type BuyNowAuctionCommand = z.infer<typeof buyNowAuctionCommandSchema>;
 export type SendMarketplaceMessageCommand = z.infer<typeof sendMarketplaceMessageCommandSchema>;
 export type MarkMarketplaceNotificationReadCommand = z.infer<typeof markMarketplaceNotificationReadCommandSchema>;
 export type UpdateMarketplaceNotificationPreferencesCommand = z.infer<
@@ -372,7 +485,14 @@ export type RecordExternalRefundCommand = z.infer<typeof recordExternalRefundCom
 export type OpenDisputeCommand = z.infer<typeof openDisputeCommandSchema>;
 export type ResolveDisputeCommand = z.infer<typeof resolveDisputeCommandSchema>;
 export type CreateReviewCommand = z.infer<typeof createReviewCommandSchema>;
+export type EditReviewCommand = z.infer<typeof editReviewCommandSchema>;
+export type ReplyReviewCommand = z.infer<typeof replyReviewCommandSchema>;
+export type CreatePromotionCommand = z.infer<typeof createPromotionCommandSchema>;
+export type ReleasePayoutCommand = z.infer<typeof releasePayoutCommandSchema>;
+export type BlockBuyerCommand = z.infer<typeof blockBuyerCommandSchema>;
+export type UnblockBuyerCommand = z.infer<typeof unblockBuyerCommandSchema>;
 export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceReportCommandSchema>;
+export type DecideMarketplaceReportCommand = z.infer<typeof decideMarketplaceReportCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
@@ -406,4 +526,12 @@ export function buildMarketplaceOrderAggregateId(orderId: string): string {
 
 export function buildMarketplaceReportAggregateId(commandId: string): string {
   return `report:${commandId}`;
+}
+
+export function buildMarketplacePromotionAggregateId(sellerPubky: string, code: string): string {
+  return `promotion:${sellerPubky}_${code}`;
+}
+
+export function buildMarketplaceBlockedBuyersAggregateId(sellerPubky: string): string {
+  return `blocked:${sellerPubky}`;
 }

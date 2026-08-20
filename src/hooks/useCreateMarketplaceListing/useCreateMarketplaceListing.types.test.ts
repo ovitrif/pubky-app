@@ -49,6 +49,22 @@ describe('createMarketplaceListingSchema', () => {
 
     expect(createMarketplaceListingSchema.safeParse(base).success).toBe(true);
     expect(createMarketplaceListingSchema.safeParse({ ...base, saleFormat: 'auction' }).success).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        saleFormat: 'auction',
+        variants: [variants[0]],
+        buyNowPrice: '200',
+      }).success,
+    ).toBe(true);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        saleFormat: 'auction',
+        variants: [variants[0]],
+        buyNowPrice: '100',
+      }).success,
+    ).toBe(false);
   });
 
   it('requires unique non-empty seller SKUs', () => {

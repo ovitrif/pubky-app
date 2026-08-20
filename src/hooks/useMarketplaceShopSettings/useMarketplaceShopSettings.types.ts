@@ -16,6 +16,7 @@ export const marketplaceShopSettingsSchema = z.object({
   shippingPolicy: z.string().trim().min(1, 'Shipping policy is required.').max(COMMERCE_SHOP_POLICY_MAX_CHARS),
   returnPolicy: z.string().trim().min(1, 'Return policy is required.').max(COMMERCE_SHOP_POLICY_MAX_CHARS),
   vacationMode: z.boolean(),
+  blockedBuyers: z.string().trim().max(4_000),
 });
 
 export type MarketplaceShopSettingsData = z.infer<typeof marketplaceShopSettingsSchema>;
@@ -28,4 +29,5 @@ export const marketplaceShopSettingsDefaults: MarketplaceShopSettingsData = {
   shippingPolicy: 'Ships within three business days.',
   returnPolicy: 'Returns accepted within 30 days unless marked final sale.',
   vacationMode: false,
+  blockedBuyers: '',
 };

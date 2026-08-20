@@ -136,6 +136,9 @@ function buildListingRecord(
           endsAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
           antiSnipingWindowSeconds: 120,
           antiSnipingExtensionSeconds: 120,
+          ...(data.buyNowPrice
+            ? { buyNowPrice: { amountMinor: Math.round(Number(data.buyNowPrice) * 100), currency: 'USD', exponent: 2 } }
+            : {}),
         }
       : {
           format: 'fixed_price',

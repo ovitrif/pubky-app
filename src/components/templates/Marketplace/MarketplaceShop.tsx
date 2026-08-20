@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, MapPin, Store, UserCheck, UserPlus } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
@@ -15,14 +15,19 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import type { MarketplaceSellerReputation } from '@/services/marketplace/marketplace';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
   const follow = useCommerceShopFollow(sellerPubky);
+  const [reputation, setReputation] = useState<MarketplaceSellerReputation | null>(null);
 
   useEffect(() => {
     CommerceController.initializeSandboxCatalog().catch(() => {});
-  }, []);
+    CommerceController.getSellerReputation(sellerPubky)
+      .then(setReputation)
+      .catch(() => setReputation(null));
+  }, [sellerPubky]);
 
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
   const listings = useLiveQuery(() => CommerceController.getListingsBySeller(sellerPubky), [sellerPubky]);
@@ -94,10 +99,18 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     </div>
                     <div>
                       <Typography as="p" className="text-2xl font-bold">
-                        Yes
+                        {reputation?.averageRating ?? '—'}
                       </Typography>
                       <Typography as="p" className="text-muted-foreground">
-                        Owner-signed
+                        {reputation ? `${reputation.reviewCount} reviews` : 'Owner-signed'}
+                      </Typography>
+                    </div>
+                    <div>
+                      <Typography as="p" className="text-2xl font-bold">
+                        {reputation?.salesCount ?? '—'}
+                      </Typography>
+                      <Typography as="p" className="text-muted-foreground">
+                        Sales
                       </Typography>
                     </div>
                   </div>

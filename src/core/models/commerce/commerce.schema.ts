@@ -156,3 +156,15 @@ export interface CommerceCartItemModelSchema {
 }
 
 export const commerceCartItemTableSchema = '&id, owner_id, listing_id, variant_id, updated_at, [owner_id+updated_at]';
+
+export interface CommerceSavedSearchModelSchema {
+  id: string;
+  owner_id: string;
+  name: string;
+  query: string;
+  category_id: string | null;
+  sale_format: string;
+  created_at: number;
+}
+
+export const commerceSavedSearchTableSchema = '&id, owner_id, created_at, [owner_id+created_at]';

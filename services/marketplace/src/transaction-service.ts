@@ -7,19 +7,27 @@ import {
   type AdvanceSandboxPaymentCommand,
   type ApproveOrderCancellationCommand,
   type ApproveReturnCommand,
+  type BlockBuyerCommand,
+  buildMarketplaceBlockedBuyersAggregateId,
   buildMarketplaceCheckoutAggregateId,
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
   buildMarketplaceOrderAggregateId,
   buildMarketplacePaymentAggregateId,
+  buildMarketplacePromotionAggregateId,
+  type BuyNowAuctionCommand,
   type CloseAuctionCommand,
   type ConfirmOrderDeliveryCommand,
   type CounterOfferCommand,
   type CreateMarketplaceCheckoutCommand,
   type CreateMarketplaceReportCommand,
   type CreateOfferCommand,
+  type CreatePrivateOfferCommand,
+  type CreatePromotionCommand,
   type CreateReviewCommand,
+  type DecideMarketplaceReportCommand,
+  type EditReviewCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
@@ -29,12 +37,15 @@ import {
   type RecordExternalRefundCommand,
   type RegisterListingCommand,
   type RejectOfferCommand,
+  type ReleasePayoutCommand,
+  type ReplyReviewCommand,
   type RequestOrderCancellationCommand,
   type RequestReturnCommand,
   type ReserveInventoryCommand,
   type ResolveDisputeCommand,
   type SendMarketplaceMessageCommand,
   type ShipOrderCommand,
+  type UnblockBuyerCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
   type WithdrawOfferCommand,
 } from './contracts';
@@ -64,6 +75,7 @@ export interface MarketplaceListingAggregate {
     endsAt: string;
     minimumIncrement: MarketplaceListingAggregate['unitPrice'];
     reservePrice?: MarketplaceListingAggregate['unitPrice'];
+    buyNowPrice?: MarketplaceListingAggregate['unitPrice'];
     antiSnipingWindowSeconds: number;
     antiSnipingExtensionSeconds: number;
     currentPrice: MarketplaceListingAggregate['unitPrice'];
@@ -71,6 +83,7 @@ export interface MarketplaceListingAggregate {
     bidCount: number;
     reserveMet: boolean;
   } | null;
+  restricted: boolean;
   updatedAt: string;
 }
 
@@ -248,6 +261,11 @@ export interface MarketplaceReview {
   subjectPubky: string;
   rating: number;
   text: string;
+  itemAccuracy: number | null;
+  shipping: number | null;
+  communication: number | null;
+  reply: string | null;
+  editedAt: string | null;
   createdAt: string;
 }
 
@@ -264,7 +282,41 @@ export interface MarketplaceReport {
   targetId: string;
   reason: 'prohibited_item' | 'counterfeit' | 'scam' | 'harassment' | 'unsafe' | 'other';
   details: string;
-  state: 'open';
+  state: 'open' | 'dismissed' | 'warned' | 'restricted' | 'delisted';
+  decisionNotes: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface MarketplacePromotion {
+  id: string;
+  sellerPubky: string;
+  code: string;
+  percentOff: number;
+  usageLimit: number;
+  usedCount: number;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface MarketplaceLedgerEntry {
+  id: string;
+  orderId: string;
+  account:
+    | 'buyer_receivable'
+    | 'item_revenue'
+    | 'shipping_revenue'
+    | 'tax_liability'
+    | 'discount'
+    | 'cash_sandbox'
+    | 'payout_hold'
+    | 'seller_payable'
+    | 'refund_expense'
+    | 'external_refund_clearing';
+  direction: 'debit' | 'credit';
+  amountMinor: number;
+  currency: string;
+  exponent: number;
   createdAt: string;
 }
 
@@ -293,7 +345,10 @@ export interface MarketplaceOrder {
   subtotal: MarketplaceListingAggregate['unitPrice'];
   shipping: MarketplaceListingAggregate['unitPrice'];
   tax: MarketplaceListingAggregate['unitPrice'];
+  discount: MarketplaceListingAggregate['unitPrice'];
   total: MarketplaceListingAggregate['unitPrice'];
+  couponCode: string | null;
+  payoutState: 'held' | 'released' | 'blocked';
   guaranteePolicyVersion: 1;
   paymentId: string;
   receiptId: string | null;
@@ -343,6 +398,7 @@ export interface MarketplaceEvent {
     | 'listing.registered'
     | 'inventory.reserved'
     | 'offer.created'
+    | 'offer.created_private'
     | 'offer.countered'
     | 'offer.accepted'
     | 'offer.rejected'
@@ -351,6 +407,7 @@ export interface MarketplaceEvent {
     | 'message.sent'
     | 'auction.closed_sold'
     | 'auction.closed_unsold'
+    | 'auction.buy_now'
     | 'notification.read'
     | 'notification.preferences_updated'
     | 'order.created'
@@ -370,7 +427,15 @@ export interface MarketplaceEvent {
     | 'dispute.opened'
     | 'dispute.resolved'
     | 'review.created'
-    | 'trust.reported';
+    | 'review.edited'
+    | 'review.replied'
+    | 'promotion.created'
+    | 'payout.released'
+    | 'trust.reported'
+    | 'trust.decided'
+    | 'buyer.blocked'
+    | 'buyer.unblocked'
+    | 'ledger.posted';
   occurredAt: string;
 }
 
@@ -419,7 +484,9 @@ export type MarketplaceCommandSuccess = {
       }
     | { kind: 'order'; order: MarketplaceOrder }
     | { kind: 'review'; order: MarketplaceOrder; review: MarketplaceReview }
-    | { kind: 'report'; report: MarketplaceReport };
+    | { kind: 'promotion'; promotion: MarketplacePromotion }
+    | { kind: 'report'; report: MarketplaceReport }
+    | { kind: 'blocked_buyer'; sellerPubky: string; buyerPubky: string; blocked: boolean };
 };
 
 export type MarketplaceCommandFailure = {
@@ -469,6 +536,9 @@ export class InMemoryMarketplaceRepository {
   private payments = new Map<string, MarketplacePayment>();
   private receipts = new Map<string, MarketplaceReceipt>();
   private reports = new Map<string, MarketplaceReport>();
+  private promotions = new Map<string, MarketplacePromotion>();
+  private blockedBuyers = new Map<string, Set<string>>();
+  private ledger: MarketplaceLedgerEntry[] = [];
   private commands = new Map<string, StoredCommand>();
   private events: MarketplaceEvent[] = [];
   private lockTail: Promise<void> = Promise.resolve();
@@ -612,6 +682,60 @@ export class InMemoryMarketplaceRepository {
     return [...this.reports.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  getReport(id: string): MarketplaceReport | undefined {
+    return this.reports.get(id);
+  }
+
+  putPromotion(promotion: MarketplacePromotion): void {
+    this.promotions.set(promotion.id, promotion);
+  }
+
+  getPromotion(sellerPubky: string, code: string): MarketplacePromotion | undefined {
+    return [...this.promotions.values()].find(
+      (promotion) => promotion.sellerPubky === sellerPubky && promotion.code === code,
+    );
+  }
+
+  getPromotionsForSeller(sellerPubky: string): MarketplacePromotion[] {
+    return [...this.promotions.values()].filter((promotion) => promotion.sellerPubky === sellerPubky);
+  }
+
+  isBuyerBlocked(sellerPubky: string, buyerPubky: string): boolean {
+    return this.blockedBuyers.get(sellerPubky)?.has(buyerPubky) ?? false;
+  }
+
+  setBuyerBlocked(sellerPubky: string, buyerPubky: string, blocked: boolean): void {
+    const current = this.blockedBuyers.get(sellerPubky) ?? new Set<string>();
+    if (blocked) current.add(buyerPubky);
+    else current.delete(buyerPubky);
+    this.blockedBuyers.set(sellerPubky, current);
+  }
+
+  getBlockedBuyers(sellerPubky: string): string[] {
+    return [...(this.blockedBuyers.get(sellerPubky) ?? [])].sort();
+  }
+
+  appendLedger(entries: MarketplaceLedgerEntry[]): void {
+    this.ledger.push(...entries);
+  }
+
+  getLedgerForOrder(orderId: string): MarketplaceLedgerEntry[] {
+    return this.ledger.filter((entry) => entry.orderId === orderId);
+  }
+
+  getLedgerForActor(actorPubky: string): MarketplaceLedgerEntry[] {
+    const orderIds = new Set(
+      [...this.orders.values()]
+        .filter((order) => order.buyerPubky === actorPubky || order.sellerPubky === actorPubky)
+        .map((order) => order.id),
+    );
+    return this.ledger.filter((entry) => orderIds.has(entry.orderId));
+  }
+
+  getRestrictedListingIds(): string[] {
+    return [...this.listings.values()].filter((listing) => listing.restricted).map((listing) => listing.aggregateId);
+  }
+
   getStoredCommand(actorPubky: string, commandId: string): StoredCommand | undefined {
     return this.commands.get(`${actorPubky}:${commandId}`);
   }
@@ -725,6 +849,80 @@ export class MarketplaceTransactionService {
     return actorPubky === MARKETPLACE_SANDBOX_MODERATOR ? this.repository.getReports() : [];
   }
 
+  getRestrictedListingIds(): string[] {
+    return this.repository.getRestrictedListingIds();
+  }
+
+  getLedger(actorPubky: string, orderId?: string): MarketplaceLedgerEntry[] {
+    return orderId
+      ? this.repository
+          .getLedgerForOrder(orderId)
+          .filter(() => this.getOrders(actorPubky).some((order) => order.id === orderId))
+      : this.repository.getLedgerForActor(actorPubky);
+  }
+
+  getPromotions(actorPubky: string): MarketplacePromotion[] {
+    return this.repository.getPromotionsForSeller(actorPubky);
+  }
+
+  getBlockedBuyers(actorPubky: string): string[] {
+    return this.repository.getBlockedBuyers(actorPubky);
+  }
+
+  getSellerReputation(sellerPubky: string): {
+    sellerPubky: string;
+    reviewCount: number;
+    averageRating: number | null;
+    salesCount: number;
+    itemAccuracy: number | null;
+    shipping: number | null;
+    communication: number | null;
+  } {
+    const orders = this.repository.getOrdersForActor(sellerPubky).filter((order) => order.sellerPubky === sellerPubky);
+    const reviews = orders.flatMap((order) => order.reviews.filter((review) => review.subjectPubky === sellerPubky));
+    const average = (values: number[]) =>
+      values.length ? Math.round((values.reduce((total, value) => total + value, 0) / values.length) * 10) / 10 : null;
+    return {
+      sellerPubky,
+      reviewCount: reviews.length,
+      averageRating: average(reviews.map(({ rating }) => rating)),
+      salesCount: orders.filter((order) =>
+        ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state),
+      ).length,
+      itemAccuracy: average(reviews.flatMap(({ itemAccuracy }) => (itemAccuracy ? [itemAccuracy] : []))),
+      shipping: average(reviews.flatMap(({ shipping }) => (shipping ? [shipping] : []))),
+      communication: average(reviews.flatMap(({ communication }) => (communication ? [communication] : []))),
+    };
+  }
+
+  getSellerStatement(actorPubky: string): {
+    sellerPubky: string;
+    orders: number;
+    paidMinor: number;
+    refundedMinor: number;
+    heldMinor: number;
+    releasedMinor: number;
+    entries: MarketplaceLedgerEntry[];
+  } {
+    const orders = this.getOrders(actorPubky).filter((order) => order.sellerPubky === actorPubky);
+    const entries = this.repository.getLedgerForActor(actorPubky);
+    return {
+      sellerPubky: actorPubky,
+      orders: orders.length,
+      paidMinor: orders
+        .filter((order) => ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state))
+        .reduce((total, order) => total + order.total.amountMinor, 0),
+      refundedMinor: orders.reduce((total, order) => total + (order.externalRefund?.amountMinor ?? 0), 0),
+      heldMinor: orders
+        .filter((order) => order.payoutState === 'held')
+        .reduce((total, order) => total + order.total.amountMinor - order.tax.amountMinor, 0),
+      releasedMinor: orders
+        .filter((order) => order.payoutState === 'released')
+        .reduce((total, order) => total + order.total.amountMinor - order.tax.amountMinor, 0),
+      entries,
+    };
+  }
+
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
     const commandResult = marketplaceCommandSchema.safeParse(commandInput);
@@ -769,6 +967,8 @@ export class MarketplaceTransactionService {
         return this.reserveInventory(actorPubky, command);
       case 'offer.create':
         return this.createOffer(actorPubky, command);
+      case 'offer.create_private':
+        return this.createPrivateOffer(actorPubky, command);
       case 'offer.counter':
         return this.counterOffer(actorPubky, command);
       case 'offer.accept':
@@ -783,6 +983,8 @@ export class MarketplaceTransactionService {
         return this.sendMessage(actorPubky, command);
       case 'auction.close':
         return this.closeAuction(actorPubky, command);
+      case 'auction.buy_now':
+        return this.buyNowAuction(actorPubky, command);
       case 'notification.mark_read':
         return this.markNotificationRead(actorPubky, command);
       case 'notification.preferences.update':
@@ -813,8 +1015,22 @@ export class MarketplaceTransactionService {
         return this.resolveDispute(actorPubky, command);
       case 'review.create':
         return this.createReview(actorPubky, command);
+      case 'review.edit':
+        return this.editReview(actorPubky, command);
+      case 'review.reply':
+        return this.replyReview(actorPubky, command);
+      case 'promotion.create':
+        return this.createPromotion(actorPubky, command);
+      case 'payout.release':
+        return this.releasePayout(actorPubky, command);
+      case 'buyer.block':
+        return this.blockBuyer(actorPubky, command);
+      case 'buyer.unblock':
+        return this.unblockBuyer(actorPubky, command);
       case 'trust.report':
         return this.createReport(actorPubky, command);
+      case 'trust.decide':
+        return this.decideReport(actorPubky, command);
     }
   }
 
@@ -859,6 +1075,7 @@ export class MarketplaceTransactionService {
       availableQuantity: payload.quantity - committedQuantity,
       reservedQuantity: current?.reservedQuantity ?? 0,
       soldQuantity: current?.soldQuantity ?? 0,
+      restricted: current?.restricted ?? false,
       unitPrice: payload.unitPrice,
       saleFormat: payload.saleFormat,
       auction: payload.auctionTerms
@@ -991,6 +1208,65 @@ export class MarketplaceTransactionService {
     this.repository.putOffer(offer);
     this.repository.appendEvent(event);
     this.notify(offer.sellerPubky, actorPubky, 'offer_received', offer.aggregateId, occurredAt);
+    return success(command, offer.revision, event.id, { kind: 'offer', offer });
+  }
+
+  private createPrivateOffer(actorPubky: string, command: CreatePrivateOfferCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (listing.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the seller may send a private offer.');
+    }
+    if (command.payload.recipientPubky === actorPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot send a private offer to themselves.');
+    }
+    if (command.expectedRevision !== listing.serverRevision) {
+      return failure('REVISION_CONFLICT', 'The listing revision is stale.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    if (listing.availableQuantity < command.payload.quantity) {
+      return failure('INSUFFICIENT_INVENTORY', 'The requested offer quantity is unavailable.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    if (!sameAsset(listing.unitPrice, command.payload.amount)) {
+      return failure('INVALID_COMMAND', 'Offer amount must use the listing asset and exponent.');
+    }
+
+    const now = this.now();
+    const occurredAt = now.toISOString();
+    const offer: MarketplaceOffer = {
+      id: command.commandId,
+      aggregateId: buildMarketplaceOfferAggregateId(command.commandId),
+      listingAggregateId: listing.aggregateId,
+      buyerPubky: command.payload.recipientPubky,
+      sellerPubky: listing.sellerPubky,
+      revision: 1,
+      state: 'pending',
+      offeredBy: actorPubky,
+      amount: command.payload.amount,
+      quantity: command.payload.quantity,
+      message: command.payload.message,
+      expiresAt: new Date(now.getTime() + command.payload.expiresInSeconds * 1_000).toISOString(),
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+      history: [
+        {
+          revision: 1,
+          actorPubky,
+          action: 'created',
+          amount: command.payload.amount,
+          quantity: command.payload.quantity,
+          message: command.payload.message,
+          occurredAt,
+        },
+      ],
+    };
+    const event = this.createEvent(actorPubky, command, offer.revision, 'offer.created_private', occurredAt);
+    this.repository.putOffer(offer);
+    this.repository.appendEvent(event);
+    this.notify(offer.buyerPubky, actorPubky, 'offer_received', offer.aggregateId, occurredAt);
     return success(command, offer.revision, event.id, { kind: 'offer', offer });
   }
 
@@ -1392,6 +1668,74 @@ export class MarketplaceTransactionService {
     });
   }
 
+  private buyNowAuction(actorPubky: string, command: BuyNowAuctionCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The auction listing is not registered.');
+    if (listing.sellerPubky === actorPubky) {
+      return failure('UNAUTHORIZED', 'A seller cannot buy their own auction.');
+    }
+    if (!listing.auction || listing.saleFormat !== 'auction' || listing.auction.status !== 'active') {
+      return failure('INVALID_STATE', 'The auction is not active.');
+    }
+    if (!listing.auction.buyNowPrice) {
+      return failure('INVALID_STATE', 'This auction does not allow buy-now.');
+    }
+    if (listing.restricted) return failure('INVALID_STATE', 'This listing is restricted.');
+    if (command.expectedRevision !== listing.serverRevision) {
+      return failure('REVISION_CONFLICT', 'The auction revision is stale.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+    const now = this.now();
+    if (now.getTime() < Date.parse(listing.auction.startsAt) || now.getTime() >= Date.parse(listing.auction.endsAt)) {
+      return failure('AUCTION_CLOSED', 'The auction is not open for buy-now.');
+    }
+    if (listing.availableQuantity < 1) {
+      return failure('INSUFFICIENT_INVENTORY', 'Buy-now quantity is unavailable.', {
+        currentRevision: listing.serverRevision,
+      });
+    }
+
+    const occurredAt = now.toISOString();
+    const reservation: MarketplaceReservation = {
+      id: command.commandId,
+      aggregateId: listing.aggregateId,
+      buyerPubky: actorPubky,
+      quantity: 1,
+      status: 'active',
+      expiresAt: new Date(now.getTime() + 30 * 60 * 1_000).toISOString(),
+      createdAt: occurredAt,
+    };
+    const updatedListing: MarketplaceListingAggregate = {
+      ...listing,
+      serverRevision: listing.serverRevision + 1,
+      state: 'reserved',
+      availableQuantity: listing.availableQuantity - 1,
+      reservedQuantity: listing.reservedQuantity + 1,
+      auction: {
+        ...listing.auction,
+        status: 'sold',
+        currentPrice: listing.auction.buyNowPrice,
+        leaderPubky: actorPubky,
+        bidCount: listing.auction.bidCount + 1,
+        reserveMet: true,
+      },
+      updatedAt: occurredAt,
+    };
+    const event = this.createEvent(actorPubky, command, updatedListing.serverRevision, 'auction.buy_now', occurredAt);
+    this.repository.putListing(updatedListing);
+    this.repository.putReservation(reservation);
+    this.repository.appendEvent(event);
+    this.notify(listing.sellerPubky, actorPubky, 'auction_ended', listing.aggregateId, occurredAt);
+    return success(command, updatedListing.serverRevision, event.id, {
+      kind: 'auction_result',
+      outcome: 'sold',
+      winnerPubky: actorPubky,
+      listing: updatedListing,
+      reservation,
+    });
+  }
+
   private sendMessage(actorPubky: string, command: SendMarketplaceMessageCommand): MarketplaceCommandResult {
     const listing = this.repository.getListing(command.payload.listingAggregateId);
     if (!listing) return failure('NOT_FOUND', 'The message listing is unavailable.');
@@ -1541,6 +1885,9 @@ export class MarketplaceTransactionService {
       if (listing.sellerPubky === actorPubky) {
         return failure('UNAUTHORIZED', 'A buyer cannot purchase their own listing.');
       }
+      if (listing.restricted) {
+        return failure('INVALID_STATE', 'A restricted listing cannot enter checkout.');
+      }
       if (listing.saleFormat !== 'fixed_price' || listing.state !== 'available') {
         return failure('INVALID_STATE', 'Only available fixed-price listings can enter checkout.');
       }
@@ -1563,6 +1910,11 @@ export class MarketplaceTransactionService {
 
     const now = this.now();
     const occurredAt = now.toISOString();
+    for (const listing of listings) {
+      if (this.repository.isBuyerBlocked(listing.sellerPubky, actorPubky)) {
+        return failure('UNAUTHORIZED', 'This seller has blocked the buyer.');
+      }
+    }
     const sellerGroups = new Map<
       string,
       Array<{ requested: (typeof resolved)[number]['requested']; listing: MarketplaceListingAggregate }>
@@ -1572,6 +1924,20 @@ export class MarketplaceTransactionService {
       const group = sellerGroups.get(listing.sellerPubky) ?? [];
       group.push({ requested: item.requested, listing });
       sellerGroups.set(listing.sellerPubky, group);
+    }
+
+    const couponCode = command.payload.couponCode ?? null;
+    if (couponCode) {
+      for (const sellerPubky of sellerGroups.keys()) {
+        const promotion = this.repository.getPromotion(sellerPubky, couponCode);
+        if (
+          !promotion ||
+          Date.parse(promotion.expiresAt) <= now.getTime() ||
+          promotion.usedCount >= promotion.usageLimit
+        ) {
+          return failure('INVALID_COMMAND', 'The coupon is invalid, expired, or exhausted.');
+        }
+      }
     }
 
     const orders: MarketplaceOrder[] = [];
@@ -1589,7 +1955,18 @@ export class MarketplaceTransactionService {
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
       const shippingMinor = 1_200;
-      const taxMinor = Math.round((subtotalMinor + shippingMinor) * 0.08);
+      const couponCode = command.payload.couponCode ?? null;
+      const promotion = couponCode ? this.repository.getPromotion(sellerPubky, couponCode) : undefined;
+      if (
+        couponCode &&
+        (!promotion || Date.parse(promotion.expiresAt) <= now.getTime() || promotion.usedCount >= promotion.usageLimit)
+      ) {
+        return failure('INVALID_COMMAND', 'The coupon is invalid, expired, or exhausted.');
+      }
+      const discountMinor = promotion ? Math.round((subtotalMinor * promotion.percentOff) / 100) : 0;
+      const taxableMinor = Math.max(0, subtotalMinor - discountMinor) + shippingMinor;
+      const taxMinor = Math.round(taxableMinor * 0.08);
+      const totalMinor = taxableMinor + taxMinor;
       const orderId = randomUUID();
       const paymentId = randomUUID();
       const order: MarketplaceOrder = {
@@ -1603,7 +1980,10 @@ export class MarketplaceTransactionService {
         subtotal: { ...asset, amountMinor: subtotalMinor },
         shipping: { ...asset, amountMinor: shippingMinor },
         tax: { ...asset, amountMinor: taxMinor },
-        total: { ...asset, amountMinor: subtotalMinor + shippingMinor + taxMinor },
+        discount: { ...asset, amountMinor: discountMinor },
+        total: { ...asset, amountMinor: totalMinor },
+        couponCode,
+        payoutState: 'held',
         guaranteePolicyVersion: command.payload.guaranteePolicyVersion,
         paymentId,
         receiptId: null,
@@ -1632,6 +2012,11 @@ export class MarketplaceTransactionService {
       };
       this.repository.putOrder(order);
       this.repository.putPayment(payment);
+      if (promotion) {
+        this.repository.putPromotion({ ...promotion, usedCount: promotion.usedCount + 1 });
+      }
+      const ledger = this.postOrderLedger(order, occurredAt);
+      if (!ledger.ok) return ledger.failure;
       orders.push(order);
       payments.push(payment);
       const event = this.createEvent(actorPubky, command, 1, 'order.created', occurredAt, `order:${orderId}`);
@@ -1730,6 +2115,19 @@ export class MarketplaceTransactionService {
       this.repository.putReceipt(receipt);
       this.repository.appendEvent(receiptEvent);
       this.notify(order.sellerPubky, actorPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
+      const sellerNet = order.total.amountMinor - order.tax.amountMinor;
+      const cashLedger = this.postBalancedLedger(
+        order.id,
+        occurredAt,
+        [
+          ['cash_sandbox', 'debit', order.total.amountMinor],
+          ['buyer_receivable', 'credit', order.total.amountMinor],
+          ['payout_hold', 'debit', sellerNet],
+          ['seller_payable', 'credit', sellerNet],
+        ],
+        order.total,
+      );
+      if (!cashLedger.ok) return cashLedger.failure;
     }
     this.repository.putPayment(updatedPayment);
     this.repository.putOrder(updatedOrder);
@@ -1967,6 +2365,16 @@ export class MarketplaceTransactionService {
         : order.returnRequest,
       updatedAt: occurredAt,
     };
+    const refundLedger = this.postBalancedLedger(
+      order.id,
+      occurredAt,
+      [
+        ['refund_expense', 'debit', command.payload.amountMinor],
+        ['external_refund_clearing', 'credit', command.payload.amountMinor],
+      ],
+      order.total,
+    );
+    if (!refundLedger.ok) return refundLedger.failure;
     return this.persistOrderAction(
       actorPubky,
       command,
@@ -2082,6 +2490,11 @@ export class MarketplaceTransactionService {
       subjectPubky: actorPubky === order.buyerPubky ? order.sellerPubky : order.buyerPubky,
       rating: command.payload.rating,
       text: command.payload.text,
+      itemAccuracy: command.payload.itemAccuracy ?? null,
+      shipping: command.payload.shipping ?? null,
+      communication: command.payload.communication ?? null,
+      reply: null,
+      editedAt: null,
       createdAt: occurredAt,
     };
     const updated: MarketplaceOrder = {
@@ -2110,12 +2523,247 @@ export class MarketplaceTransactionService {
       reason: command.payload.reason,
       details: command.payload.details,
       state: 'open',
+      decisionNotes: null,
+      decidedAt: null,
       createdAt: this.now().toISOString(),
     };
     this.repository.putReport(report);
     const event = this.createEvent(actorPubky, command, 1, 'trust.reported', report.createdAt);
     this.repository.appendEvent(event);
     return success(command, 1, event.id, { kind: 'report', report });
+  }
+
+  private editReview(actorPubky: string, command: EditReviewCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    const review = order.reviews.find(({ id }) => id === command.payload.reviewId);
+    if (!review || review.reviewerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the original reviewer may edit this review.');
+    }
+    const occurredAt = this.now();
+    if (occurredAt.getTime() - Date.parse(review.createdAt) > 48 * 60 * 60 * 1_000) {
+      return failure('INVALID_STATE', 'The review edit window has closed.');
+    }
+    const updatedReview: MarketplaceReview = {
+      ...review,
+      rating: command.payload.rating,
+      text: command.payload.text,
+      itemAccuracy: command.payload.itemAccuracy ?? review.itemAccuracy,
+      shipping: command.payload.shipping ?? review.shipping,
+      communication: command.payload.communication ?? review.communication,
+      editedAt: occurredAt.toISOString(),
+    };
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      reviews: order.reviews.map((current) => (current.id === review.id ? updatedReview : current)),
+      updatedAt: occurredAt.toISOString(),
+    };
+    this.repository.putOrder(updated);
+    const event = this.createEvent(actorPubky, command, updated.revision, 'review.edited', occurredAt.toISOString());
+    this.repository.appendEvent(event);
+    return success(command, updated.revision, event.id, { kind: 'review', order: updated, review: updatedReview });
+  }
+
+  private replyReview(actorPubky: string, command: ReplyReviewCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    const review = order.reviews.find(({ id }) => id === command.payload.reviewId);
+    if (!review) return failure('NOT_FOUND', 'The review was not found.');
+    if (review.subjectPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only the reviewed participant may reply.');
+    }
+    if (review.reply) return failure('INVALID_STATE', 'This review already has a reply.');
+    const occurredAt = this.now().toISOString();
+    const updatedReview: MarketplaceReview = { ...review, reply: command.payload.text };
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      reviews: order.reviews.map((current) => (current.id === review.id ? updatedReview : current)),
+      updatedAt: occurredAt,
+    };
+    this.repository.putOrder(updated);
+    const event = this.createEvent(actorPubky, command, updated.revision, 'review.replied', occurredAt);
+    this.repository.appendEvent(event);
+    return success(command, updated.revision, event.id, { kind: 'review', order: updated, review: updatedReview });
+  }
+
+  private createPromotion(actorPubky: string, command: CreatePromotionCommand): MarketplaceCommandResult {
+    const expectedId = buildMarketplacePromotionAggregateId(actorPubky, command.payload.code);
+    if (command.aggregateId !== expectedId || command.expectedRevision !== 0) {
+      return failure('INVALID_COMMAND', 'The promotion aggregate identity is invalid.');
+    }
+    if (this.repository.getPromotion(actorPubky, command.payload.code)) {
+      return failure('INVALID_STATE', 'That coupon code already exists.');
+    }
+    const occurredAt = this.now();
+    const promotion: MarketplacePromotion = {
+      id: command.commandId,
+      sellerPubky: actorPubky,
+      code: command.payload.code,
+      percentOff: command.payload.percentOff,
+      usageLimit: command.payload.usageLimit,
+      usedCount: 0,
+      expiresAt: new Date(occurredAt.getTime() + command.payload.expiresInSeconds * 1_000).toISOString(),
+      createdAt: occurredAt.toISOString(),
+    };
+    this.repository.putPromotion(promotion);
+    const event = this.createEvent(actorPubky, command, 1, 'promotion.created', occurredAt.toISOString());
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, { kind: 'promotion', promotion });
+  }
+
+  private blockBuyer(actorPubky: string, command: BlockBuyerCommand): MarketplaceCommandResult {
+    return this.setBuyerBlock(actorPubky, command, true);
+  }
+
+  private unblockBuyer(actorPubky: string, command: UnblockBuyerCommand): MarketplaceCommandResult {
+    return this.setBuyerBlock(actorPubky, command, false);
+  }
+
+  private setBuyerBlock(
+    actorPubky: string,
+    command: BlockBuyerCommand | UnblockBuyerCommand,
+    blocked: boolean,
+  ): MarketplaceCommandResult {
+    if (command.aggregateId !== buildMarketplaceBlockedBuyersAggregateId(actorPubky)) {
+      return failure('INVALID_COMMAND', 'The blocked-buyer aggregate identity is invalid.');
+    }
+    if (command.payload.buyerPubky === actorPubky) {
+      return failure('INVALID_COMMAND', 'A seller cannot block themselves.');
+    }
+    this.repository.setBuyerBlocked(actorPubky, command.payload.buyerPubky, blocked);
+    const occurredAt = this.now().toISOString();
+    const event = this.createEvent(actorPubky, command, 1, blocked ? 'buyer.blocked' : 'buyer.unblocked', occurredAt);
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, {
+      kind: 'blocked_buyer',
+      sellerPubky: actorPubky,
+      buyerPubky: command.payload.buyerPubky,
+      blocked,
+    });
+  }
+
+  private releasePayout(actorPubky: string, command: ReleasePayoutCommand): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.sellerPubky !== actorPubky)
+      return failure('UNAUTHORIZED', 'Only the seller may release a sandbox payout.');
+    if (order.payoutState !== 'held' || !['delivered', 'completed'].includes(order.state) || order.dispute) {
+      return failure('INVALID_STATE', 'Sandbox payout is blocked by order, return, or dispute state.');
+    }
+    const occurredAt = this.now().toISOString();
+    const amountMinor = order.total.amountMinor - order.tax.amountMinor;
+    const payoutLedger = this.postBalancedLedger(
+      order.id,
+      occurredAt,
+      [
+        ['seller_payable', 'debit', amountMinor],
+        ['cash_sandbox', 'credit', amountMinor],
+      ],
+      order.total,
+    );
+    if (!payoutLedger.ok) return payoutLedger.failure;
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      payoutState: 'released',
+      updatedAt: occurredAt,
+    };
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'payout.released',
+      order.buyerPubky,
+      'payment_confirmed',
+      occurredAt,
+    );
+  }
+
+  private decideReport(actorPubky: string, command: DecideMarketplaceReportCommand): MarketplaceCommandResult {
+    if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
+      return failure('UNAUTHORIZED', 'Only the sandbox moderator may decide reports.');
+    }
+    const report = this.repository.getReport(command.payload.reportId);
+    if (!report) return failure('NOT_FOUND', 'The report was not found.');
+    if (command.aggregateId !== `report:${report.id}` || command.expectedRevision !== 1) {
+      return failure('REVISION_CONFLICT', 'The report revision is stale.', { currentRevision: 1 });
+    }
+    if (report.state !== 'open') return failure('INVALID_STATE', 'The report is already decided.');
+    const occurredAt = this.now().toISOString();
+    const state =
+      command.payload.decision === 'dismiss'
+        ? 'dismissed'
+        : command.payload.decision === 'warn'
+          ? 'warned'
+          : command.payload.decision === 'restrict_listing'
+            ? 'restricted'
+            : 'delisted';
+    const updated: MarketplaceReport = {
+      ...report,
+      state,
+      decisionNotes: command.payload.notes,
+      decidedAt: occurredAt,
+    };
+    if ((state === 'restricted' || state === 'delisted') && report.targetType === 'listing') {
+      const listing = this.repository.getListing(report.targetId);
+      if (listing) {
+        this.repository.putListing({ ...listing, restricted: true, updatedAt: occurredAt });
+      }
+    }
+    this.repository.putReport(updated);
+    const event = this.createEvent(actorPubky, command, 2, 'trust.decided', occurredAt);
+    this.repository.appendEvent(event);
+    return success(command, 2, event.id, { kind: 'report', report: updated });
+  }
+
+  private postOrderLedger(
+    order: MarketplaceOrder,
+    occurredAt: string,
+  ): { ok: true } | { ok: false; failure: MarketplaceCommandFailure } {
+    return this.postBalancedLedger(
+      order.id,
+      occurredAt,
+      [
+        ['buyer_receivable', 'debit', order.total.amountMinor],
+        ['discount', 'debit', order.discount.amountMinor],
+        ['item_revenue', 'credit', order.subtotal.amountMinor],
+        ['shipping_revenue', 'credit', order.shipping.amountMinor],
+        ['tax_liability', 'credit', order.tax.amountMinor],
+      ],
+      order.total,
+    );
+  }
+
+  private postBalancedLedger(
+    orderId: string,
+    createdAt: string,
+    lines: Array<[MarketplaceLedgerEntry['account'], MarketplaceLedgerEntry['direction'], number]>,
+    money: MarketplaceListingAggregate['unitPrice'],
+  ): { ok: true } | { ok: false; failure: MarketplaceCommandFailure } {
+    const active = lines.filter(([, , amountMinor]) => amountMinor > 0);
+    const debit = active.reduce((total, [, direction, amount]) => total + (direction === 'debit' ? amount : 0), 0);
+    const credit = active.reduce((total, [, direction, amount]) => total + (direction === 'credit' ? amount : 0), 0);
+    if (debit !== credit) {
+      return { ok: false, failure: failure('INVARIANT_VIOLATION', 'Ledger postings must balance.') };
+    }
+    this.repository.appendLedger(
+      active.map(([account, direction, amountMinor]) => ({
+        id: randomUUID(),
+        orderId,
+        account,
+        direction,
+        amountMinor,
+        currency: money.currency,
+        exponent: money.exponent,
+        createdAt,
+      })),
+    );
+    return { ok: true };
   }
 
   private getOrderAction(

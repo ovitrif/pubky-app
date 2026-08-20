@@ -10,6 +10,7 @@ import {
   CommerceListingDraftModel,
   CommerceListingModel,
   CommerceListingProjectionModel,
+  CommerceSavedSearchModel,
   CommerceShopFollowModel,
   CommerceShopModel,
   CommerceSyncJobModel,
@@ -20,6 +21,7 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceSavedSearchModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
 } from '@/models/commerce/commerce.schema';
@@ -132,6 +134,38 @@ export class LocalCommerceService {
 
   static async deleteShopFollow(ownerId: string, sellerId: string): Promise<void> {
     await CommerceShopFollowModel.deleteById(this.shopFollowId(ownerId, sellerId));
+  }
+
+  static async getSavedSearches(ownerId: string) {
+    return await CommerceSavedSearchModel.findByOwner(ownerId);
+  }
+
+  static async upsertSavedSearch(
+    ownerId: string,
+    search: Pick<CommerceSavedSearchModelSchema, 'name' | 'query' | 'category_id' | 'sale_format'>,
+    now: number,
+  ): Promise<void> {
+    await CommerceSavedSearchModel.upsert({
+      id: `${ownerId}|${now}`,
+      owner_id: ownerId,
+      name: search.name,
+      query: search.query,
+      category_id: search.category_id,
+      sale_format: search.sale_format,
+      created_at: now,
+    });
+  }
+
+  static async deleteSavedSearch(ownerId: string, searchId: string): Promise<void> {
+    const current = await CommerceSavedSearchModel.findById(searchId);
+    if (current && current.owner_id !== ownerId) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Saved search does not belong to this account.', {
+        service: ErrorService.Local,
+        operation: 'deleteSavedSearch',
+        context: { searchId },
+      });
+    }
+    await CommerceSavedSearchModel.deleteById(searchId);
   }
 
   static async upsertShop(record: CommerceShopRecord, syncStatus: CommerceCacheStatus): Promise<void> {

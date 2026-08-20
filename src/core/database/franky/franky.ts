@@ -10,6 +10,8 @@ import {
   commerceCartItemTableSchema,
   type CommerceFavoriteModelSchema,
   commerceFavoriteTableSchema,
+  type CommerceSavedSearchModelSchema,
+  commerceSavedSearchTableSchema,
   type CommerceListingDraftModelSchema,
   commerceListingDraftTableSchema,
   type CommerceListingModelSchema,
@@ -131,6 +133,7 @@ export class AppDatabase extends Dexie {
   commerce_favorites!: Dexie.Table<CommerceFavoriteModelSchema>;
   commerce_shop_follows!: Dexie.Table<CommerceShopFollowModelSchema>;
   commerce_cart_items!: Dexie.Table<CommerceCartItemModelSchema>;
+  commerce_saved_searches!: Dexie.Table<CommerceSavedSearchModelSchema>;
   // Hot tags
   hot_tags!: Dexie.Table<HotTagsModelSchema>;
   // Feeds
@@ -175,6 +178,7 @@ export class AppDatabase extends Dexie {
         commerce_favorites: commerceFavoriteTableSchema,
         commerce_shop_follows: commerceShopFollowTableSchema,
         commerce_cart_items: commerceCartItemTableSchema,
+        commerce_saved_searches: commerceSavedSearchTableSchema,
         // Hot tags
         hot_tags: hotTagsTableSchema,
         // Feeds

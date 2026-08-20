@@ -135,6 +135,7 @@ export function MarketplaceCart() {
                   <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
                   <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
                 </div>
+                <ControlledInputField name="couponCode" control={checkout.form.control} label="Coupon (optional)" />
                 <Controller
                   name="acceptsGuarantee"
                   control={checkout.form.control}

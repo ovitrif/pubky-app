@@ -13,13 +13,17 @@ export function MarketplaceOfferDialog({
   aggregateId,
   expectedRevision,
   onAccepted,
+  asSeller = false,
+  label = 'Make offer',
 }: {
   aggregateId: string;
   expectedRevision: number | null;
   onAccepted: () => void | Promise<void>;
+  asSeller?: boolean;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const offer = useMarketplaceOffer(aggregateId, expectedRevision);
+  const offer = useMarketplaceOffer(aggregateId, expectedRevision, asSeller);
   const { requireAuth } = useRequireAuth();
 
   const submit = async () => {
@@ -43,14 +47,22 @@ export function MarketplaceOfferDialog({
       <DialogTrigger asChild>
         <Button size="lg" variant="secondary" className="flex-1 rounded-full" disabled={expectedRevision === null}>
           <HandCoins className="mr-2 size-4" />
-          Make offer
+          {label}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>Make a private offer</DialogTitle>
+          <DialogTitle>{asSeller ? 'Send a private offer' : 'Make a private offer'}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4">
+          {asSeller && (
+            <ControlledInputField
+              name="recipientPubky"
+              control={offer.form.control}
+              label="Watcher pubky"
+              placeholder="Recipient public key"
+            />
+          )}
           <ControlledInputField
             name="amount"
             control={offer.form.control}

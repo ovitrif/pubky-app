@@ -3,6 +3,7 @@
 import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
+import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -59,6 +60,25 @@ export function MarketplaceModeration() {
                   <Typography as="p" className="text-sm text-muted-foreground">
                     {report.details}
                   </Typography>
+                  {report.state === 'open' && (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="rounded-full"
+                        onClick={() => void moderation.decide(report.id, 'dismiss')}
+                      >
+                        Dismiss
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => void moderation.decide(report.id, 'restrict_listing')}
+                      >
+                        Restrict listing
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}

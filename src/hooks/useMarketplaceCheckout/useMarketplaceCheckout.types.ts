@@ -12,6 +12,11 @@ export const marketplaceCheckoutSchema = z.object({
     .trim()
     .regex(/^[A-Za-z]{2}$/, 'Use a two-letter country code.'),
   acceptsGuarantee: z.literal(true, { error: 'Accept the sandbox guarantee terms.' }),
+  couponCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .refine((value) => value === '' || /^[A-Z0-9]{4,16}$/.test(value), 'Enter a valid coupon or leave empty.'),
 });
 
 export type MarketplaceCheckoutData = z.infer<typeof marketplaceCheckoutSchema>;
@@ -25,4 +30,5 @@ export const marketplaceCheckoutDefaults: MarketplaceCheckoutData = {
   postalCode: '',
   countryCode: 'US',
   acceptsGuarantee: true,
+  couponCode: '',
 };

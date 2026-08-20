@@ -75,9 +75,18 @@ export function MarketplaceOrders() {
                         {formatCommerceMoney(order.total)}
                       </Typography>
                       <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                        Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)} ·
-                        Tax {formatCommerceMoney(order.tax)}
+                        Items {formatCommerceMoney(order.subtotal)}
+                        {order.discount ? ` · Discount ${formatCommerceMoney(order.discount)}` : ''} · Shipping{' '}
+                        {formatCommerceMoney(order.shipping)} · Tax {formatCommerceMoney(order.tax)}
+                        {order.couponCode ? ` · Coupon ${order.couponCode}` : ''}
+                        {order.payoutState ? ` · Payout ${order.payoutState}` : ''}
                       </Typography>
+                      {order.reviews?.map((review) => (
+                        <Typography key={review.id} as="p" className="mt-2 text-sm text-muted-foreground">
+                          Review {review.rating}/5{review.editedAt ? ' · edited' : ''}: {review.text}
+                          {review.reply ? ` · Reply: ${review.reply}` : ''}
+                        </Typography>
+                      ))}
                       {receipt && (
                         <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                           <ReceiptText className="size-4 text-brand" />

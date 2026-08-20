@@ -94,6 +94,10 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
           <Typography as="h2" className="text-xl font-semibold">
             Item details
           </Typography>
+          <div role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+            Weapons, stolen goods, counterfeit items, and other prohibited categories are not allowed. Reports can
+            restrict a listing from discovery.
+          </div>
           <ControlledInputField
             name={CREATE_MARKETPLACE_LISTING_FIELDS.TITLE}
             control={form.control}
@@ -172,6 +176,15 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               placeholder="125.00"
               disabled={isPublishing}
             />
+            {saleFormat === 'auction' && (
+              <ControlledInputField
+                name={CREATE_MARKETPLACE_LISTING_FIELDS.BUY_NOW_PRICE}
+                control={form.control}
+                label="Buy now (optional)"
+                placeholder="200.00"
+                disabled={isPublishing}
+              />
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 border-t pt-5">

@@ -69,6 +69,7 @@ export function useMarketplaceCheckout(
               countryCode: data.countryCode.toUpperCase(),
             },
             guaranteePolicyVersion: 1,
+            ...(data.couponCode ? { couponCode: data.couponCode } : {}),
           },
         });
         if (!response.ok) {

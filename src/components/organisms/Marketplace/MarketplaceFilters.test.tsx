@@ -1,8 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceFilters } from './MarketplaceFilters';
+
+vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () => ({
+  useMarketplaceSavedSearches: () => ({
+    searches: [],
+    save: vi.fn(),
+    apply: vi.fn(),
+    remove: vi.fn(),
+    canSave: false,
+  }),
+}));
 
 describe('MarketplaceFilters', () => {
   beforeEach(() => {

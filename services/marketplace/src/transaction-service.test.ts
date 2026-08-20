@@ -1081,4 +1081,230 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getReports(BUYER)).toEqual([]);
     expect(service.getReports(MARKETPLACE_SANDBOX_MODERATOR)).toHaveLength(1);
   });
+
+  it('closes an active auction immediately when a buyer uses buy-now', async () => {
+    const { service } = createService();
+    const register = registerAuctionCommand();
+    const payload = register.payload as typeof register.payload & {
+      auctionTerms: {
+        startsAt: string;
+        endsAt: string;
+        minimumIncrement: { amountMinor: number; currency: string; exponent: number };
+        reservePrice: { amountMinor: number; currency: string; exponent: number };
+        antiSnipingWindowSeconds: number;
+        antiSnipingExtensionSeconds: number;
+        buyNowPrice?: { amountMinor: number; currency: string; exponent: number };
+      };
+    };
+    payload.auctionTerms.buyNowPrice = { amountMinor: 20_000, currency: 'USD', exponent: 2 };
+    await service.execute(SELLER, { ...register, payload });
+
+    await expect(
+      service.execute(BUYER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001300',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'auction.buy_now',
+        payload: {},
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        kind: 'auction_result',
+        outcome: 'sold',
+        winnerPubky: BUYER,
+        listing: { state: 'reserved', auction: { status: 'sold', currentPrice: { amountMinor: 20_000 } } },
+      },
+    });
+  });
+
+  it('lets a seller send a private offer to a watcher and posts a balanced checkout ledger', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001301',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'offer.create_private',
+        payload: {
+          recipientPubky: BUYER,
+          amount: { amountMinor: 9_000, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          expiresInSeconds: 3_600,
+          message: 'Private price for you.',
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { buyerPubky: BUYER, offeredBy: SELLER, state: 'pending' } },
+    });
+
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    expect(checkout).toMatchObject({ ok: true });
+    const entries = service.getLedger(BUYER);
+    const debit = entries
+      .filter(({ direction }) => direction === 'debit')
+      .reduce((total, entry) => total + entry.amountMinor, 0);
+    const credit = entries
+      .filter(({ direction }) => direction === 'credit')
+      .reduce((total, entry) => total + entry.amountMinor, 0);
+    expect(debit).toBe(credit);
+    expect(debit).toBeGreaterThan(0);
+  });
+
+  it('applies a seller coupon, then allows review edit, reply, payout, and moderation restrict', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001302',
+        aggregateId: `promotion:${SELLER}_SAVE10`,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'promotion.create',
+        payload: { code: 'SAVE10', percentOff: 10, usageLimit: 5, expiresInSeconds: 86_400 },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'promotion', promotion: { code: 'SAVE10', percentOff: 10 } },
+    });
+
+    const checkout = {
+      ...checkoutCommand(),
+      payload: { ...checkoutCommand().payload, couponCode: 'SAVE10' },
+    };
+    checkout.commandId = '00000000-0000-4000-8000-000000001303';
+    checkout.aggregateId = buildMarketplaceCheckoutAggregateId(checkout.commandId);
+    const created = await service.execute(BUYER, checkout);
+    expect(created).toMatchObject({
+      ok: true,
+      result: { orders: [{ discount: { amountMinor: 1_250 }, couponCode: 'SAVE10' }] },
+    });
+    if (!created.ok || created.result.kind !== 'checkout') return;
+    const payment = created.result.payments[0];
+    const order = created.result.orders[0];
+    await service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 1, 1_304));
+    await service.execute(
+      SELLER,
+      orderCommand('fulfillment.ship', order.id, 2, { carrier: 'Sandbox Post', trackingNumber: 'TRACK-PROMO' }, 1_305),
+    );
+    await service.execute(BUYER, orderCommand('fulfillment.confirm_delivery', order.id, 3, {}, 1_306));
+    const reviewed = await service.execute(
+      BUYER,
+      orderCommand('review.create', order.id, 4, { rating: 4, text: 'Good item.' }, 1_307),
+    );
+    expect(reviewed).toMatchObject({ ok: true, result: { kind: 'review' } });
+    if (!reviewed.ok || reviewed.result.kind !== 'review') return;
+    await expect(
+      service.execute(
+        BUYER,
+        orderCommand(
+          'review.edit',
+          order.id,
+          5,
+          { reviewId: reviewed.result.review.id, rating: 5, text: 'Even better after a day.' },
+          1_308,
+        ),
+      ),
+    ).resolves.toMatchObject({ ok: true, result: { review: { rating: 5, editedAt: NOW.toISOString() } } });
+    await expect(
+      service.execute(
+        SELLER,
+        orderCommand('review.reply', order.id, 6, { reviewId: reviewed.result.review.id, text: 'Thank you!' }, 1_309),
+      ),
+    ).resolves.toMatchObject({ ok: true, result: { review: { reply: 'Thank you!' } } });
+    await expect(
+      service.execute(SELLER, orderCommand('payout.release', order.id, 7, {}, 1_310)),
+    ).resolves.toMatchObject({ ok: true, result: { order: { payoutState: 'released' } } });
+    expect(service.getSellerStatement(SELLER).releasedMinor).toBeGreaterThan(0);
+
+    const reportId = '00000000-0000-4000-8000-000000001311';
+    await service.execute(BUYER, {
+      version: 1,
+      commandId: reportId,
+      aggregateId: `report:${reportId}`,
+      expectedRevision: 0,
+      issuedAt: NOW.toISOString(),
+      kind: 'trust.report',
+      payload: { targetType: 'listing', targetId: AGGREGATE_ID, reason: 'scam', details: 'Suspicious wording.' },
+    });
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001312',
+        aggregateId: `report:${reportId}`,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.decide',
+        payload: { reportId, decision: 'restrict_listing', notes: 'Hide from discovery pending review.' },
+      }),
+    ).resolves.toMatchObject({ ok: true, result: { report: { state: 'restricted' } } });
+    expect(service.getRestrictedListingIds()).toContain(AGGREGATE_ID);
+  });
+
+  it('blocks a buyer from checkout and publishes seller reputation from reviews', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001320',
+        aggregateId: `blocked:${SELLER}`,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'buyer.block',
+        payload: { buyerPubky: BUYER },
+      }),
+    ).resolves.toMatchObject({ ok: true, result: { kind: 'blocked_buyer', blocked: true } });
+    expect(service.getBlockedBuyers(SELLER)).toEqual([BUYER]);
+    await expect(service.execute(BUYER, checkoutCommand())).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'UNAUTHORIZED' },
+    });
+
+    await service.execute(SELLER, {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001321',
+      aggregateId: `blocked:${SELLER}`,
+      expectedRevision: 0,
+      issuedAt: NOW.toISOString(),
+      kind: 'buyer.unblock',
+      payload: { buyerPubky: BUYER },
+    });
+    const created = await service.execute(BUYER, checkoutCommand());
+    expect(created).toMatchObject({ ok: true });
+    if (!created.ok || created.result.kind !== 'checkout') return;
+    const payment = created.result.payments[0];
+    const order = created.result.orders[0];
+    await service.execute(BUYER, paymentCommand(payment.id, 1, 'confirmed', 1, 1_322));
+    await service.execute(
+      SELLER,
+      orderCommand('fulfillment.ship', order.id, 2, { carrier: 'Sandbox Post', trackingNumber: 'TRACK-REP' }, 1_323),
+    );
+    await service.execute(BUYER, orderCommand('fulfillment.confirm_delivery', order.id, 3, {}, 1_324));
+    await service.execute(
+      BUYER,
+      orderCommand(
+        'review.create',
+        order.id,
+        4,
+        { rating: 5, text: 'Accurate and fast.', itemAccuracy: 5, shipping: 4, communication: 5 },
+        1_325,
+      ),
+    );
+    expect(service.getSellerReputation(SELLER)).toMatchObject({
+      reviewCount: 1,
+      averageRating: 5,
+      salesCount: 1,
+      itemAccuracy: 5,
+      shipping: 4,
+      communication: 5,
+    });
+  });
 });

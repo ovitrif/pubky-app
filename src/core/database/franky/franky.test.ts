@@ -105,6 +105,7 @@ describe('Database Initialization', () => {
           'commerce_favorites',
           'commerce_shop_follows',
           'commerce_cart_items',
+          'commerce_saved_searches',
         ]),
       );
     } finally {

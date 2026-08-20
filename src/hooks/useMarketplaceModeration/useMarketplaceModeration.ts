@@ -22,5 +22,27 @@ export function useMarketplaceModeration() {
       .finally(() => setIsLoading(false));
   }, [currentUserPubky]);
 
-  return { reports, isLoading, error };
+  const decide = async (reportId: string, decision: 'dismiss' | 'restrict_listing') => {
+    try {
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: `report:${reportId}`,
+        expectedRevision: 1,
+        issuedAt: new Date().toISOString(),
+        kind: 'trust.decide',
+        payload: { reportId, decision, notes: 'Sandbox moderator decision.' },
+      });
+      if (!response.ok) {
+        setError(response.error.message);
+        return;
+      }
+      const next = await CommerceController.getMarketplaceReports();
+      setReports(next);
+    } catch {
+      setError('Could not record this moderation decision.');
+    }
+  };
+
+  return { reports, isLoading, error, decide };
 }

@@ -112,6 +112,33 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceReports(this.getCurrentUserPubky());
   }
 
+  static async getRestrictedListingIds() {
+    return await CommerceApplication.getRestrictedListingIds();
+  }
+
+  static async getMarketplaceLedger(orderId?: unknown) {
+    return await CommerceApplication.getMarketplaceLedger(
+      this.getCurrentUserPubky(),
+      orderId === undefined ? undefined : CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  static async getMarketplacePromotions() {
+    return await CommerceApplication.getMarketplacePromotions(this.getCurrentUserPubky());
+  }
+
+  static async getMarketplaceStatement() {
+    return await CommerceApplication.getMarketplaceStatement(this.getCurrentUserPubky());
+  }
+
+  static async getBlockedBuyers() {
+    return await CommerceApplication.getBlockedBuyers(this.getCurrentUserPubky());
+  }
+
+  static async getSellerReputation(sellerPubky: unknown) {
+    return await CommerceApplication.getSellerReputation(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
   static async uploadMarketplaceAttachment(recipientPubky: unknown, file: File) {
     const recipient = CommerceRecordNormalizer.pubky(recipientPubky);
     if (
@@ -255,6 +282,26 @@ export class CommerceController {
 
   static async getFavorites() {
     return await CommerceApplication.getFavorites(this.getCurrentUserPubky());
+  }
+
+  static async getSavedSearches() {
+    return await CommerceApplication.getSavedSearches(this.getCurrentUserPubky());
+  }
+
+  static async commitUpsertSavedSearch(search: {
+    name: string;
+    query: string;
+    categoryId: string | null;
+    saleFormat: string;
+  }): Promise<void> {
+    await CommerceApplication.commitUpsertSavedSearch(this.getCurrentUserPubky(), search);
+  }
+
+  static async commitDeleteSavedSearch(searchId: unknown): Promise<void> {
+    await CommerceApplication.commitDeleteSavedSearch(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(searchId),
+    );
   }
 
   static async commitCreateFavorite(listingCompositeId: unknown): Promise<void> {

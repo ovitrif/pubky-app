@@ -116,6 +116,54 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getReports(actorPubky);
   }
 
+  static async getRestrictedListingIds() {
+    return await MarketplaceGatewayService.getRestrictedListingIds();
+  }
+
+  static async getMarketplaceLedger(actorPubky: string, orderId?: string) {
+    return await MarketplaceGatewayService.getLedger(actorPubky, orderId);
+  }
+
+  static async getMarketplacePromotions(actorPubky: string) {
+    return await MarketplaceGatewayService.getPromotions(actorPubky);
+  }
+
+  static async getMarketplaceStatement(actorPubky: string) {
+    return await MarketplaceGatewayService.getStatement(actorPubky);
+  }
+
+  static async getBlockedBuyers(actorPubky: string) {
+    return await MarketplaceGatewayService.getBlockedBuyers(actorPubky);
+  }
+
+  static async getSellerReputation(sellerPubky: string) {
+    return await MarketplaceGatewayService.getSellerReputation(sellerPubky);
+  }
+
+  static async getSavedSearches(ownerPubky: string) {
+    return await LocalCommerceService.getSavedSearches(ownerPubky);
+  }
+
+  static async commitUpsertSavedSearch(
+    ownerPubky: string,
+    search: { name: string; query: string; categoryId: string | null; saleFormat: string },
+  ): Promise<void> {
+    await LocalCommerceService.upsertSavedSearch(
+      ownerPubky,
+      {
+        name: search.name,
+        query: search.query,
+        category_id: search.categoryId,
+        sale_format: search.saleFormat,
+      },
+      Date.now(),
+    );
+  }
+
+  static async commitDeleteSavedSearch(ownerPubky: string, searchId: string): Promise<void> {
+    await LocalCommerceService.deleteSavedSearch(ownerPubky, searchId);
+  }
+
   static async uploadMarketplaceAttachment(actorPubky: string, recipientPubky: string, file: File) {
     return await MarketplaceGatewayService.uploadAttachment(actorPubky, recipientPubky, file);
   }
@@ -302,6 +350,7 @@ export class CommerceApplication {
                 endsAt: listing.sale.endsAt,
                 minimumIncrement: listing.sale.minimumIncrement,
                 reservePrice: listing.sale.reservePrice,
+                buyNowPrice: listing.sale.buyNowPrice,
                 antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
                 antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
               }

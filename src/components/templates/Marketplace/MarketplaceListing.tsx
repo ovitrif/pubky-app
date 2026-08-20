@@ -15,16 +15,20 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
+import { useMarketplaceBuyNow } from '@/hooks/useMarketplaceBuyNow/useMarketplaceBuyNow';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
+import { relatedMarketplaceListings } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
+import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceListingProps {
@@ -36,10 +40,12 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [error, setError] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const adapterMode = getCommerceAdapterMode();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
   const cart = useMarketplaceCart();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
+  const buyNow = useMarketplaceBuyNow(aggregateId, negotiation.projection?.serverRevision ?? null);
 
   useEffect(() => {
     let active = true;
@@ -59,6 +65,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
   const listing = useLiveQuery(() => CommerceController.getListing(sellerPubky, listingId), [sellerPubky, listingId]);
   const shop = useLiveQuery(() => CommerceController.getShop(sellerPubky), [sellerPubky]);
+  const catalogListings = useLiveQuery(() => CommerceController.getAllListings(), []);
 
   useEffect(() => {
     const firstVariant = listing?.record.variants[0]?.id;
@@ -264,11 +271,37 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 
             <div className="mt-auto flex gap-3">
               {record.sale.format === 'auction' ? (
-                <MarketplaceBidDialog
-                  aggregateId={aggregateId}
-                  projection={negotiation.projection}
-                  onAccepted={negotiation.refresh}
-                />
+                <>
+                  <MarketplaceBidDialog
+                    aggregateId={aggregateId}
+                    projection={negotiation.projection}
+                    onAccepted={negotiation.refresh}
+                  />
+                  {record.sale.buyNowPrice && currentUserPubky !== sellerPubky && (
+                    <Button
+                      size="lg"
+                      variant="secondary"
+                      className="rounded-full"
+                      disabled={negotiation.projection?.serverRevision == null}
+                      onClick={() => {
+                        void buyNow.submit().then((ok) => {
+                          if (ok) void negotiation.refresh();
+                        });
+                      }}
+                    >
+                      Buy now {formatCommerceMoney(record.sale.buyNowPrice)}
+                    </Button>
+                  )}
+                  {currentUserPubky === sellerPubky && (
+                    <MarketplaceOfferDialog
+                      aggregateId={aggregateId}
+                      expectedRevision={negotiation.projection?.serverRevision ?? null}
+                      onAccepted={negotiation.refresh}
+                      asSeller
+                      label="Offer to watcher"
+                    />
+                  )}
+                </>
               ) : (
                 <>
                   <Button
@@ -328,6 +361,18 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             )}
           </div>
         </div>
+        {listing && catalogListings && relatedMarketplaceListings(catalogListings, listing).length > 0 && (
+          <section className="flex flex-col gap-4">
+            <Heading level={2} size="md">
+              Related items
+            </Heading>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {relatedMarketplaceListings(catalogListings, listing).map((related) => (
+                <MarketplaceListingCard key={related.id} listing={related} shopName={shop?.record.name} />
+              ))}
+            </div>
+          </section>
+        )}
       </Container>
     </ContentLayout>
   );

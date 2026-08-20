@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const marketplaceOrderActionSchema = z
   .object({
-    action: z.enum(['cancel', 'ship', 'return', 'refund', 'dispute', 'review']),
+    action: z.enum(['cancel', 'ship', 'return', 'refund', 'dispute', 'review', 'review_edit', 'review_reply']),
     reason: z.string().trim().max(2_000),
     carrier: z.string().trim().max(100),
     trackingNumber: z.string().trim().max(200),
@@ -10,6 +10,10 @@ export const marketplaceOrderActionSchema = z
     transactionId: z.string().trim().max(200),
     rating: z.string().trim(),
     text: z.string().trim().max(5_000),
+    itemAccuracy: z.string().trim(),
+    shipping: z.string().trim(),
+    communication: z.string().trim(),
+    reviewId: z.string().trim(),
     requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
   })
   .superRefine((data, context) => {
@@ -27,8 +31,14 @@ export const marketplaceOrderActionSchema = z
         context.addIssue({ code: 'custom', path: ['transactionId'], message: 'Transaction evidence is required.' });
       }
     }
-    if (data.action === 'review' && (!/^[1-5]$/.test(data.rating) || !data.text)) {
+    if (['review', 'review_edit'].includes(data.action) && (!/^[1-5]$/.test(data.rating) || !data.text)) {
       context.addIssue({ code: 'custom', path: ['rating'], message: 'Rating and review text are required.' });
+    }
+    if (data.action === 'review_edit' && !data.reviewId) {
+      context.addIssue({ code: 'custom', path: ['reviewId'], message: 'Review is required.' });
+    }
+    if (data.action === 'review_reply' && (!data.reviewId || !data.text)) {
+      context.addIssue({ code: 'custom', path: ['text'], message: 'Reply text is required.' });
     }
   });
 
@@ -43,5 +53,9 @@ export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   transactionId: '',
   rating: '5',
   text: '',
+  itemAccuracy: '5',
+  shipping: '5',
+  communication: '5',
+  reviewId: '',
   requestedRemedy: 'refund',
 };

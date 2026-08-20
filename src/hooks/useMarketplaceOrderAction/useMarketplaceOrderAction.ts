@@ -58,6 +58,25 @@ export function useMarketplaceOrderAction(
           succeeded = await actOnOrder(order, 'review.create', {
             rating: Number(data.rating),
             text: data.text,
+            itemAccuracy: Number(data.itemAccuracy) || undefined,
+            shipping: Number(data.shipping) || undefined,
+            communication: Number(data.communication) || undefined,
+          });
+          break;
+        case 'review_edit':
+          succeeded = await actOnOrder(order, 'review.edit', {
+            reviewId: data.reviewId,
+            rating: Number(data.rating),
+            text: data.text,
+            itemAccuracy: Number(data.itemAccuracy) || undefined,
+            shipping: Number(data.shipping) || undefined,
+            communication: Number(data.communication) || undefined,
+          });
+          break;
+        case 'review_reply':
+          succeeded = await actOnOrder(order, 'review.reply', {
+            reviewId: data.reviewId,
+            text: data.text,
           });
           break;
       }

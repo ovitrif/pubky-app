@@ -42,6 +42,13 @@ export function MarketplaceShopSettingsForm() {
             </Label>
           )}
         />
+        <ControlledTextareaField
+          name="blockedBuyers"
+          control={settings.form.control}
+          label="Blocked buyers"
+          placeholder="One Pubky per line. Blocked buyers cannot check out with this shop."
+          rows={4}
+        />
         <Button className="w-full rounded-full" onClick={() => void settings.submit()}>
           Save shop settings
         </Button>

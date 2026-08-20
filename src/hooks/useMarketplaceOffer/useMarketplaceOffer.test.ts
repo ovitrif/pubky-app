@@ -57,6 +57,38 @@ describe('useMarketplaceOffer', () => {
     );
   });
 
+  it('lets a seller send a private offer to a watcher', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000800',
+      aggregateId: 'listing:seller_item',
+      revision: 2,
+      eventIds: ['00000000-0000-4000-8000-000000000802'],
+      result: { kind: 'offer' },
+    });
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3, true));
+    act(() => {
+      result.current.form.setValue('amount', '90.00');
+      result.current.form.setValue('quantity', '1');
+      result.current.form.setValue('recipientPubky', 'b'.repeat(52));
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'offer.create_private',
+        payload: expect.objectContaining({
+          recipientPubky: 'b'.repeat(52),
+          quantity: 1,
+        }),
+      }),
+    );
+  });
+
   it('does not submit without an authoritative revision', async () => {
     const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', null));
     await expect(result.current.submit()).resolves.toBe(false);

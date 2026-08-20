@@ -15,6 +15,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   REGION: 'region',
   SALE_FORMAT: 'saleFormat',
   PRICE: 'price',
+  BUY_NOW_PRICE: 'buyNowPrice',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
   SHIPPING_PRICE: 'shippingPrice',
@@ -76,6 +77,7 @@ export const createMarketplaceListingSchema = z
     region: z.string().trim().max(100, 'Region is too long.'),
     saleFormat: z.enum(['fixed_price', 'auction']),
     price: moneyInputSchema,
+    buyNowPrice: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical']),
     shippingPrice: z.string().trim(),
@@ -117,6 +119,16 @@ export const createMarketplaceListingSchema = z
         }
       }
     }
+    if (data.saleFormat === 'auction' && data.buyNowPrice) {
+      const parsed = moneyInputSchema.safeParse(data.buyNowPrice);
+      if (!parsed.success || Number(data.buyNowPrice) <= Number(data.price)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['buyNowPrice'],
+          message: 'Buy-now must be a valid amount greater than the start price.',
+        });
+      }
+    }
     if (data.saleFormat === 'auction' && data.variants.length !== 1) {
       context.addIssue({
         code: 'custom',
@@ -144,6 +156,7 @@ export const createMarketplaceListingDraftSchema = z
     region: z.string(),
     saleFormat: z.enum(['fixed_price', 'auction']),
     price: z.string(),
+    buyNowPrice: z.string(),
     variants: z.array(
       z.object({
         sku: z.string(),
@@ -177,6 +190,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   region: '',
   saleFormat: 'fixed_price',
   price: '',
+  buyNowPrice: '',
   variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
   shippingPrice: '',

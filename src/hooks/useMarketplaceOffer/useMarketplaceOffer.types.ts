@@ -11,6 +11,7 @@ export const marketplaceOfferSchema = z.object({
     .trim()
     .regex(/^[1-9]\d*$/, 'Quantity must be a positive whole number.'),
   message: z.string().trim().max(500, 'Message must be 500 characters or fewer.'),
+  recipientPubky: z.string().trim().max(52),
 });
 
 export type MarketplaceOfferData = z.infer<typeof marketplaceOfferSchema>;
@@ -19,4 +20,5 @@ export const marketplaceOfferDefaults: MarketplaceOfferData = {
   amount: '',
   quantity: '1',
   message: '',
+  recipientPubky: '',
 };

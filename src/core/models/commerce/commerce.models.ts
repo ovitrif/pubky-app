@@ -10,6 +10,7 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceSavedSearchModelSchema,
   CommerceShopFollowModelSchema,
   CommerceShopModelSchema,
   CommerceSyncJobModelSchema,
@@ -330,6 +331,43 @@ export class CommerceCartItemModel
   static async findByOwner(ownerId: string): Promise<CommerceCartItemModelSchema[]> {
     try {
       return await this.table.where('owner_id').equals(ownerId).sortBy('updated_at');
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
+        service: ErrorService.Local,
+        operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceSavedSearchModel
+  extends RecordModelBase<string, CommerceSavedSearchModelSchema>
+  implements CommerceSavedSearchModelSchema
+{
+  static table: Table<CommerceSavedSearchModelSchema> = db.table('commerce_saved_searches');
+
+  owner_id: string;
+  name: string;
+  query: string;
+  category_id: string | null;
+  sale_format: string;
+  created_at: number;
+
+  constructor(search: CommerceSavedSearchModelSchema) {
+    super(search);
+    this.owner_id = search.owner_id;
+    this.name = search.name;
+    this.query = search.query;
+    this.category_id = search.category_id;
+    this.sale_format = search.sale_format;
+    this.created_at = search.created_at;
+  }
+
+  static async findByOwner(ownerId: string): Promise<CommerceSavedSearchModelSchema[]> {
+    try {
+      return await this.table.where('owner_id').equals(ownerId).sortBy('created_at');
     } catch (error) {
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
         service: ErrorService.Local,

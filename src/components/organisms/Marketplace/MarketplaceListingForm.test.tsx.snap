@@ -120,6 +120,12 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
         Item details
       </h2>
       <div
+        class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200"
+        role="note"
+      >
+        Weapons, stolen goods, counterfeit items, and other prohibited categories are not allowed. Reports can restrict a listing from discovery.
+      </div>
+      <div
         class="mx-auto w-full flex-col flex gap-2"
         data-testid="container"
       >

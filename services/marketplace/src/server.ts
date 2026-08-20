@@ -278,6 +278,67 @@ export function createMarketplaceHttpServer({
         return;
       }
 
+      if (request.method === 'GET' && request.url === '/v1/restricted-listings') {
+        writeJson(response, 200, { listingIds: service.getRestrictedListingIds() }, mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/ledger')) {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Ledger actor is required.' } }, mode);
+          return;
+        }
+        const orderId = new URL(request.url, 'http://marketplace.local').searchParams.get('orderId') ?? undefined;
+        writeJson(response, 200, { entries: service.getLedger(actorResult.data, orderId) }, mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/promotions') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Promotion actor is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, { promotions: service.getPromotions(actorResult.data) }, mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/statements') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Statement actor is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, service.getSellerStatement(actorResult.data), mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/blocked-buyers') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Seller identity is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, { buyerPubkys: service.getBlockedBuyers(actorResult.data) }, mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url?.startsWith('/v1/reputation')) {
+        const seller = new URL(request.url, 'http://marketplace.local').searchParams.get('seller');
+        const sellerResult = commercePubkySchema.safeParse(seller);
+        if (!sellerResult.success) {
+          writeJson(response, 400, { error: { code: 'INVALID_COMMAND', message: 'Seller pubky is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, service.getSellerReputation(sellerResult.data), mode);
+        return;
+      }
+
       if (request.method === 'GET' && request.url === '/v1/reports') {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);

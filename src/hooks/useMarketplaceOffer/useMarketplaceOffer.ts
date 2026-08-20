@@ -16,7 +16,11 @@ export interface UseMarketplaceOfferResult {
   reset: () => void;
 }
 
-export function useMarketplaceOffer(aggregateId: string, expectedRevision: number | null): UseMarketplaceOfferResult {
+export function useMarketplaceOffer(
+  aggregateId: string,
+  expectedRevision: number | null,
+  asSeller = false,
+): UseMarketplaceOfferResult {
   const form = useForm<MarketplaceOfferData>({
     resolver: zodResolver(marketplaceOfferSchema),
     defaultValues: marketplaceOfferDefaults,
@@ -34,12 +38,13 @@ export function useMarketplaceOffer(aggregateId: string, expectedRevision: numbe
           aggregateId,
           expectedRevision,
           issuedAt: new Date().toISOString(),
-          kind: 'offer.create',
+          kind: asSeller ? 'offer.create_private' : 'offer.create',
           payload: {
             amount: { amountMinor: Math.round(Number(data.amount) * 100), currency: 'USD', exponent: 2 },
             quantity: Number(data.quantity),
             expiresInSeconds: 24 * 60 * 60,
             message: data.message,
+            ...(asSeller ? { recipientPubky: data.recipientPubky } : {}),
           },
         });
         if (!response.ok) {

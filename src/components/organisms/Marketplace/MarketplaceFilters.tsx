@@ -6,6 +6,7 @@ import { Input } from '@/atoms/Input/Input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { COMMERCE_CATEGORIES } from '@/config/commerce';
+import { useMarketplaceSavedSearches } from '@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches';
 import { cn } from '@/libs/utils/utils';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import type { CommerceSaleFormatFilter, CommerceSort } from '@/stores/commerce/commerce.types';
@@ -26,6 +27,7 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
   const setSort = useCommerceStore((state) => state.setSort);
   const setLayout = useCommerceStore((state) => state.setLayout);
   const resetFilters = useCommerceStore((state) => state.resetFilters);
+  const saved = useMarketplaceSavedSearches();
 
   return (
     <section aria-label="Marketplace filters" className="flex flex-col gap-4">
@@ -119,7 +121,27 @@ export function MarketplaceFilters({ resultCount }: MarketplaceFiltersProps) {
             Clear
           </Button>
         )}
+        {saved.canSave && (
+          <Button size="sm" variant="ghost" className="shrink-0 rounded-full" onClick={() => void saved.save()}>
+            Save search
+          </Button>
+        )}
       </div>
+      {saved.searches.length > 0 && (
+        <div className="flex flex-wrap gap-2" aria-label="Saved searches">
+          {saved.searches.map((search) => (
+            <Button
+              key={search.id}
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => saved.apply(search)}
+            >
+              {search.name}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-4">
         <Typography as="p" className="text-sm text-muted-foreground" aria-live="polite">
