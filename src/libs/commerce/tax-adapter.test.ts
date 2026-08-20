@@ -17,6 +17,7 @@ describe('sandbox tax adapter', () => {
       taxMinor: 1_096,
       totalMinor: 14_796,
       taxableMinor: 13_700,
+      discountMinor: 0,
       taxAdapterVersion: MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
       shippingAdapterVersion: MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
     });
@@ -28,6 +29,7 @@ describe('sandbox tax adapter', () => {
       taxMinor: 192,
       totalMinor: 2_592,
       taxableMinor: 2_400,
+      discountMinor: 0,
       taxAdapterVersion: MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
       shippingAdapterVersion: MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
     });
@@ -78,6 +80,16 @@ describe('sandbox tax adapter', () => {
     ]);
     expect(quote.shippingMinor).toBe(1_200);
     expect(quote.totalMinor).toBe(8_800 + 12_500 + 1_200 + Math.round((8_800 + 12_500 + 1_200) * 0.08));
+  });
+
+  it('quotes SAVE10 on the cart before checkout and keeps tax on the discounted taxable amount', () => {
+    const quote = quoteSandboxCart(
+      [{ sellerId: 'y'.repeat(52), lineSubtotalMinor: 12_500, fulfillment: 'pickup', shippingMinor: 1_200 }],
+      { couponCode: 'save10' },
+    );
+    expect(quote.discountMinor).toBe(1_250);
+    expect(quote.taxMinor).toBe(Math.round((12_500 - 1_250 + 1_200) * 0.08));
+    expect(quote.totalMinor).toBe(12_500 - 1_250 + 1_200 + quote.taxMinor);
   });
 
   it('resolves mixed seller fulfillments the same way checkout does', () => {

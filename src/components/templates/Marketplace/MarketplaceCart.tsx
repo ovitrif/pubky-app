@@ -54,6 +54,7 @@ export function MarketplaceCart() {
         }),
       };
     }),
+    { couponCode },
   );
 
   const submit = async () => {
@@ -221,10 +222,22 @@ export function MarketplaceCart() {
                       {formatCommerceMoney({ amountMinor: estimate.taxMinor, currency: 'USD', exponent: 2 })}
                     </Typography>
                   </div>
-                  {couponCode ? (
+                  {estimate.discountMinor > 0 ? (
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <Typography as="span">Coupon {couponCode}</Typography>
-                      <Typography as="span">Applied at checkout</Typography>
+                      <Typography as="span">
+                        −
+                        {formatCommerceMoney({
+                          amountMinor: estimate.discountMinor,
+                          currency: 'USD',
+                          exponent: 2,
+                        })}
+                      </Typography>
+                    </div>
+                  ) : couponCode ? (
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <Typography as="span">Coupon {couponCode}</Typography>
+                      <Typography as="span">Quoted at checkout if the seller accepts it</Typography>
                     </div>
                   ) : null}
                   <div className="mt-2 flex justify-between">
@@ -235,8 +248,8 @@ export function MarketplaceCart() {
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
                     {estimate.taxAdapterVersion} + {estimate.shippingAdapterVersion}. Digital-only seller groups have $0
-                    shipping. Physical listings use free, flat, or sandbox-calculated rates. Seller coupons apply at
-                    checkout and cannot exceed items. Checkout remains the authority.
+                    shipping. Physical listings use free, flat, or sandbox-calculated rates. Seller coupon SAVE10 is
+                    quoted here at 10% off items; checkout remains the authority and cannot exceed items.
                   </Typography>
                 </div>
                 {currentUserPubky ? (

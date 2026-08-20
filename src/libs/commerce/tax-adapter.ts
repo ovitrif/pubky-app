@@ -4,6 +4,14 @@ export const MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR = 1_200;
 export const MARKETPLACE_SANDBOX_TAX_RATE_BPS = 800;
 export const MARKETPLACE_SANDBOX_CALCULATED_BASE_MINOR = 600;
 export const MARKETPLACE_SANDBOX_CALCULATED_RATE_PER_KG_MINOR = 400;
+export const MARKETPLACE_SANDBOX_PUBLIC_COUPON_CODE = 'SAVE10';
+export const MARKETPLACE_SANDBOX_PUBLIC_COUPON_PERCENT = 10;
+
+export function sandboxCouponPercent(code?: string | null): number {
+  return code?.trim().toUpperCase() === MARKETPLACE_SANDBOX_PUBLIC_COUPON_CODE
+    ? MARKETPLACE_SANDBOX_PUBLIC_COUPON_PERCENT
+    : 0;
+}
 
 export type SandboxFulfillment = 'physical' | 'digital' | 'pickup';
 
@@ -17,6 +25,7 @@ export interface SandboxCheckoutQuote {
   taxMinor: number;
   totalMinor: number;
   taxableMinor: number;
+  discountMinor: number;
   taxAdapterVersion: typeof MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION;
   shippingAdapterVersion: typeof MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION;
 }
@@ -78,6 +87,7 @@ export function quoteSandboxCheckoutTotals({
     taxMinor,
     totalMinor: taxableMinor + taxMinor,
     taxableMinor,
+    discountMinor,
     taxAdapterVersion: MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
     shippingAdapterVersion: MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
   };
@@ -90,6 +100,7 @@ export function quoteSandboxCart(
     fulfillment: SandboxFulfillment;
     shippingMinor?: number;
   }>,
+  options?: { couponCode?: string | null },
 ): SandboxCheckoutQuote & { sellerGroupCount: number } {
   const groups = new Map<
     string,
@@ -102,11 +113,12 @@ export function quoteSandboxCart(
     group.shippingMinors.push(item.shippingMinor ?? MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR);
     groups.set(item.sellerId, group);
   }
+  const percent = sandboxCouponPercent(options?.couponCode);
   const quoted = [...groups.values()].map((group) => {
     const fulfillment = resolveSandboxOrderFulfillment(group.fulfillments);
     return quoteSandboxCheckoutTotals({
       subtotalMinor: group.subtotalMinor,
-      discountMinor: 0,
+      discountMinor: Math.round((group.subtotalMinor * percent) / 100),
       fulfillment,
       shippingMinor: fulfillment === 'digital' ? 0 : Math.max(...group.shippingMinors),
     });
@@ -116,6 +128,7 @@ export function quoteSandboxCart(
     taxMinor: quoted.reduce((total, quote) => total + quote.taxMinor, 0),
     totalMinor: quoted.reduce((total, quote) => total + quote.totalMinor, 0),
     taxableMinor: quoted.reduce((total, quote) => total + quote.taxableMinor, 0),
+    discountMinor: quoted.reduce((total, quote) => total + quote.discountMinor, 0),
     taxAdapterVersion: MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
     shippingAdapterVersion: MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
     sellerGroupCount: quoted.length,

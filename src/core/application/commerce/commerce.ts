@@ -12,7 +12,15 @@ import {
   sandboxListingShippingQuoteMinor,
 } from '@/libs/commerce/sandbox-bootstrap';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
-import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
+import {
+  MARKETPLACE_SANDBOX_PUBLIC_COUPON_CODE,
+  MARKETPLACE_SANDBOX_PUBLIC_COUPON_PERCENT,
+} from '@/libs/commerce/tax-adapter';
+import {
+  buildMarketplaceListingAggregateId,
+  buildMarketplacePromotionAggregateId,
+  type MarketplaceCommand,
+} from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
 import type { CommerceSyncJobModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
@@ -93,6 +101,11 @@ export class CommerceApplication {
     const catalog = createCommerceSandboxCatalog();
     const seeded = await LocalCommerceService.seedSandboxCatalog(catalog);
     await Promise.allSettled(catalog.listings.map((listing) => this.registerSandboxListing(listing)));
+    await Promise.allSettled(
+      [...new Set(catalog.listings.map((listing) => listing.ownerPubky))].map((sellerPubky) =>
+        this.seedSandboxPublicCoupon(sellerPubky),
+      ),
+    );
     return seeded;
   }
 
@@ -414,6 +427,23 @@ export class CommerceApplication {
     const url = CommerceRecordNormalizer.mediaUri(ownerPubky, mediaId);
     await CommerceHomeserverService.putMedia(url, bytes);
     return url;
+  }
+
+  private static async seedSandboxPublicCoupon(sellerPubky: string): Promise<void> {
+    await MarketplaceGatewayService.execute(sellerPubky, {
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplacePromotionAggregateId(sellerPubky, MARKETPLACE_SANDBOX_PUBLIC_COUPON_CODE),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'promotion.create',
+      payload: {
+        code: MARKETPLACE_SANDBOX_PUBLIC_COUPON_CODE,
+        percentOff: MARKETPLACE_SANDBOX_PUBLIC_COUPON_PERCENT,
+        usageLimit: 10_000,
+        expiresInSeconds: 90 * 24 * 60 * 60,
+      },
+    });
   }
 
   private static async registerSandboxListing(listing: CommerceListingRecord): Promise<void> {
