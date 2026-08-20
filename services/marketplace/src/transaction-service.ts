@@ -1812,11 +1812,15 @@ export class MarketplaceTransactionService {
     const eventIds: string[] = [];
 
     for (const order of this.repository.exportSnapshot().orders) {
-      if (order.inventoryState !== 'reserved' || !isPaidLikeOrderState(order.state)) {
+      if (!isPaidLikeOrderState(order.state) || order.inventoryState === 'released') {
         skippedOrderIds.push(order.id);
         continue;
       }
       if (!this.convertReservedInventoryToSold(order, occurredAt)) {
+        if (order.inventoryState === 'sold') {
+          skippedOrderIds.push(order.id);
+          continue;
+        }
         failedOrderIds.push(order.id);
         continue;
       }

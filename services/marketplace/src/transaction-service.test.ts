@@ -1059,6 +1059,40 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 
+  it('repairs leftover reserved listing units when paid orders already look sold', async () => {
+    const { repository, service } = createService();
+    const order = await createPaidOrder(service);
+    const listing = repository.getListing(AGGREGATE_ID);
+    if (!listing) throw new Error('Expected registered listing');
+    repository.putListing({
+      ...listing,
+      state: 'reserved',
+      reservedQuantity: 1,
+      soldQuantity: 0,
+    });
+    repository.putOrder({ ...order, inventoryState: 'sold' });
+
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000000213',
+        aggregateId: 'inventory:reconcile',
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'inventory.reconcile_paid',
+        payload: {},
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'inventory_reconcile', convertedOrderIds: [order.id], failedOrderIds: [] },
+    });
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      reservedQuantity: 0,
+      soldQuantity: 1,
+      state: 'sold',
+    });
+  });
+
   it('rejects duplicate checkout lines, stale stock, self-purchase, and invalid payment transitions', async () => {
     const { service } = createService();
     await service.execute(SELLER, registerCommand());
