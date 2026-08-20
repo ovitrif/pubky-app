@@ -1,4 +1,5 @@
 import './globals.css';
+import { headers } from 'next/headers';
 import type { Viewport } from 'next';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
@@ -35,9 +36,10 @@ export function generateMetadata() {
 // (PUBKY_RUNTIME_* env vars must be read at request time, not baked in at build time)
 export const dynamic = 'force-dynamic';
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
-    <RootContainer>
+    <RootContainer nonce={nonce}>
       {/*
         Rendered as a sibling of the DatabaseProvider/RouteGuardProvider tree below (not a
         descendant): those are client components that gate {children} behind IndexedDB/auth

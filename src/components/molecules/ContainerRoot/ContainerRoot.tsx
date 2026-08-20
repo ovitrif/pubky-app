@@ -15,9 +15,10 @@ const interTight = Inter_Tight({
 
 interface RootContainerProps {
   children: React.ReactNode;
+  nonce?: string;
 }
 
-export function RootContainer({ children }: RootContainerProps) {
+export function RootContainer({ children, nonce }: RootContainerProps) {
   const plausibleDomain = getPlausibleDomain();
   const plausibleScriptUrl = getPlausibleScriptUrl();
 
@@ -32,14 +33,20 @@ export function RootContainer({ children }: RootContainerProps) {
           — i.e. after instrumentation-client.ts has already evaluated (and missed the
           config, silently disabling client Sentry). A raw inline script is emitted as-is in
           the SSR HTML and executes during document parsing, before any async bundle.
-          NOTE: if a Content-Security-Policy is added later, this inline script needs a nonce.
+          The per-request nonce comes from `src/proxy.ts` so the enforced document CSP can
+          allow this script without 'unsafe-inline'.
         */}
-        <script id="pubky-runtime-config" dangerouslySetInnerHTML={{ __html: serializeRuntimeConfig() }} />
+        <script
+          id="pubky-runtime-config"
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: serializeRuntimeConfig() }}
+        />
         {plausibleDomain && plausibleScriptUrl && (
           <Script
             data-domain={plausibleDomain}
             src={plausibleScriptUrl}
             strategy="afterInteractive"
+            nonce={nonce}
             // Plausible's pageview-props script extension reads `event-*` attributes off the
             // script tag and attaches them as custom properties to every pageview. The app is
             // US-English only; the constant keeps dashboard continuity for the locale prop.

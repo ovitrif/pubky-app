@@ -27,11 +27,6 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
-          {
-            key: 'Content-Security-Policy-Report-Only',
-            value:
-              "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://127.0.0.1:3100 http://localhost:3100 http://127.0.0.1:3101 http://localhost:3101 http://127.0.0.1:3102 http://localhost:3102",
-          },
         ],
       },
     ];
@@ -93,6 +88,6 @@ export default withSentryConfig(composedConfig, {
   release: {
     create: false,
   },
-  // tunnelRoute deferred — adopting it requires creating middleware.ts to exclude
-  // the /monitoring path. Revisit if Sentry shows ad-blocker drops.
+  // tunnelRoute deferred — adopting it requires excluding /monitoring from src/proxy.ts.
+  // Revisit if Sentry shows ad-blocker drops.
 });

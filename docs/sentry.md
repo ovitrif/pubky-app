@@ -116,13 +116,13 @@ Deliberately untouched: `event.tags` (app-controlled operational labels — `err
 
 ## Disabled / deferred features
 
-| Feature                      | Status   | Why                                                                                                 |
-| ---------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| Sentry Logs                  | Disabled | Repo uses a custom `Logger`; routing through `Sentry.logger.*` adds no value today.                 |
-| Profiling                    | Disabled | Requires `Document-Policy: js-profiling` header; revisit if performance hunts need it.              |
-| AI Monitoring                | N/A      | No OpenAI/Anthropic/Vercel AI SDK calls in this codebase.                                           |
-| Crons                        | N/A      | No scheduled jobs.                                                                                  |
-| `tunnelRoute: '/monitoring'` | Deferred | Would require adding `middleware.ts` to exclude the path. Revisit if Sentry shows ad-blocker drops. |
+| Feature                      | Status   | Why                                                                                                  |
+| ---------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| Sentry Logs                  | Disabled | Repo uses a custom `Logger`; routing through `Sentry.logger.*` adds no value today.                  |
+| Profiling                    | Disabled | Requires `Document-Policy: js-profiling` header; revisit if performance hunts need it.               |
+| AI Monitoring                | N/A      | No OpenAI/Anthropic/Vercel AI SDK calls in this codebase.                                            |
+| Crons                        | N/A      | No scheduled jobs.                                                                                   |
+| `tunnelRoute: '/monitoring'` | Deferred | Would require excluding `/monitoring` from `src/proxy.ts`. Revisit if Sentry shows ad-blocker drops. |
 
 ## Verification
 

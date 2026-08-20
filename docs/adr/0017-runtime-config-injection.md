@@ -4,6 +4,12 @@
 
 Accepted — 2026-06-02
 
+Amended — 2026-08-20:
+
+- The raw inline `<script>` now receives a per-request CSP nonce from `src/proxy.ts`
+  via `x-nonce`. The document Content-Security-Policy is enforced (not Report-Only).
+  `next/script` `beforeInteractive` remains forbidden for this payload.
+
 Amended — 2026-07-02 (issue #2049):
 
 - The transitional `NEXT_PUBLIC_*` fallback tier is **removed**. Dev/test read the same
