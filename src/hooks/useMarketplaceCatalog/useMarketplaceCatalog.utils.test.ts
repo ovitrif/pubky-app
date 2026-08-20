@@ -90,6 +90,7 @@ describe('filterMarketplaceCatalog', () => {
 
     const related = relatedMarketplaceListings(models, models[0]);
     expect(related.every(({ id }) => id !== models[0].id)).toBe(true);
+    expect(related.length).toBeGreaterThan(0);
     const sections = buildMarketplaceFeedSections(models, [models[0].seller_id], [restricted]);
     expect(sections.recommended.map(({ listing_id }) => listing_id)).not.toContain(models[0].listing_id);
   });

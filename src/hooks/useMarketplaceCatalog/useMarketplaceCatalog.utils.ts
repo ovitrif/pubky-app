@@ -103,12 +103,16 @@ export function relatedMarketplaceListings(
   current: CommerceListingModelSchema,
   limit = 4,
 ): CommerceListingModelSchema[] {
+  const root = current.category_id.split('-')[0] ?? current.category_id;
   return listings
     .filter(
       (listing) =>
         listing.id !== current.id &&
         listing.state === 'active' &&
-        (listing.category_id === current.category_id || listing.seller_id === current.seller_id),
+        (listing.seller_id === current.seller_id ||
+          listing.category_id === current.category_id ||
+          listing.category_id === root ||
+          listing.category_id.startsWith(`${root}-`)),
     )
     .slice(0, limit);
 }
