@@ -47,6 +47,21 @@ describe('LocalCommerceService', () => {
     expect(await CommerceListingProjectionModel.table.count()).toBe(8);
   });
 
+  it('refreshes sandbox listing media without wiping later local listings', async () => {
+    const catalog = createCommerceSandboxCatalog();
+    await LocalCommerceService.seedSandboxCatalog(catalog);
+    const first = catalog.listings[0];
+    await LocalCommerceService.upsertListing({ ...first, media: [first.media[0]] }, 'synced');
+    const extra = createCommerceListingFixture();
+
+    await LocalCommerceService.upsertListing(extra, 'synced');
+    await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
+
+    const refreshed = await LocalCommerceService.getListing(`${first.ownerPubky}:${first.listingId}`);
+    expect(refreshed?.record.media).toHaveLength(2);
+    expect(await LocalCommerceService.getListing(`${extra.ownerPubky}:boots_01`)).not.toBeNull();
+  });
+
   it('persists normalized shop and listing cache fields', async () => {
     const shop = createCommerceShopFixture();
     const listing = createCommerceListingFixture();

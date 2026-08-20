@@ -271,6 +271,27 @@ Pubky Ring Simulator may verify generic auth handoff against a local testnet. It
 
 Before completion, run the pinned upstream smoke suites plus a composed buyer/seller flow from creator setup through regtest payment, confirmation, credential issuance, content read, order advancement, restart recovery, and duplicate event replay.
 
+## Closest working path in this prototype
+
+What works now without Bitkit, Ring, or Paykit Server:
+
+1. Sandbox checkout picks a labeled simulated Paykit endpoint (`sandbox_paykit_btc` or `sandbox_labeled_invoice`).
+2. The Marketplace Transaction Service creates the order, posts a balanced ledger, and advances sandbox payment states.
+3. Orders show a labeled sandbox invoice QR. The UI never claims this moved Bitcoin.
+4. Locks client hooks can start a proof lifecycle in `locks-paykit` mode when a Lock Server URL is configured. That path is not proven against a live companion in this environment.
+5. Seller settings expose Lock Server `/connect` and Paykit Server `/setup` launchers. They do not receive xpubs or wallet secrets.
+
+What still blocks a live Bitkit → Paykit Server → Locks confirmation:
+
+- This Cloud VM has no `STAGING_RECOVERY_PHRASE`, so signed-in companion approval cannot be rehearsed here.
+- Locks JS/WASM is unpublished and is not vendored into this Next.js build.
+- Paykit has no browser binding. The browser must not call Paykit Server business routes.
+- Paykit Server is BTC-only, single-process, and cannot spend, refund, or issue receipts.
+- `pubky-docker` does not include Locks, Paykit Server, Electrum, Bitcoin, Ring, or Bitkit.
+- Pubky Ring Simulator is not evidence for Bitkit approval or payment execution.
+
+Until those companions are running against the pinned topology, treat sandbox payment advance as the only verified end-to-end path.
+
 ## Blockers tracked as work
 
 - Build and package the unpublished Locks JS/WASM binding reproducibly.

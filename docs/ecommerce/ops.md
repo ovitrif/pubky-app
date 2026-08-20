@@ -35,4 +35,4 @@ Sign-out clears account-scoped Dexie commerce tables and the commerce Zustand st
 
 The transaction service exposes `/health/live` and `/health/ready`. `/health/ready` reports `storage: postgres` when `DATABASE_URL` is set. Schema is applied from `services/marketplace/schema.sql` on connect.
 
-Operator routes (sandbox moderator only): `/v1/invariants` and `/v1/admin/search?q=`. Account export is `/v1/account/export`.
+Operator routes (sandbox moderator only): `/v1/invariants` and `/v1/admin/search?q=`. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.

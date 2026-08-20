@@ -299,8 +299,6 @@ export class LocalCommerceService {
         CommerceListingModel.table,
         CommerceListingProjectionModel.table,
         async () => {
-          if ((await CommerceListingModel.table.count()) > 0) return false;
-
           const shopModels: CommerceShopModelSchema[] = shops.map((record) => ({
             id: record.ownerPubky,
             owner_id: record.ownerPubky,
@@ -323,6 +321,16 @@ export class LocalCommerceService {
                 operation: 'seedSandboxCatalog',
               },
             );
+          }
+
+          const existingListings = await CommerceListingModel.table.toArray();
+          if (existingListings.length > 0) {
+            const existingById = new Map(existingListings.map((listing) => [listing.id, listing]));
+            const needsRefresh = listingModels.some((next) => {
+              const current = existingById.get(next.id);
+              return !current || current.record.media.length !== next.record.media.length;
+            });
+            if (!needsRefresh) return false;
           }
 
           await CommerceShopModel.bulkSave(shopModels);
