@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useMarketplaceOrders } from './useMarketplaceOrders';
 
 const BUYER = 'b'.repeat(52);
@@ -103,5 +104,9 @@ describe('useMarketplaceOrders', () => {
         payload: { paymentId: PAYMENT_ID, target: 'confirmed', confirmations: 1 },
       }),
     );
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Sandbox payment updated',
+      description: 'Confirmed',
+    });
   });
 });

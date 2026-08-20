@@ -3,8 +3,11 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
-import { buildMarketplaceOrderAggregateId } from '@/libs/commerce/transaction-commands';
+import { buyerPaymentStatus } from '@/libs/commerce/buyer-payment-status';
+import {
+  buildMarketplaceOrderAggregateId,
+  buildMarketplacePaymentAggregateId,
+} from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder, MarketplacePayment, MarketplaceReceipt } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -58,6 +61,10 @@ export function useMarketplaceOrders() {
         toast({ variant: 'error', description: response.error.message });
         return false;
       }
+      toast({
+        title: 'Sandbox payment updated',
+        description: buyerPaymentStatus(target).label,
+      });
       await refresh();
       return true;
     } catch {

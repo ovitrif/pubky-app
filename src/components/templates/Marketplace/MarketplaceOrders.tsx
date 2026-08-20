@@ -12,7 +12,9 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { buyerPaymentStatus } from '@/libs/commerce/buyer-payment-status';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { SANDBOX_GUARANTEE_POLICY } from '@/libs/commerce/sandbox-guarantee';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -65,7 +67,7 @@ export function MarketplaceOrders() {
                       <div className="mb-3 flex flex-wrap gap-2">
                         <Badge>{isBuyer ? 'Purchase' : 'Sale'}</Badge>
                         <Badge variant="secondary">{order.state.replaceAll('_', ' ')}</Badge>
-                        {payment && <Badge variant="outline">{payment.state.replaceAll('_', ' ')}</Badge>}
+                        {payment && <Badge variant="outline">{buyerPaymentStatus(payment.state).label}</Badge>}
                       </div>
                       {order.lines.map((line) => (
                         <Typography key={line.listingAggregateId} as="p" className="font-semibold">
@@ -81,7 +83,13 @@ export function MarketplaceOrders() {
                         {formatCommerceMoney(order.shipping)} · Tax {formatCommerceMoney(order.tax)}
                         {order.couponCode ? ` · Coupon ${order.couponCode}` : ''}
                         {order.payoutState ? ` · Payout ${order.payoutState}` : ''}
+                        {` · ${SANDBOX_GUARANTEE_POLICY.title} frozen`}
                       </Typography>
+                      {payment && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground" role="status">
+                          {buyerPaymentStatus(payment.state).detail}
+                        </Typography>
+                      )}
                       {order.reviews?.map((review) => (
                         <Typography key={review.id} as="p" className="mt-2 text-sm text-muted-foreground">
                           Review {review.rating}/5{review.editedAt ? ' · edited' : ''}: {review.text}
@@ -155,6 +163,24 @@ export function MarketplaceOrders() {
                           <Button className="rounded-full" onClick={() => void advancePayment(payment, 'confirmed', 1)}>
                             <CheckCircle2 className="mr-2 size-4" />
                             Confirm payment
+                          </Button>
+                        )}
+                        {payment.state === 'awaiting_entitlement' && (
+                          <Button
+                            variant="ghost"
+                            className="rounded-full"
+                            onClick={() => void advancePayment(payment, 'expired', 0)}
+                          >
+                            Expire marketplace window
+                          </Button>
+                        )}
+                        {(payment.state === 'awaiting_entitlement' || payment.state === 'detected') && (
+                          <Button
+                            variant="ghost"
+                            className="rounded-full"
+                            onClick={() => void advancePayment(payment, 'manual_review', 0)}
+                          >
+                            Send to manual review
                           </Button>
                         )}
                       </div>

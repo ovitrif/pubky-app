@@ -23,6 +23,8 @@ describe('MarketplaceSellerPolicies', () => {
     expect(screen.getByText('Free shipping')).toBeInTheDocument();
     expect(screen.getByText('Ships within three business days.')).toBeInTheDocument();
     expect(screen.getByText('Returns accepted within 30 days. Buyer pays return shipping.')).toBeInTheDocument();
-    expect(screen.getByText(/Sandbox guarantee policy v1/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sandbox guarantee policy v1' })).toBeInTheDocument();
+    expect(screen.getByText('Eligibility')).toBeInTheDocument();
+    expect(screen.getByText(/Claim within 14 days/)).toBeInTheDocument();
   });
 });

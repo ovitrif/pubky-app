@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ShoppingCart, Trash2 } from 'lucide-react';
-import { Controller } from 'react-hook-form';
+import { Controller, useWatch } from 'react-hook-form';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -26,6 +26,7 @@ import {
 } from '@/libs/commerce/tax-adapter';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceGuaranteeTerms } from '@/organisms/Marketplace/MarketplaceGuaranteeTerms';
 import { MarketplaceQuantityStepper } from '@/organisms/Marketplace/MarketplaceQuantityStepper';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -35,6 +36,7 @@ export function MarketplaceCart() {
   const { requireAuth } = useRequireAuth();
   const cart = useMarketplaceCart();
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
+  const couponCode = useWatch({ control: checkout.form.control, name: 'couponCode' });
   const estimate = quoteSandboxCart(
     cart.items.map((item) => {
       const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
@@ -179,6 +181,7 @@ export function MarketplaceCart() {
                         </div>
                       )}
                     />
+                    <MarketplaceGuaranteeTerms compact />
                     <Controller
                       name="acceptsGuarantee"
                       control={checkout.form.control}
@@ -186,7 +189,8 @@ export function MarketplaceCart() {
                         <Label className="items-start gap-3">
                           <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                           <span>
-                            I accept sandbox guarantee policy v1. This is not legal escrow and moves no real funds.
+                            I accept sandbox guarantee policy v1. Eligibility, exclusions, evidence, and deadlines above
+                            are frozen on the order.
                           </span>
                         </Label>
                       )}
@@ -217,6 +221,12 @@ export function MarketplaceCart() {
                       {formatCommerceMoney({ amountMinor: estimate.taxMinor, currency: 'USD', exponent: 2 })}
                     </Typography>
                   </div>
+                  {couponCode ? (
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <Typography as="span">Coupon {couponCode}</Typography>
+                      <Typography as="span">Applied at checkout</Typography>
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex justify-between">
                     <Typography as="span">Estimated total</Typography>
                     <Typography as="span" className="font-bold">
@@ -225,8 +235,8 @@ export function MarketplaceCart() {
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
                     {estimate.taxAdapterVersion} + {estimate.shippingAdapterVersion}. Digital-only seller groups have $0
-                    shipping. Physical listings use free, flat, or sandbox-calculated rates. Checkout remains the
-                    authority.
+                    shipping. Physical listings use free, flat, or sandbox-calculated rates. Seller coupons apply at
+                    checkout and cannot exceed items. Checkout remains the authority.
                   </Typography>
                 </div>
                 {currentUserPubky ? (

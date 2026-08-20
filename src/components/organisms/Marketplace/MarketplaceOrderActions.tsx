@@ -8,6 +8,7 @@ import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/use
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 
 export function MarketplaceOrderActions({
@@ -114,6 +115,13 @@ export function MarketplaceOrderActions({
               onClick={() =>
                 void actOnOrder(order, 'fulfillment.record_access', {
                   contentHash: order.digitalDelivery?.resourceHash,
+                }).then((ok) => {
+                  if (ok) {
+                    toast({
+                      title: 'Digital delivery opened',
+                      description: 'Sandbox Locks access recorded and content hash checked.',
+                    });
+                  }
                 })
               }
             >
@@ -123,7 +131,16 @@ export function MarketplaceOrderActions({
               size="sm"
               variant="secondary"
               className="rounded-full"
-              onClick={() => void actOnOrder(order, 'fulfillment.refresh_credential', {})}
+              onClick={() =>
+                void actOnOrder(order, 'fulfillment.refresh_credential', {}).then((ok) => {
+                  if (ok) {
+                    toast({
+                      title: 'Credential refreshed',
+                      description: 'A new short-lived sandbox Locks credential was issued.',
+                    });
+                  }
+                })
+              }
             >
               Refresh credential
             </Button>

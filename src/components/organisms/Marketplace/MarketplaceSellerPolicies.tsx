@@ -2,6 +2,7 @@
 
 import { Typography } from '@/atoms/Typography/Typography';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { MarketplaceGuaranteeTerms } from '@/organisms/Marketplace/MarketplaceGuaranteeTerms';
 
 export function MarketplaceSellerPolicies({
   shop,
@@ -59,15 +60,7 @@ export function MarketplaceSellerPolicies({
             </Typography>
           </div>
         )}
-        <div>
-          <Typography as="p" className="text-xs text-muted-foreground">
-            Purchase protection
-          </Typography>
-          <Typography as="p" className="text-sm">
-            Sandbox guarantee policy v1 is shown before checkout and frozen on the order. It is not escrow or a card
-            authorization.
-          </Typography>
-        </div>
+        <MarketplaceGuaranteeTerms />
       </div>
     </section>
   );
