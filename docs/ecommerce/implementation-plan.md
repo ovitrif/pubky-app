@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (Locks/Paykit sandbox HTTP stub + buyer order notifications landed; live Bitkit and remaining videos remain)
+Stopped at: **T8 — Hardening and parity audit** (reserved→sold conversion, seller analytics, option editor, axe/SSRF suites landed; live Bitkit and remaining videos remain)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks plus labeled HTTP stub; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — signed-in Cypress covers Paykit stub proof, buyer inbox, digital delivery, pickup, review, seller ship, and sandbox-operator moderation; live Bitkit, axe/SSRF, and remaining videos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — payment confirm converts reserved→sold; dashboard views/favorites/conversion/sell-through; named option editor; axe + SSRF suites; live Bitkit and remaining videos remain
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills plus Locks stub pages; Bitkit and remaining motion demos remain
 
 ### Delivery slices
@@ -39,16 +39,16 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
 - [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub; companion approval not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
-- [~] 8. Seller analytics + moderation + hardening
+- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
 
 ### Where we stopped
 
-Last shipped feature work: labeled Locks/Paykit HTTP stub on :3101/:3102, buyer `order_created` / `payment_confirmed` notifications, and signed-in digital delivery / Paykit proof Cypress.
+Last shipped feature work: reserved inventory converts to sold on payment confirm, seller analytics (views/favorites/conversion/sell-through), dynamic listing option dimensions, and axe/SSRF suites.
 
 Next required work, in order:
 
-1. Close T8: broader VRT/E2E/a11y/security/concurrency/migration coverage and keep the verification ledger current.
+1. Close T8: broader VRT/E2E coverage and keep the verification ledger current.
 2. Prove live Bitkit/Paykit companion flows against the pinned Docker topology. The local stub is not that proof.
 3. Close T9: record and review remaining feature videos without capturing the recovery phrase.
 
@@ -133,7 +133,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [x] Sellers can create draft, fixed-price, auction, digital, and watcher-only offer listings. — sell form includes Digital download and Watcher-only offer; sandbox catalog includes Sewing pattern pack and Sample-room wool coat
 - [x] Required fields include title, description, category, condition, price/currency, quantity, location granularity, delivery options, and media.
-- [~] Variants/SKUs support independent price, quantity, and status. — schema + form rows + PDP selector; limited option editor
+- [x] Variants/SKUs support independent price, quantity, and status. — up to three named option dimensions, form editor, PDP selector
 - [x] Media can be reordered, captioned, validated, retried, and removed. — up to 12 photos, cover-first reorder, per-photo captions
 - [x] Drafts autosave. Publish, edit, duplicate, pause, reserve, sell, relist, and delete transitions are enforced. — dedicated relist studio creates a new active listing with price/quantity
 - [x] Quantity cannot become negative; reserved inventory expires or converts atomically.
@@ -217,7 +217,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Seller tools and analytics
 
-- [~] Dashboard shows revenue-equivalent totals, paid orders, conversion, views, favorites, offers, sell-through, and fulfillment health. — inventory, orders, offers, revenue-equivalent
+- [x] Dashboard shows revenue-equivalent totals, paid orders, conversion, views, favorites, offers, sell-through, and fulfillment health. — `/v1/analytics` plus local order fallbacks
 - [x] Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview. — pause/activate/delete/duplicate/relist + CSV export/import
 - [x] Order work queues expose awaiting payment, to ship, returns, disputes, and completed states.
 - [x] Shop settings cover policies, notifications, payment setup, shipping presets, blocked buyers, and vacation mode.
@@ -249,11 +249,11 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
 - [x] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
 - [x] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history. — increment-only non-leading bids auto-flag `auction_manipulation`
-- [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards; adversarial suite incomplete
+- [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards + outbound URL SSRF suite; live DNS-rebinding still open
 
 ### Privacy, security, observability, and operations
 
-- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation; adversarial suite incomplete
+- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF guard; CSP/CSRF suite incomplete
 - [x] Recovery phrases, payment secrets, raw delivery details, message bodies, evidence, access credentials, and private Pubky identifiers never enter analytics, logs, Sentry, or public records.
 - [x] Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
 - [~] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live` and `/health/ready` only
@@ -262,7 +262,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Accessibility, responsiveness, and local-first behavior
 
-- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — labels/dialogs present; a11y suite not run
+- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form and catalog filter axe suites; contrast/manual review remain
 - [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + one catalog VRT
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.

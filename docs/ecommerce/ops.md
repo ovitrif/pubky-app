@@ -36,7 +36,7 @@ Sign-out clears account-scoped Dexie commerce tables and the commerce Zustand st
 
 ## Health
 
-The transaction service exposes `/health/live` and `/health/ready`. `/health/ready` reports `storage: postgres` when `DATABASE_URL` is set. Schema is applied from `services/marketplace/schema.sql` on connect.
+The transaction service exposes `/health/live` and `/health/ready`. `/health/ready` reports `storage: postgres` when `DATABASE_URL` is set. Schema is applied from `services/marketplace/schema.sql` on connect. Authenticated sellers can read `/v1/analytics` for views, favorites, conversion, sell-through, and fulfillment health.
 
 The Locks / Paykit stub exposes `/health/live` and `/health/ready` on both ports and labels every response `sandbox`.
 

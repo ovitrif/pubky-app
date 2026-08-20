@@ -39,7 +39,15 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
   } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
+  const optionDimensions = useFieldArray({
+    control: form.control,
+    name: CREATE_MARKETPLACE_LISTING_FIELDS.OPTION_DIMENSIONS,
+  });
   const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
+  const watchedDimensions = useWatch({
+    control: form.control,
+    name: CREATE_MARKETPLACE_LISTING_FIELDS.OPTION_DIMENSIONS,
+  });
   const mediaError =
     pickerError === 'invalid-type'
       ? 'Choose an image file.'
@@ -296,25 +304,87 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
                 Variants and inventory
               </Typography>
               <Typography as="p" className="text-sm text-muted-foreground">
-                Up to three option dimensions with independent SKU, price, and quantity.
+                Up to three named option dimensions with independent SKU, price, and quantity.
               </Typography>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="shrink-0 rounded-full"
-              disabled={
-                isPublishing || saleFormat === 'auction' || saleFormat === 'offer' || variants.fields.length >= 100
-              }
-              onClick={() =>
-                variants.append({ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' })
-              }
-            >
-              <Plus className="mr-2 size-4" />
-              Add variant
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="shrink-0 rounded-full"
+                disabled={isPublishing || optionDimensions.fields.length >= 3}
+                onClick={() => {
+                  optionDimensions.append({ name: '' });
+                  const current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS);
+                  form.setValue(
+                    CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS,
+                    current.map((variant) => ({ ...variant, optionValues: [...variant.optionValues, ''] })),
+                  );
+                }}
+              >
+                <Plus className="mr-2 size-4" />
+                Add option
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="shrink-0 rounded-full"
+                disabled={
+                  isPublishing || saleFormat === 'auction' || saleFormat === 'offer' || variants.fields.length >= 100
+                }
+                onClick={() =>
+                  variants.append({
+                    sku: '',
+                    optionValues: (watchedDimensions ?? []).map(() => ''),
+                    quantity: '1',
+                    priceOverride: '',
+                  })
+                }
+              >
+                <Plus className="mr-2 size-4" />
+                Add variant
+              </Button>
+            </div>
           </div>
+
+          {optionDimensions.fields.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              {optionDimensions.fields.map((dimension, index) => (
+                <div key={dimension.id} className="relative">
+                  <ControlledInputField
+                    name={`optionDimensions.${index}.name`}
+                    control={form.control}
+                    label={`Option ${index + 1} name`}
+                    placeholder={index === 0 ? 'Size' : index === 1 ? 'Color' : 'Style'}
+                    disabled={isPublishing}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute top-0 right-0 rounded-full"
+                    aria-label={`Remove option ${index + 1}`}
+                    disabled={isPublishing}
+                    onClick={() => {
+                      optionDimensions.remove(index);
+                      const current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS);
+                      form.setValue(
+                        CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS,
+                        current.map((variant) => ({
+                          ...variant,
+                          optionValues: variant.optionValues.filter((_, valueIndex) => valueIndex !== index),
+                        })),
+                      );
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             {variants.fields.map((variant, index) => (
@@ -326,27 +396,16 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
                   placeholder="BOOTS-42"
                   disabled={isPublishing}
                 />
-                <ControlledInputField
-                  name={`variants.${index}.size`}
-                  control={form.control}
-                  label="Size"
-                  placeholder="42"
-                  disabled={isPublishing}
-                />
-                <ControlledInputField
-                  name={`variants.${index}.color`}
-                  control={form.control}
-                  label="Color"
-                  placeholder="Brown"
-                  disabled={isPublishing}
-                />
-                <ControlledInputField
-                  name={`variants.${index}.style`}
-                  control={form.control}
-                  label="Style"
-                  placeholder="Classic"
-                  disabled={isPublishing}
-                />
+                {(watchedDimensions ?? []).map((dimension, dimensionIndex) => (
+                  <ControlledInputField
+                    key={`${variant.id}-${dimensionIndex}`}
+                    name={`variants.${index}.optionValues.${dimensionIndex}`}
+                    control={form.control}
+                    label={dimension?.name?.trim() || `Option ${dimensionIndex + 1}`}
+                    placeholder="Value"
+                    disabled={isPublishing}
+                  />
+                ))}
                 <ControlledInputField
                   name={`variants.${index}.quantity`}
                   control={form.control}

@@ -192,11 +192,12 @@ function buildListingRecord(
       id: `variant_${index + 1}`,
       sku: variant.sku || undefined,
       options: Object.fromEntries(
-        [
-          ['size', variant.size],
-          ['color', variant.color],
-          ['style', variant.style],
-        ].filter((entry) => entry[1]),
+        data.optionDimensions
+          .map((dimension, dimensionIndex) => [
+            listingOptionKey(dimension.name),
+            variant.optionValues[dimensionIndex] ?? '',
+          ])
+          .filter((entry) => entry[1]),
       ),
       priceOverride: variant.priceOverride
         ? { amountMinor: Math.round(Number(variant.priceOverride) * 100), currency: 'USD', exponent: 2 }
@@ -242,6 +243,16 @@ function buildListingRecord(
       : undefined,
     adultOnly: false,
   });
+}
+
+function listingOptionKey(name: string): string {
+  return (
+    name
+      .trim()
+      .toLocaleLowerCase('en-US')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'option'
+  );
 }
 
 function deriveTags(title: string): string[] {

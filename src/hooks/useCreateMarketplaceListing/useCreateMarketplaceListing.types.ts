@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   COMMERCE_LISTING_DESCRIPTION_MAX_CHARS,
+  COMMERCE_LISTING_MAX_OPTION_DIMENSIONS,
   COMMERCE_LISTING_TITLE_MAX_CHARS,
   COMMERCE_LISTING_TITLE_MIN_CHARS,
   COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS,
@@ -17,6 +18,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   PRICE: 'price',
   BUY_NOW_PRICE: 'buyNowPrice',
   AUTO_ACCEPT_PRICE: 'autoAcceptPrice',
+  OPTION_DIMENSIONS: 'optionDimensions',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
   SHIPPING_PRICE: 'shippingPrice',
@@ -34,12 +36,16 @@ const moneyInputSchema = z
   .regex(/^\d+(?:\.\d{1,2})?$/, 'Enter a valid USD amount with at most two decimal places.')
   .refine((value) => Number(value) > 0, 'Price must be greater than zero.');
 
+const listingOptionDimensionSchema = z.object({
+  name: z.string().trim().min(1, 'Option name is required.').max(40, 'Option name is too long.'),
+});
+
 const listingVariantSchema = z
   .object({
     sku: z.string().trim().max(64, 'SKU must be 64 characters or fewer.'),
-    size: z.string().trim().max(80, 'Size is too long.'),
-    color: z.string().trim().max(80, 'Color is too long.'),
-    style: z.string().trim().max(80, 'Style is too long.'),
+    optionValues: z
+      .array(z.string().trim().max(80, 'Option value is too long.'))
+      .max(COMMERCE_LISTING_MAX_OPTION_DIMENSIONS),
     quantity: z
       .string()
       .trim()
@@ -80,6 +86,9 @@ export const createMarketplaceListingSchema = z
     price: moneyInputSchema,
     buyNowPrice: z.string().trim(),
     autoAcceptPrice: z.string().trim(),
+    optionDimensions: z
+      .array(listingOptionDimensionSchema)
+      .max(COMMERCE_LISTING_MAX_OPTION_DIMENSIONS, 'Listings support at most three option dimensions.'),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical', 'digital']),
     shippingPrice: z.string().trim(),
@@ -159,6 +168,21 @@ export const createMarketplaceListingSchema = z
         message: 'Variant SKUs must be unique.',
       });
     }
+    const dimensionKeys = data.optionDimensions.map(({ name }) => name.trim().toLocaleLowerCase('en-US'));
+    if (new Set(dimensionKeys).size !== dimensionKeys.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['optionDimensions'],
+        message: 'Option names must be unique.',
+      });
+    }
+    if (data.variants.some((variant) => variant.optionValues.length !== data.optionDimensions.length)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['variants'],
+        message: 'Each variant needs a value for every option dimension.',
+      });
+    }
   });
 
 export const createMarketplaceListingDraftSchema = z
@@ -173,15 +197,24 @@ export const createMarketplaceListingDraftSchema = z
     price: z.string(),
     buyNowPrice: z.string(),
     autoAcceptPrice: z.string(),
+    optionDimensions: z.array(z.object({ name: z.string() })),
     variants: z.array(
-      z.object({
-        sku: z.string(),
-        size: z.string(),
-        color: z.string(),
-        style: z.string(),
-        quantity: z.string(),
-        priceOverride: z.string(),
-      }),
+      z
+        .object({
+          sku: z.string(),
+          quantity: z.string(),
+          priceOverride: z.string(),
+          optionValues: z.array(z.string()).optional(),
+          size: z.string().optional(),
+          color: z.string().optional(),
+          style: z.string().optional(),
+        })
+        .transform((variant) => ({
+          sku: variant.sku,
+          quantity: variant.quantity,
+          priceOverride: variant.priceOverride,
+          optionValues: variant.optionValues ?? [variant.size ?? '', variant.color ?? '', variant.style ?? ''],
+        })),
     ),
     fulfillment: z.enum(['pickup', 'physical', 'digital']),
     shippingPrice: z.string(),
@@ -208,7 +241,8 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   price: '',
   buyNowPrice: '',
   autoAcceptPrice: '',
-  variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
+  optionDimensions: [{ name: 'Size' }, { name: 'Color' }, { name: 'Style' }],
+  variants: [{ sku: '', optionValues: ['', '', ''], quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
   shippingPrice: '',
   weightGrams: '',

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getLocksUrl, getPaykitSetupUrl } from '@/config/commerce';
+import { isSafeCommerceServiceUrl } from '@/libs/commerce/safe-outbound-url';
 import { ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
@@ -47,7 +48,7 @@ export class LocksGatewayService {
         context: { ownerMatches: false },
       });
     }
-    const url = `${getLocksUrl()}/proof-bundles`;
+    const url = `${this.requireLocksUrl()}/proof-bundles`;
     return await this.postLifecycle(url, {
       submitted_proof_bundle: {
         version: 1,
@@ -66,7 +67,7 @@ export class LocksGatewayService {
   }
 
   static async lookupVerification(creatorPubky: string, bundleId: string): Promise<LocksVerificationLifecycle> {
-    const url = `${getLocksUrl()}/verification-task-lookups`;
+    const url = `${this.requireLocksUrl()}/verification-task-lookups`;
     return await this.postLifecycle(url, {
       creator: withPubkyPrefix(creatorPubky),
       bundle_id: bundleId,
@@ -74,7 +75,7 @@ export class LocksGatewayService {
   }
 
   static async issueAccessCredential(creatorPubky: string, bundleId: string): Promise<LocksAccessCredential> {
-    const url = `${getLocksUrl()}/access-credentials`;
+    const url = `${this.requireLocksUrl()}/access-credentials`;
     const response = await safeFetch(
       url,
       {
@@ -104,7 +105,7 @@ export class LocksGatewayService {
       .filter(Boolean)
       .map((segment) => encodeURIComponent(segment))
       .join('/');
-    const url = `${getLocksUrl()}/priv-resources/content/${safePath}`;
+    const url = `${this.requireLocksUrl()}/priv-resources/content/${safePath}`;
     const response = await safeFetch(
       url,
       { method: 'GET', headers: { authorization: `Bearer ${credential}` } },
@@ -116,10 +117,30 @@ export class LocksGatewayService {
   }
 
   static buildPaykitSetupUrl(returnTo: string, state: string): string {
-    const url = new URL(getPaykitSetupUrl());
+    const setupUrl = getPaykitSetupUrl();
+    if (!isSafeCommerceServiceUrl(setupUrl)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Paykit setup URL is not allowed.', {
+        service: ErrorService.Locks,
+        operation: 'buildPaykitSetupUrl',
+        context: { scheme: 'blocked' },
+      });
+    }
+    const url = new URL(setupUrl);
     url.searchParams.set('return_to', returnTo);
     url.searchParams.set('state', state);
     return url.toString();
+  }
+
+  private static requireLocksUrl(): string {
+    const url = getLocksUrl();
+    if (!isSafeCommerceServiceUrl(url)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Locks URL is not allowed.', {
+        service: ErrorService.Locks,
+        operation: 'requireLocksUrl',
+        context: { scheme: 'blocked' },
+      });
+    }
+    return url;
   }
 
   private static async postLifecycle(url: string, body: Record<string, unknown>): Promise<LocksVerificationLifecycle> {

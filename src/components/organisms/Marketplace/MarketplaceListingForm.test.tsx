@@ -132,6 +132,18 @@ describe('MarketplaceListingForm', () => {
     await user.click(screen.getByRole('button', { name: 'Remove variant 2' }));
     expect(screen.getAllByText('Seller SKU')).toHaveLength(1);
   });
+
+  it('adds and removes named option dimensions', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness fulfillment="pickup" />);
+
+    expect(screen.getByLabelText('Option 1 name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Option 3 name')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove option 3' }));
+    expect(screen.queryByLabelText('Option 3 name')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add option' }));
+    expect(screen.getByLabelText('Option 3 name')).toBeInTheDocument();
+  });
 });
 
 describe('MarketplaceListingForm - Snapshots', () => {

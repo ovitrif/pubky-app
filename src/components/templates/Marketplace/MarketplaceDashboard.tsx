@@ -1,7 +1,22 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ArrowLeft, Copy, Download, Package, Pause, Play, ShoppingBag, Trash2, TrendingUp, Upload } from 'lucide-react';
+import {
+  ArrowLeft,
+  Copy,
+  Download,
+  Eye,
+  Heart,
+  Package,
+  Pause,
+  Percent,
+  Play,
+  ShoppingBag,
+  Trash2,
+  TrendingUp,
+  Truck,
+  Upload,
+} from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -59,7 +74,7 @@ export function MarketplaceDashboard() {
               Seller dashboard
             </Heading>
             <Typography as="p" className="mt-2 text-muted-foreground">
-              Inventory, coupons, sandbox statements, and order work queues.
+              Inventory, conversion, sell-through, coupons, sandbox statements, and order work queues.
             </Typography>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -100,6 +115,11 @@ export function MarketplaceDashboard() {
                   }),
                   icon: TrendingUp,
                 },
+                { label: 'Listing views', value: dashboard.metrics.views, icon: Eye },
+                { label: 'Favorites', value: dashboard.metrics.favorites, icon: Heart },
+                { label: 'Conversion', value: `${dashboard.metrics.conversionPercent}%`, icon: Percent },
+                { label: 'Sell-through', value: `${dashboard.metrics.sellThroughPercent}%`, icon: TrendingUp },
+                { label: 'To ship', value: dashboard.metrics.toShip, icon: Truck },
               ].map(({ label, value, icon: Icon }) => (
                 <Card key={label} className="gap-3 border py-4">
                   <CardContent className="px-4">
@@ -114,6 +134,12 @@ export function MarketplaceDashboard() {
                 </Card>
               ))}
             </div>
+
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Views, favorites, conversion, and sell-through are sandbox estimates from the transaction service. They
+              are not settled payment facts. Open returns {dashboard.metrics.returnsOpen} · open disputes{' '}
+              {dashboard.metrics.disputesOpen}.
+            </Typography>
 
             {dashboard.statement && (
               <Card className="border">

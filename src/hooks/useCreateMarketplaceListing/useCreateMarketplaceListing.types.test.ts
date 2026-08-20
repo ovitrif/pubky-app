@@ -47,8 +47,8 @@ describe('createMarketplaceListingSchema', () => {
 
   it('supports multiple fixed-price variants but only one auction variant', () => {
     const variants = [
-      { sku: 'BOOTS-42', size: '42', color: 'Brown', style: '', quantity: '1', priceOverride: '' },
-      { sku: 'BOOTS-43', size: '43', color: 'Brown', style: '', quantity: '2', priceOverride: '135.00' },
+      { sku: 'BOOTS-42', optionValues: ['42', 'Brown', ''], quantity: '1', priceOverride: '' },
+      { sku: 'BOOTS-43', optionValues: ['43', 'Brown', ''], quantity: '2', priceOverride: '135.00' },
     ];
     const base = {
       ...createMarketplaceListingDefaults,
@@ -102,7 +102,7 @@ describe('createMarketplaceListingSchema', () => {
   });
 
   it('requires unique non-empty seller SKUs', () => {
-    const duplicate = { sku: 'BOOTS', size: '', color: '', style: '', quantity: '1', priceOverride: '' };
+    const duplicate = { sku: 'BOOTS', optionValues: ['', '', ''], quantity: '1', priceOverride: '' };
     expect(
       createMarketplaceListingSchema.safeParse({
         ...createMarketplaceListingDefaults,
@@ -111,7 +111,7 @@ describe('createMarketplaceListingSchema', () => {
         price: '125',
         fulfillment: 'pickup',
         altText: 'Brown leather boots',
-        variants: [duplicate, { ...duplicate, size: '43' }],
+        variants: [duplicate, { ...duplicate, optionValues: ['43', '', ''] }],
       }).success,
     ).toBe(false);
   });
@@ -144,5 +144,31 @@ describe('createMarketplaceListingSchema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('accepts renamed option dimensions and rejects duplicate names', () => {
+    const base = {
+      ...createMarketplaceListingDefaults,
+      title: 'Vintage leather boots',
+      description: 'Well cared for boots with light wear.',
+      price: '125',
+      fulfillment: 'pickup' as const,
+      altText: 'Brown leather boots',
+      optionDimensions: [{ name: 'Material' }, { name: 'Fit' }],
+      variants: [{ sku: 'BOOTS-42', optionValues: ['Leather', 'Regular'], quantity: '1', priceOverride: '' }],
+    };
+    expect(createMarketplaceListingSchema.safeParse(base).success).toBe(true);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        optionDimensions: [{ name: 'Size' }, { name: 'size' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...base,
+        variants: [{ sku: 'BOOTS-42', optionValues: ['Leather'], quantity: '1', priceOverride: '' }],
+      }).success,
+    ).toBe(false);
   });
 });
