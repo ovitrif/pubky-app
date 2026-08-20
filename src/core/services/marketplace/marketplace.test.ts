@@ -66,7 +66,10 @@ describe('MarketplaceGatewayService', () => {
       'http://localhost:3100/v1/commands',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ 'x-pubky-actor': SELLER }),
+        headers: expect.objectContaining({
+          'x-pubky-actor': SELLER,
+          'x-marketplace-csrf': '1',
+        }),
       }),
     );
   });

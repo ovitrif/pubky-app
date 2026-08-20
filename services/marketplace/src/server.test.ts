@@ -1,8 +1,18 @@
 import type { AddressInfo } from 'node:net';
 import { fetch as realFetch } from 'undici';
 import { describe, expect, it } from 'vitest';
+import { MARKETPLACE_CSRF_HEADER, MARKETPLACE_CSRF_TOKEN } from '../../../src/libs/commerce/marketplace-http-security';
 import { buildMarketplaceListingAggregateId } from './contracts';
 import { createMarketplaceHttpServer, type MarketplaceServerMode } from './server';
+
+function commandHeaders(extra: Record<string, string> = {}) {
+  return {
+    'content-type': 'application/json',
+    'x-pubky-actor': SELLER,
+    [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
+    ...extra,
+  };
+}
 
 const SELLER = 'y'.repeat(52);
 
@@ -71,22 +81,25 @@ describe('marketplace HTTP server', () => {
     await withServer('sandbox', async (baseUrl) => {
       const missingActor = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
+        },
         body: JSON.stringify(registrationCommand()),
       });
       expect(missingActor.status).toBe(401);
 
       const accepted = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-pubky-actor': SELLER,
-        },
+        headers: commandHeaders(),
         body: JSON.stringify(registrationCommand()),
       });
 
       expect(accepted.status).toBe(200);
       expect(accepted.headers.get('x-marketplace-mode')).toBe('sandbox');
       expect(accepted.headers.get('access-control-allow-origin')).toBe('*');
+      expect(accepted.headers.get('content-security-policy')).toContain("default-src 'none'");
+      expect(accepted.headers.get('x-content-type-options')).toBe('nosniff');
       await expect(accepted.json()).resolves.toMatchObject({ ok: true, revision: 1 });
 
       const listing = await realFetch(
@@ -116,6 +129,7 @@ describe('marketplace HTTP server', () => {
           'content-type': 'image/jpeg',
           'x-pubky-actor': SELLER,
           'x-recipient-pubky': recipient,
+          [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
         },
         body: bytes,
       });
@@ -140,9 +154,7 @@ describe('marketplace HTTP server', () => {
     await withServer('sandbox', async (baseUrl) => {
       const response = await realFetch(`${baseUrl}/v1/commands`, {
         method: 'POST',
-        headers: {
-          'x-pubky-actor': SELLER,
-        },
+        headers: commandHeaders(),
         body: '{"private":"secret"',
       });
 
@@ -151,5 +163,55 @@ describe('marketplace HTTP server', () => {
       expect(body).toContain('INVALID_JSON');
       expect(body).not.toContain('secret');
     });
+  });
+
+  it('rejects sandbox mutations without the CSRF header or from a disallowed origin', async () => {
+    await withServer('sandbox', async (baseUrl) => {
+      const missingCsrf = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-pubky-actor': SELLER,
+        },
+        body: JSON.stringify(registrationCommand()),
+      });
+      expect(missingCsrf.status).toBe(403);
+      expect(await missingCsrf.json()).toMatchObject({ error: { code: 'UNAUTHORIZED' } });
+    });
+
+    const server = createMarketplaceHttpServer({ mode: 'sandbox', allowedOrigin: 'http://localhost:3000' });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const blocked = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({ origin: 'https://evil.test' }),
+        body: JSON.stringify(registrationCommand()),
+      });
+      expect(blocked.status).toBe(403);
+
+      const allowed = await realFetch(`${baseUrl}/v1/commands`, {
+        method: 'POST',
+        headers: commandHeaders({ origin: 'http://localhost:3000' }),
+        body: JSON.stringify(registrationCommand()),
+      });
+      expect(allowed.status).toBe(200);
+
+      const metrics = await realFetch(`${baseUrl}/v1/metrics`);
+      expect(metrics.status).toBe(200);
+      await expect(metrics.json()).resolves.toMatchObject({
+        listings: 1,
+        orders: 0,
+        reservedOnPaidOrders: 0,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   });
 });

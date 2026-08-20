@@ -136,7 +136,8 @@ export default defineConfig({
         },
 
         getStagingRecoveryPhrase() {
-          const phrase = typeof process.env.STAGING_RECOVERY_PHRASE === 'string' ? process.env.STAGING_RECOVERY_PHRASE.trim() : '';
+          const phrase =
+            typeof process.env.STAGING_RECOVERY_PHRASE === 'string' ? process.env.STAGING_RECOVERY_PHRASE.trim() : '';
           return phrase.split(/\s+/).filter(Boolean).length === 12 ? phrase : null;
         },
 
@@ -157,6 +158,7 @@ export default defineConfig({
             headers: {
               ...(actor ? { 'x-pubky-actor': actor } : {}),
               ...(payload ? { 'content-type': 'application/json' } : {}),
+              ...(method === 'POST' ? { 'x-marketplace-csrf': '1' } : {}),
             },
             body: payload ? JSON.stringify(payload) : undefined,
           });

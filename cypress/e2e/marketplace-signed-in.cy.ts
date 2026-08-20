@@ -80,7 +80,9 @@ function placeBid() {
   cy.contains('h1', '35mm rangefinder camera').should('be.visible');
   cy.contains('button', 'Place a bid').click();
   cy.contains('Set your private proxy maximum').should('be.visible');
-  cy.get('#maximumAmount').clear().type((Date.now() / 1000).toFixed(2));
+  cy.get('#maximumAmount')
+    .clear()
+    .type((Date.now() / 1000).toFixed(2));
   cy.contains('button', 'Confirm bid').click();
   cy.contains(/Bid accepted|previous maximum/).should('be.visible');
   cy.screenshot('signed-in-bid', { overwrite: true });
@@ -227,7 +229,8 @@ function approveBootsReturn() {
       orders?: Array<{ id: string; revision: number; state: string; lines: Array<{ title: string }> }>;
     };
     const order = (payload.orders ?? []).find(
-      (item) => item.state === 'return_requested' && item.lines.some((line) => line.title.includes('Vintage leather boots')),
+      (item) =>
+        item.state === 'return_requested' && item.lines.some((line) => line.title.includes('Vintage leather boots')),
     );
     expect(order, 'boots return request').to.exist;
     cy.marketplaceRequest('POST', '/v1/commands', BOOTS_SELLER, {
@@ -252,6 +255,7 @@ function markBootsReadyForPickup() {
         item.lines.some((line) => line.title.includes('Vintage leather boots')),
     );
     expect(order, 'paid boots sale for pickup').to.exist;
+    if (!order) throw new Error('paid boots sale for pickup');
     cy.marketplaceRequest('POST', '/v1/commands', BOOTS_SELLER, {
       aggregateId: `order:${order.id}`,
       expectedRevision: order.revision,

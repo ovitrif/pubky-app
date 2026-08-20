@@ -1,5 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import {
+  isAllowedMarketplaceOrigin,
+  MARKETPLACE_CSRF_HEADER,
+  MARKETPLACE_CSRF_TOKEN,
+  marketplaceSecurityHeaders,
+} from '../../../src/libs/commerce/marketplace-http-security';
 import { commerceAggregateIdSchema, commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import { PostgresMarketplaceRepository } from './postgres-repository';
 import {
@@ -31,12 +37,23 @@ export function createMarketplaceHttpServer({
       if (mode === 'sandbox') {
         response.setHeader('access-control-allow-origin', allowedOrigin);
         response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-        response.setHeader('access-control-allow-headers', 'content-type, x-pubky-actor, x-recipient-pubky');
+        response.setHeader(
+          'access-control-allow-headers',
+          `content-type, x-pubky-actor, x-recipient-pubky, ${MARKETPLACE_CSRF_HEADER}`,
+        );
       }
       if (request.method === 'OPTIONS') {
-        response.writeHead(204);
+        writeHead(response, 204, mode);
         response.end();
         return;
+      }
+
+      if (mode === 'sandbox' && request.method === 'POST') {
+        const mutationError = mutationGuard(request, allowedOrigin);
+        if (mutationError) {
+          writeJson(response, 403, { error: { code: 'UNAUTHORIZED', message: mutationError } }, mode);
+          return;
+        }
       }
 
       if (request.method === 'GET' && request.url === '/health/live') {
@@ -76,6 +93,16 @@ export function createMarketplaceHttpServer({
             response,
             401,
             { error: { code: 'UNAUTHORIZED', message: 'A sandbox actor header is required.' } },
+            mode,
+          );
+          return;
+        }
+        const contentType = headerValue(request.headers['content-type']);
+        if (!contentType.toLocaleLowerCase('en-US').startsWith('application/json')) {
+          writeJson(
+            response,
+            415,
+            { error: { code: 'INVALID_COMMAND', message: 'Marketplace commands must be application/json.' } },
             mode,
           );
           return;
@@ -134,13 +161,15 @@ export function createMarketplaceHttpServer({
           writeJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Attachment not found.' } }, mode);
           return;
         }
-        response.writeHead(200, {
-          'content-type': attachment.mimeType,
-          'content-length': attachment.byteSize,
-          'cache-control': 'private, no-store',
-          'x-content-hash': attachment.contentHash,
-          'x-marketplace-mode': mode,
-        });
+        response.writeHead(
+          200,
+          marketplaceSecurityHeaders(mode, {
+            'content-type': attachment.mimeType,
+            'content-length': String(attachment.byteSize),
+            'cache-control': 'private, no-store',
+            'x-content-hash': attachment.contentHash,
+          }),
+        );
         response.end(attachment.bytes);
         return;
       }
@@ -369,6 +398,11 @@ export function createMarketplaceHttpServer({
         return;
       }
 
+      if (request.method === 'GET' && request.url === '/v1/metrics') {
+        writeJson(response, 200, service.getMetrics(), mode);
+        return;
+      }
+
       if (request.method === 'GET' && request.url === '/v1/invariants') {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
@@ -474,13 +508,40 @@ async function readBytesBody(request: IncomingMessage, maxBodyBytes: number): Pr
   return new Uint8Array(Buffer.concat(chunks));
 }
 
+function writeHead(response: ServerResponse, status: number, mode: MarketplaceServerMode): void {
+  const headers = marketplaceSecurityHeaders(mode);
+  response.writeHead(status, headers);
+}
+
 function writeJson(response: ServerResponse, status: number, body: object, mode: MarketplaceServerMode): void {
-  response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'x-marketplace-mode': mode,
-  });
+  response.writeHead(
+    status,
+    marketplaceSecurityHeaders(mode, {
+      'content-type': 'application/json; charset=utf-8',
+    }),
+  );
   response.end(JSON.stringify(body));
+}
+
+function headerValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
+function mutationGuard(request: IncomingMessage, allowedOrigin: string): string | null {
+  const csrf = headerValue(request.headers[MARKETPLACE_CSRF_HEADER]);
+  if (csrf !== MARKETPLACE_CSRF_TOKEN) {
+    return 'A marketplace CSRF header is required.';
+  }
+  if (
+    !isAllowedMarketplaceOrigin(
+      headerValue(request.headers.origin) || undefined,
+      headerValue(request.headers.referer) || undefined,
+      allowedOrigin,
+    )
+  ) {
+    return 'The request origin is not allowed.';
+  }
+  return null;
 }
 
 function statusForFailure(code: string): number {
@@ -519,6 +580,7 @@ async function main(): Promise<void> {
     mode,
     service,
     storage: databaseUrl ? 'postgres' : 'memory',
+    allowedOrigin: process.env.MARKETPLACE_ALLOWED_ORIGIN ?? '*',
   });
   server.listen(port, host, () => {
     console.info(`[marketplace] listening on ${host}:${port} (${mode}, ${databaseUrl ? 'postgres' : 'memory'})`);

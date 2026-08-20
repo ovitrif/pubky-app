@@ -18,6 +18,24 @@ const nextConfig: NextConfig = {
   },
   // Only use standalone output when building for Docker (set NEXT_STANDALONE=true)
   ...(process.env.NEXT_STANDALONE === 'true' && { output: 'standalone' }),
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+          {
+            key: 'Content-Security-Policy-Report-Only',
+            value:
+              "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: blob: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://127.0.0.1:3100 http://localhost:3100 http://127.0.0.1:3101 http://localhost:3101 http://127.0.0.1:3102 http://localhost:3102",
+          },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       // /profile/[pubky] is the canonical other-user posts view (see app/profile/[pubky]/page.tsx).

@@ -2,6 +2,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
+import { MARKETPLACE_CSRF_HEADER, MARKETPLACE_CSRF_TOKEN } from '@/libs/commerce/marketplace-http-security';
 import { isSafeCommerceServiceUrl } from '@/libs/commerce/safe-outbound-url';
 import {
   type MarketplaceCommand,
@@ -485,6 +486,7 @@ export class MarketplaceGatewayService {
         headers: {
           'content-type': 'application/json',
           'x-pubky-actor': actor,
+          [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
         },
         body: JSON.stringify(command),
       },
@@ -843,6 +845,7 @@ export class MarketplaceGatewayService {
           'content-type': file.type,
           'x-pubky-actor': actor,
           'x-recipient-pubky': recipient,
+          [MARKETPLACE_CSRF_HEADER]: MARKETPLACE_CSRF_TOKEN,
         },
         body: file,
       },
@@ -887,6 +890,7 @@ export class MarketplaceGatewayService {
     oversoldListings: string[];
     duplicateAuctionWinners: string[];
     stuckFulfillment: string[];
+    reservedOnPaidOrders: string[];
   }> {
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/invariants`;
@@ -903,6 +907,7 @@ export class MarketplaceGatewayService {
         oversoldListings: z.array(z.string()),
         duplicateAuctionWinners: z.array(z.string()),
         stuckFulfillment: z.array(z.string()),
+        reservedOnPaidOrders: z.array(z.string()),
       })
       .safeParse(raw);
     if (!parsed.success) {
