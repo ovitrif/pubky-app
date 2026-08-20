@@ -26,6 +26,7 @@ export interface UseMarketplaceMessagesResult {
   error: string | null;
   attachment: ReturnType<typeof useMessageAttachmentPicker>;
   submit: () => Promise<boolean>;
+  block: () => Promise<boolean>;
   refresh: () => Promise<void>;
 }
 
@@ -98,7 +99,35 @@ export function useMarketplaceMessages(sellerPubky: string, listingId: string): 
     return succeeded;
   };
 
-  return { form, conversation, isLoading, error, attachment, submit, refresh };
+  const block = async (): Promise<boolean> => {
+    if (!currentUserPubky || currentUserPubky === sellerPubky) return false;
+    try {
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: buildMarketplaceConversationAggregateId(sellerPubky, currentUserPubky, listingId),
+        expectedRevision: conversation?.revision ?? 0,
+        issuedAt: new Date().toISOString(),
+        kind: 'message.block',
+        payload: {
+          listingAggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+          peerPubky: sellerPubky,
+        },
+      });
+      if (!response.ok) {
+        toast({ variant: 'error', description: response.error.message });
+        return false;
+      }
+      toast({ title: 'Conversation blocked', description: 'No further messages can be sent in this thread.' });
+      await refresh();
+      return true;
+    } catch {
+      toast({ variant: 'error', description: 'Could not block this conversation.' });
+      return false;
+    }
+  };
+
+  return { form, conversation, isLoading, error, attachment, submit, block, refresh };
 }
 
 async function loadConversation(

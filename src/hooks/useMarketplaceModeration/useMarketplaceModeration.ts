@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import type { MarketplaceReport } from '@/services/marketplace/marketplace';
+import type { MarketplaceReport, MarketplaceRiskSignal } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export type MarketplaceModerationDecision =
@@ -28,16 +28,22 @@ export function useMarketplaceModeration() {
     duplicateAuctionWinners: string[];
     stuckFulfillment: string[];
   } | null>(null);
+  const [riskSignals, setRiskSignals] = useState<MarketplaceRiskSignal[]>([]);
+  const [riskTargetId, setRiskTargetId] = useState('');
+  const [riskTargetType, setRiskTargetType] = useState<MarketplaceRiskSignal['targetType']>('listing');
+  const [riskType, setRiskType] = useState<MarketplaceRiskSignal['signalType']>('auction_manipulation');
 
   const refresh = async () => {
     if (!currentUserPubky) return;
-    const [nextReports, nextSearch, nextInvariants] = await Promise.all([
+    const [nextReports, nextSearch, nextInvariants, nextSignals] = await Promise.all([
       CommerceController.getMarketplaceReports(),
       query.trim() ? CommerceController.searchMarketplaceAdmin(query).catch(() => null) : Promise.resolve(null),
       CommerceController.getMarketplaceInvariants().catch(() => null),
+      CommerceController.getMarketplaceRiskSignals().catch(() => []),
     ]);
     setReports(nextSearch?.reports ?? nextReports);
     setInvariants(nextInvariants);
+    setRiskSignals(nextSearch?.riskSignals ?? nextSignals);
   };
 
   useEffect(() => {
@@ -114,5 +120,55 @@ export function useMarketplaceModeration() {
     }
   };
 
-  return { reports, isLoading, error, query, setQuery, invariants, decide, assign, reverse };
+  const flagRisk = async () => {
+    if (!riskTargetId.trim()) {
+      setError('Enter a listing, order, user, payment, or auction id to flag.');
+      return;
+    }
+    try {
+      const commandId = crypto.randomUUID();
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId,
+        aggregateId: `risk:${commandId}`,
+        expectedRevision: 0,
+        issuedAt: new Date().toISOString(),
+        kind: 'trust.flag_risk',
+        payload: {
+          signalType: riskType,
+          targetType: riskTargetType,
+          targetId: riskTargetId.trim(),
+          details: `Sandbox risk review for ${riskType.replaceAll('_', ' ')}. Transaction history was not rewritten.`,
+        },
+      });
+      if (!response.ok) {
+        setError(response.error.message);
+        return;
+      }
+      setRiskTargetId('');
+      await refresh();
+    } catch {
+      setError('Could not record this risk signal.');
+    }
+  };
+
+  return {
+    reports,
+    isLoading,
+    error,
+    query,
+    setQuery,
+    invariants,
+    riskSignals,
+    riskTargetId,
+    setRiskTargetId,
+    riskTargetType,
+    setRiskTargetType,
+    riskType,
+    setRiskType,
+    flagRisk,
+    decide,
+    assign,
+    reverse,
+  };
 }

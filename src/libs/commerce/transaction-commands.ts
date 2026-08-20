@@ -174,6 +174,7 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
         .toUpperCase()
         .regex(/^[A-Z0-9]{4,16}$/)
         .optional(),
+      paymentEndpoint: z.enum(['sandbox_paykit_btc', 'sandbox_labeled_invoice']).optional(),
     })
     .strict()
     .superRefine((payload, context) => {
@@ -412,6 +413,35 @@ export const sendMarketplaceMessageCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+export const blockMarketplaceConversationCommandSchema = createCommerceCommandSchema(
+  'message.block',
+  z
+    .object({
+      listingAggregateId: z.string().min(1),
+      peerPubky: commercePubkySchema,
+    })
+    .strict(),
+);
+
+export const flagMarketplaceRiskCommandSchema = createCommerceCommandSchema(
+  'trust.flag_risk',
+  z
+    .object({
+      signalType: z.enum([
+        'auction_manipulation',
+        'account_takeover',
+        'payment_abuse',
+        'refund_abuse',
+        'off_platform_scam',
+        'suspicious_payout',
+      ]),
+      targetType: z.enum(['listing', 'user', 'order', 'payment', 'auction']),
+      targetId: z.string().min(1).max(300),
+      details: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
 export const marketplaceCommandSchema = z.union([
   registerListingCommandSchema,
   reserveInventoryCommandSchema,
@@ -452,6 +482,8 @@ export const marketplaceCommandSchema = z.union([
   decideMarketplaceReportCommandSchema,
   assignMarketplaceReportCommandSchema,
   reverseMarketplaceReportCommandSchema,
+  blockMarketplaceConversationCommandSchema,
+  flagMarketplaceRiskCommandSchema,
 ]);
 
 export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
@@ -482,6 +514,8 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'promotion',
             'report',
             'blocked_buyer',
+            'conversation',
+            'risk_signal',
           ]),
         })
         .passthrough(),
@@ -542,6 +576,8 @@ export type CreateMarketplaceReportCommand = z.infer<typeof createMarketplaceRep
 export type DecideMarketplaceReportCommand = z.infer<typeof decideMarketplaceReportCommandSchema>;
 export type AssignMarketplaceReportCommand = z.infer<typeof assignMarketplaceReportCommandSchema>;
 export type ReverseMarketplaceReportCommand = z.infer<typeof reverseMarketplaceReportCommandSchema>;
+export type BlockMarketplaceConversationCommand = z.infer<typeof blockMarketplaceConversationCommandSchema>;
+export type FlagMarketplaceRiskCommand = z.infer<typeof flagMarketplaceRiskCommandSchema>;
 export type MarketplaceCommand = z.infer<typeof marketplaceCommandSchema>;
 export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandResponseSchema>;
 
@@ -583,4 +619,8 @@ export function buildMarketplacePromotionAggregateId(sellerPubky: string, code: 
 
 export function buildMarketplaceBlockedBuyersAggregateId(sellerPubky: string): string {
   return `blocked:${sellerPubky}`;
+}
+
+export function buildMarketplaceRiskAggregateId(commandId: string): string {
+  return `risk:${commandId}`;
 }

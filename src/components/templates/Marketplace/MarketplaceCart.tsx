@@ -12,7 +12,9 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Label } from '@/atoms/Label/Label';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
+import { COMMERCE_SANDBOX_PAYMENT_ENDPOINTS } from '@/config/commerce';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { formatCommerceMoney } from '@/libs/commerce/format';
@@ -136,6 +138,30 @@ export function MarketplaceCart() {
                   <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
                 </div>
                 <ControlledInputField name="couponCode" control={checkout.form.control} label="Coupon (optional)" />
+                <Controller
+                  name="paymentEndpoint"
+                  control={checkout.form.control}
+                  render={({ field }) => (
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="paymentEndpoint">Sandbox payment endpoint</Label>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger id="paymentEndpoint" className="h-11 w-full rounded-md border px-3">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {COMMERCE_SANDBOX_PAYMENT_ENDPOINTS.map((endpoint) => (
+                            <SelectItem key={endpoint.id} value={endpoint.id}>
+                              {endpoint.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Typography as="p" className="text-xs text-muted-foreground">
+                        Simulated Paykit discovery only. This does not open Bitkit or move Bitcoin.
+                      </Typography>
+                    </div>
+                  )}
+                />
                 <Controller
                   name="acceptsGuarantee"
                   control={checkout.form.control}

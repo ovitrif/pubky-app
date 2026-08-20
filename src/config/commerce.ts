@@ -38,6 +38,13 @@ export const COMMERCE_REVIEW_TEXT_MAX_CHARS = 5_000;
 export const COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS = 300;
 export const COMMERCE_CATALOG_SKELETON_COUNT = 8;
 
+export const COMMERCE_SANDBOX_PAYMENT_ENDPOINTS = [
+  { id: 'sandbox_paykit_btc', label: 'Sandbox Paykit BTC (simulated)' },
+  { id: 'sandbox_labeled_invoice', label: 'Sandbox labeled invoice (QR only)' },
+] as const;
+
+export type CommerceSandboxPaymentEndpointId = (typeof COMMERCE_SANDBOX_PAYMENT_ENDPOINTS)[number]['id'];
+
 export const COMMERCE_CATEGORIES = [
   { id: 'fashion', label: 'Fashion' },
   { id: 'electronics', label: 'Electronics' },

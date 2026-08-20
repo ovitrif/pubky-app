@@ -48,6 +48,7 @@ const conversationSchema = z
     buyerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
     lastMessageAt: z.string(),
+    blockedBy: z.array(commercePubkySchema).optional(),
     messages: z.array(
       z.object({
         id: z.uuid(),
@@ -267,6 +268,7 @@ const paymentSchema = z
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
     adapter: z.literal('sandbox'),
+    endpointId: z.enum(['sandbox_paykit_btc', 'sandbox_labeled_invoice']).optional(),
     state: z.enum(['awaiting_entitlement', 'detected', 'confirmed', 'expired', 'manual_review']),
     confirmations: z.number().int().min(0).max(6),
     locksBundleId: z.uuid(),
@@ -336,6 +338,24 @@ const statementSchema = z.object({
   entries: z.array(ledgerEntrySchema),
 });
 
+const riskSignalSchema = z.object({
+  id: z.uuid(),
+  revision: z.number().int().positive(),
+  actorPubky: commercePubkySchema,
+  signalType: z.enum([
+    'auction_manipulation',
+    'account_takeover',
+    'payment_abuse',
+    'refund_abuse',
+    'off_platform_scam',
+    'suspicious_payout',
+  ]),
+  targetType: z.enum(['listing', 'user', 'order', 'payment', 'auction']),
+  targetId: z.string(),
+  details: z.string(),
+  createdAt: z.string(),
+});
+
 const reputationSchema = z.object({
   sellerPubky: commercePubkySchema,
   reviewCount: z.number().int().nonnegative(),
@@ -361,6 +381,7 @@ export type MarketplaceLedgerEntry = z.infer<typeof ledgerEntrySchema>;
 export type MarketplacePromotion = z.infer<typeof promotionSchema>;
 export type MarketplaceSellerStatement = z.infer<typeof statementSchema>;
 export type MarketplaceSellerReputation = z.infer<typeof reputationSchema>;
+export type MarketplaceRiskSignal = z.infer<typeof riskSignalSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -791,6 +812,7 @@ export class MarketplaceGatewayService {
     reports: MarketplaceReport[];
     listings: Array<{ aggregateId: string; title?: string }>;
     orders: Array<{ id: string; state: string }>;
+    riskSignals?: MarketplaceRiskSignal[];
   }> {
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/admin/search?q=${encodeURIComponent(query)}`;
@@ -806,6 +828,7 @@ export class MarketplaceGatewayService {
         reports: z.array(reportSchema),
         listings: z.array(z.object({ aggregateId: z.string(), title: z.string().optional() }).passthrough()),
         orders: z.array(z.object({ id: z.string(), state: z.string() })),
+        riskSignals: z.array(riskSignalSchema).optional(),
       })
       .safeParse(raw);
     if (!parsed.success) {
@@ -816,6 +839,27 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data;
+  }
+
+  static async getRiskSignals(actor: string): Promise<MarketplaceRiskSignal[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/risk-signals`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getRiskSignals',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getRiskSignals', url);
+    const parsed = z.object({ signals: z.array(riskSignalSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid risk signals.', {
+        service: ErrorService.Marketplace,
+        operation: 'getRiskSignals',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.signals;
   }
 
   static async exportAccount(actor: string): Promise<unknown> {

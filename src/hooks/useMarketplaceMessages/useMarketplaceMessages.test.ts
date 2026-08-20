@@ -67,4 +67,34 @@ describe('useMarketplaceMessages', () => {
       }),
     );
   });
+
+  it('blocks the listing conversation with the seller', async () => {
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000922',
+      aggregateId: `conversation:${SELLER}_${BUYER}_boots_01`,
+      revision: 1,
+      eventIds: ['00000000-0000-4000-8000-000000000923'],
+      result: { kind: 'conversation' },
+    });
+    const { result } = renderHook(() => useMarketplaceMessages(SELLER, 'boots_01'));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.block();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'message.block',
+        payload: {
+          listingAggregateId: `listing:${SELLER}_boots_01`,
+          peerPubky: SELLER,
+        },
+      }),
+    );
+  });
 });

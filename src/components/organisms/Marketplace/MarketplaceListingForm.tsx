@@ -1,6 +1,6 @@
 'use client';
 
-import { ImagePlus, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, ImagePlus, Plus, Trash2 } from 'lucide-react';
 import { Controller, useFieldArray, type UseFormReturn, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -26,7 +26,17 @@ export interface MarketplaceListingFormProps {
 }
 
 export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: MarketplaceListingFormProps) {
-  const { previewUrl, error: pickerError, inputRef, onInputChange, choose, remove } = media;
+  const {
+    items,
+    error: pickerError,
+    inputRef,
+    onInputChange,
+    choose,
+    removeAt,
+    moveUp,
+    moveDown,
+    setItemAltText,
+  } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
   const variants = useFieldArray({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS });
@@ -37,7 +47,11 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
         ? 'Image is too large.'
         : pickerError === 'decode-failed'
           ? 'Image could not be processed.'
-          : null;
+          : pickerError === 'limit-reached'
+            ? 'You can add up to 12 listing photos.'
+            : pickerError === 'missing-caption'
+              ? 'Add a caption for each photo.'
+              : null;
 
   return (
     <form
@@ -54,26 +68,99 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
               Photos
             </Typography>
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              Upload a clear cover image. Metadata is stripped before publication.
+              Add up to 12 photos. The first image is the cover. Reorder, caption, and remove before publishing.
+              Metadata is stripped.
             </Typography>
           </div>
-          <div
-            className="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card bg-cover bg-center"
-            style={previewUrl ? { backgroundImage: `url(${previewUrl})` } : undefined}
-          >
-            {previewUrl ? (
-              <Button type="button" variant="secondary" className="rounded-full" onClick={remove}>
-                <Trash2 className="mr-2 size-4" />
-                Remove image
-              </Button>
-            ) : (
+          {items.length === 0 ? (
+            <div className="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card">
               <Button type="button" variant="secondary" className="rounded-full" onClick={choose}>
                 <ImagePlus className="mr-2 size-4" />
                 Add image
               </Button>
-            )}
-          </div>
-          <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onInputChange} />
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {items.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="grid gap-3 rounded-xl border bg-card/60 p-3 sm:grid-cols-[160px_1fr_auto]"
+                >
+                  <div
+                    className="min-h-32 rounded-lg bg-cover bg-center"
+                    style={{ backgroundImage: `url(${item.previewUrl})` }}
+                    role="img"
+                    aria-label={item.altText || `Listing photo ${index + 1}`}
+                  />
+                  <div className="flex flex-col gap-2">
+                    <Typography as="p" className="text-sm font-semibold">
+                      {index === 0 ? 'Cover photo' : `Photo ${index + 1}`}
+                    </Typography>
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className={FORM_LABEL_CLASSES}>Caption</span>
+                      <input
+                        className="h-11 rounded-md border bg-background px-3"
+                        value={item.altText}
+                        maxLength={300}
+                        placeholder={index === 0 ? 'Cover description' : 'Describe this photo'}
+                        disabled={isPublishing}
+                        onChange={(event) => setItemAltText(item.id, event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="flex flex-row gap-1 sm:flex-col">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="rounded-full"
+                      aria-label={`Move photo ${index + 1} up`}
+                      disabled={isPublishing || index === 0}
+                      onClick={() => moveUp(index)}
+                    >
+                      <ChevronUp className="size-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="rounded-full"
+                      aria-label={`Move photo ${index + 1} down`}
+                      disabled={isPublishing || index === items.length - 1}
+                      onClick={() => moveDown(index)}
+                    >
+                      <ChevronDown className="size-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="rounded-full"
+                      aria-label={`Remove photo ${index + 1}`}
+                      disabled={isPublishing}
+                      onClick={() => removeAt(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {items.length < 12 && (
+                <Button type="button" variant="secondary" className="w-fit rounded-full" onClick={choose}>
+                  <ImagePlus className="mr-2 size-4" />
+                  Add another photo
+                </Button>
+              )}
+            </div>
+          )}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            hidden
+            multiple
+            onChange={onInputChange}
+          />
           {mediaError && (
             <Typography as="p" role="alert" className="text-sm text-destructive">
               {mediaError}
@@ -82,7 +169,7 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
           <ControlledInputField
             name={CREATE_MARKETPLACE_LISTING_FIELDS.ALT_TEXT}
             control={form.control}
-            label="Image description"
+            label="Cover image description"
             placeholder="Describe the item for people using screen readers"
             disabled={isPublishing}
           />

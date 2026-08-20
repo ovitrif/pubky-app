@@ -17,6 +17,7 @@ export const marketplaceCheckoutSchema = z.object({
     .trim()
     .toUpperCase()
     .refine((value) => value === '' || /^[A-Z0-9]{4,16}$/.test(value), 'Enter a valid coupon or leave empty.'),
+  paymentEndpoint: z.enum(['sandbox_paykit_btc', 'sandbox_labeled_invoice']),
 });
 
 export type MarketplaceCheckoutData = z.infer<typeof marketplaceCheckoutSchema>;
@@ -31,4 +32,5 @@ export const marketplaceCheckoutDefaults: MarketplaceCheckoutData = {
   countryCode: 'US',
   acceptsGuarantee: true,
   couponCode: '',
+  paymentEndpoint: 'sandbox_paykit_btc',
 };

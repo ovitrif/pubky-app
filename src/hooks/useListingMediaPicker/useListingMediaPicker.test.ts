@@ -20,7 +20,12 @@ function changeEvent(file: File): ChangeEvent<HTMLInputElement> {
 describe('useListingMediaPicker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770120');
+    let uuid = 0;
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(
+      () => `018f47d2-6a27-7c23-a49d-6b21bb77${(uuid++).toString().padStart(4, '0')}`,
+    );
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:listing-media');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.stubGlobal(
       'createImageBitmap',
       vi.fn(async () =>
@@ -50,7 +55,7 @@ describe('useListingMediaPicker', () => {
     expect(stripImageMetadata).toHaveBeenCalledWith(file);
     expect(prepared).toMatchObject({
       record: {
-        id: '018f47d26a277c23a49d6b21bb770120',
+        id: '018f47d26a277c23a49d6b21bb770001',
         type: 'image',
         mimeType: 'image/jpeg',
         byteSize: 3,
@@ -72,5 +77,40 @@ describe('useListingMediaPicker', () => {
 
     act(() => result.current.onInputChange(changeEvent(new File(['abc'], 'large.jpg', { type: 'image/jpeg' }))));
     expect(result.current.error).toBe('too-large');
+  });
+
+  it('adds, captions, reorders, and prepares a gallery', async () => {
+    const first = new File([new Uint8Array([1, 2, 3])], 'cover.jpg', { type: 'image/jpeg' });
+    const second = new File([new Uint8Array([4, 5, 6])], 'side.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(first, 'arrayBuffer', {
+      value: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer),
+    });
+    Object.defineProperty(second, 'arrayBuffer', {
+      value: vi.fn(async () => new Uint8Array([4, 5, 6]).buffer),
+    });
+    const { result } = renderHook(() => useListingMediaPicker());
+
+    act(() =>
+      result.current.onInputChange(
+        asOpaque<ChangeEvent<HTMLInputElement>>({
+          target: { files: [first, second], value: '' },
+        }),
+      ),
+    );
+    expect(result.current.items).toHaveLength(2);
+
+    act(() => result.current.setItemAltText(result.current.items[0].id, 'Cover boots'));
+    act(() => result.current.setItemAltText(result.current.items[1].id, 'Side profile'));
+    act(() => result.current.moveDown(0));
+    expect(result.current.items.map((item) => item.file.name)).toEqual(['side.jpg', 'cover.jpg']);
+
+    const preparedBox: { current: PreparedListingMedia[] | null } = { current: null };
+    await act(async () => {
+      preparedBox.current = await result.current.prepareGallery(OWNER);
+    });
+
+    expect(preparedBox.current).toHaveLength(2);
+    expect(preparedBox.current?.[0].record.altText).toBe('Side profile');
+    expect(preparedBox.current?.[1].record.altText).toBe('Cover boots');
   });
 });

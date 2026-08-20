@@ -1379,4 +1379,80 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getInvariants().unbalancedOrders).toEqual([]);
     expect(service.searchAdmin(MARKETPLACE_SANDBOX_MODERATOR, 'fake').reports).toHaveLength(1);
   });
+
+  it('blocks a conversation without deleting history and rejects later sends', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    await service.execute(
+      BUYER,
+      messageCommand(BUYER, SELLER, 0, '00000000-0000-4000-8000-000000001500', 'Is this still available?'),
+    );
+    await expect(
+      service.execute(BUYER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001501',
+        aggregateId: buildMarketplaceConversationAggregateId(SELLER, BUYER, 'boots_01'),
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'message.block',
+        payload: { listingAggregateId: AGGREGATE_ID, peerPubky: SELLER },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: {
+        kind: 'conversation',
+        conversation: { blockedBy: [BUYER], messages: [{ text: 'Is this still available?' }] },
+      },
+    });
+    await expect(
+      service.execute(BUYER, messageCommand(BUYER, SELLER, 2, '00000000-0000-4000-8000-000000001502', 'Still there?')),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+  });
+
+  it('records append-only risk signals without changing order or listing state', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+    const orderId = checkout.result.orders[0].id;
+    const commandId = '00000000-0000-4000-8000-000000001510';
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId,
+        aggregateId: `risk:${commandId}`,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.flag_risk',
+        payload: {
+          signalType: 'auction_manipulation',
+          targetType: 'order',
+          targetId: orderId,
+          details: 'Bid pattern looks coordinated.',
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'risk_signal', signal: { signalType: 'auction_manipulation' } },
+    });
+    expect(service.getOrders(BUYER)[0].state).toBe('pending_payment');
+    expect(service.getRiskSignals(BUYER)).toEqual([]);
+    expect(service.getRiskSignals(MARKETPLACE_SANDBOX_MODERATOR)).toHaveLength(1);
+    expect(service.searchAdmin(MARKETPLACE_SANDBOX_MODERATOR, 'coordinated').riskSignals).toHaveLength(1);
+  });
+
+  it('stores the labeled sandbox payment endpoint on checkout', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const command = checkoutCommand();
+    await expect(
+      service.execute(BUYER, {
+        ...command,
+        payload: { ...command.payload, paymentEndpoint: 'sandbox_labeled_invoice' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'checkout', payments: [{ endpointId: 'sandbox_labeled_invoice', adapter: 'sandbox' }] },
+    });
+  });
 });

@@ -27,8 +27,10 @@ import {
   type CreatePromotionCommand,
   type CreateReviewCommand,
   type AssignMarketplaceReportCommand,
+  type BlockMarketplaceConversationCommand,
   type DecideMarketplaceReportCommand,
   type EditReviewCommand,
+  type FlagMarketplaceRiskCommand,
   type MarketplaceCommand,
   marketplaceCommandSchema,
   type MarkMarketplaceNotificationReadCommand,
@@ -172,6 +174,26 @@ export interface MarketplaceConversation {
   revision: number;
   lastMessageAt: string;
   messages: MarketplaceMessage[];
+  blockedBy: string[];
+}
+
+export type MarketplaceRiskSignalType =
+  | 'auction_manipulation'
+  | 'account_takeover'
+  | 'payment_abuse'
+  | 'refund_abuse'
+  | 'off_platform_scam'
+  | 'suspicious_payout';
+
+export interface MarketplaceRiskSignal {
+  id: string;
+  revision: number;
+  actorPubky: string;
+  signalType: MarketplaceRiskSignalType;
+  targetType: 'listing' | 'user' | 'order' | 'payment' | 'auction';
+  targetId: string;
+  details: string;
+  createdAt: string;
 }
 
 export interface MarketplaceNotification {
@@ -394,6 +416,7 @@ export interface MarketplacePayment {
   sellerPubky: string;
   revision: number;
   adapter: 'sandbox';
+  endpointId: 'sandbox_paykit_btc' | 'sandbox_labeled_invoice';
   state: 'awaiting_entitlement' | 'detected' | 'confirmed' | 'expired' | 'manual_review';
   confirmations: number;
   locksBundleId: string;
@@ -462,6 +485,8 @@ export interface MarketplaceEvent {
     | 'trust.decided'
     | 'trust.assigned'
     | 'trust.reversed'
+    | 'trust.risk_flagged'
+    | 'message.blocked'
     | 'buyer.blocked'
     | 'buyer.unblocked'
     | 'ledger.posted';
@@ -515,7 +540,9 @@ export type MarketplaceCommandSuccess = {
     | { kind: 'review'; order: MarketplaceOrder; review: MarketplaceReview }
     | { kind: 'promotion'; promotion: MarketplacePromotion }
     | { kind: 'report'; report: MarketplaceReport }
-    | { kind: 'blocked_buyer'; sellerPubky: string; buyerPubky: string; blocked: boolean };
+    | { kind: 'blocked_buyer'; sellerPubky: string; buyerPubky: string; blocked: boolean }
+    | { kind: 'conversation'; conversation: MarketplaceConversation }
+    | { kind: 'risk_signal'; signal: MarketplaceRiskSignal };
 };
 
 export type MarketplaceCommandFailure = {
@@ -577,6 +604,7 @@ export type MarketplaceRepositorySnapshot = {
   reports: MarketplaceReport[];
   promotions: MarketplacePromotion[];
   blockedBuyers: Array<{ sellerPubky: string; buyerPubkys: string[] }>;
+  riskSignals: MarketplaceRiskSignal[];
   ledger: MarketplaceLedgerEntry[];
   commands: Array<{ key: string; stored: StoredCommand }>;
   events: MarketplaceEvent[];
@@ -598,6 +626,7 @@ export class InMemoryMarketplaceRepository {
   private reports = new Map<string, MarketplaceReport>();
   private promotions = new Map<string, MarketplacePromotion>();
   private blockedBuyers = new Map<string, Set<string>>();
+  private riskSignals = new Map<string, MarketplaceRiskSignal>();
   private enforcements = new Map<string, MarketplaceEnforcement>();
   private ledger: MarketplaceLedgerEntry[] = [];
   private commands = new Map<string, StoredCommand>();
@@ -743,6 +772,14 @@ export class InMemoryMarketplaceRepository {
     return [...this.reports.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  putRiskSignal(signal: MarketplaceRiskSignal): void {
+    this.riskSignals.set(signal.id, signal);
+  }
+
+  getRiskSignals(): MarketplaceRiskSignal[] {
+    return [...this.riskSignals.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   getReport(id: string): MarketplaceReport | undefined {
     return this.reports.get(id);
   }
@@ -858,6 +895,7 @@ export class InMemoryMarketplaceRepository {
         sellerPubky,
         buyerPubkys: [...buyerPubkys],
       })),
+      riskSignals: [...this.riskSignals.values()],
       ledger: [...this.ledger],
       commands: [...this.commands.entries()].map(([key, stored]) => ({ key, stored })),
       events: [...this.events],
@@ -874,7 +912,12 @@ export class InMemoryMarketplaceRepository {
       bids.set(bid.listingAggregateId, [...(bids.get(bid.listingAggregateId) ?? []), bid]);
     }
     this.bids = bids;
-    this.conversations = new Map(snapshot.conversations.map((conversation) => [conversation.id, conversation]));
+    this.conversations = new Map(
+      snapshot.conversations.map((conversation) => [
+        conversation.id,
+        { ...conversation, blockedBy: conversation.blockedBy ?? [] },
+      ]),
+    );
     this.notifications = [...snapshot.notifications];
     this.notificationPreferences = new Map(
       snapshot.notificationPreferences.map((preferences) => [preferences.ownerPubky, preferences]),
@@ -903,6 +946,7 @@ export class InMemoryMarketplaceRepository {
     this.blockedBuyers = new Map(
       snapshot.blockedBuyers.map(({ sellerPubky, buyerPubkys }) => [sellerPubky, new Set(buyerPubkys)]),
     );
+    this.riskSignals = new Map((snapshot.riskSignals ?? []).map((signal) => [signal.id, signal]));
     this.ledger = [...snapshot.ledger];
     this.commands = new Map(snapshot.commands.map(({ key, stored }) => [key, stored]));
     this.events = [...snapshot.events];
@@ -1008,6 +1052,13 @@ export class MarketplaceTransactionService {
     return actorPubky === MARKETPLACE_SANDBOX_MODERATOR ? this.repository.getReports() : [];
   }
 
+  getRiskSignals(actorPubky: string): MarketplaceRiskSignal[] {
+    const signals = this.repository.getRiskSignals();
+    return actorPubky === MARKETPLACE_SANDBOX_MODERATOR
+      ? signals
+      : signals.filter((signal) => signal.actorPubky === actorPubky);
+  }
+
   getRestrictedListingIds(): string[] {
     return this.repository.getRestrictedListingIds();
   }
@@ -1104,9 +1155,10 @@ export class MarketplaceTransactionService {
     reports: MarketplaceReport[];
     listings: MarketplaceListingAggregate[];
     orders: Array<{ id: string; state: string }>;
+    riskSignals: MarketplaceRiskSignal[];
   } {
     if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
-      return { reports: [], listings: [], orders: [] };
+      return { reports: [], listings: [], orders: [], riskSignals: [] };
     }
     const needle = query.trim().toLowerCase();
     const matches = (value: string) => !needle || value.toLowerCase().includes(needle);
@@ -1124,6 +1176,12 @@ export class MarketplaceTransactionService {
         .exportSnapshot()
         .orders.filter((order) => matches(order.id) || matches(order.buyerPubky) || matches(order.sellerPubky))
         .map((order) => ({ id: order.id, state: order.state })),
+      riskSignals: this.repository
+        .getRiskSignals()
+        .filter(
+          (signal) =>
+            matches(signal.targetId) || matches(signal.signalType) || matches(signal.details) || matches(signal.id),
+        ),
     };
   }
 
@@ -1256,6 +1314,8 @@ export class MarketplaceTransactionService {
         return this.placeBid(actorPubky, command);
       case 'message.send':
         return this.sendMessage(actorPubky, command);
+      case 'message.block':
+        return this.blockConversation(actorPubky, command);
       case 'auction.close':
         return this.closeAuction(actorPubky, command);
       case 'auction.buy_now':
@@ -1314,6 +1374,8 @@ export class MarketplaceTransactionService {
         return this.assignReport(actorPubky, command);
       case 'trust.reverse':
         return this.reverseReport(actorPubky, command);
+      case 'trust.flag_risk':
+        return this.flagRisk(actorPubky, command);
     }
   }
 
@@ -2074,6 +2136,9 @@ export class MarketplaceTransactionService {
       attachments: attachments.map((attachment) => toAttachmentMetadata(attachment!)),
       createdAt: occurredAt,
     };
+    if (current?.blockedBy.length) {
+      return failure('UNAUTHORIZED', 'This conversation is blocked.');
+    }
     const conversation: MarketplaceConversation = {
       id: command.aggregateId,
       listingAggregateId: listing.aggregateId,
@@ -2082,6 +2147,7 @@ export class MarketplaceTransactionService {
       revision: currentRevision + 1,
       lastMessageAt: occurredAt,
       messages: [...(current?.messages ?? []), message],
+      blockedBy: current?.blockedBy ?? [],
     };
     const event = this.createEvent(actorPubky, command, conversation.revision, 'message.sent', occurredAt);
     this.repository.putConversation(conversation);
@@ -2298,6 +2364,7 @@ export class MarketplaceTransactionService {
         sellerPubky,
         revision: 1,
         adapter: 'sandbox',
+        endpointId: command.payload.paymentEndpoint ?? 'sandbox_paykit_btc',
         state: 'awaiting_entitlement',
         confirmations: 0,
         locksBundleId: randomUUID(),
@@ -2832,6 +2899,75 @@ export class MarketplaceTransactionService {
     const event = this.createEvent(actorPubky, command, 1, 'trust.reported', report.createdAt);
     this.repository.appendEvent(event);
     return success(command, 1, event.id, { kind: 'report', report });
+  }
+
+  private blockConversation(
+    actorPubky: string,
+    command: BlockMarketplaceConversationCommand,
+  ): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.payload.listingAggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The conversation listing is unavailable.');
+    const actorIsSeller = actorPubky === listing.sellerPubky;
+    const peerPubky = command.payload.peerPubky;
+    if (peerPubky === actorPubky) {
+      return failure('INVALID_COMMAND', 'A participant cannot block themselves.');
+    }
+    if (!actorIsSeller && peerPubky !== listing.sellerPubky) {
+      return failure('UNAUTHORIZED', 'A buyer may only block the listing seller.');
+    }
+    const buyerPubky = actorIsSeller ? peerPubky : actorPubky;
+    const expectedConversationId = buildMarketplaceConversationAggregateId(
+      listing.sellerPubky,
+      buyerPubky,
+      listing.listingId,
+    );
+    if (command.aggregateId !== expectedConversationId) {
+      return failure('INVALID_COMMAND', 'The conversation aggregate id is invalid.');
+    }
+    const current = this.repository.getConversation(command.aggregateId);
+    const currentRevision = current?.revision ?? 0;
+    if (command.expectedRevision !== currentRevision) {
+      return failure('REVISION_CONFLICT', 'The conversation revision is stale.', { currentRevision });
+    }
+    if (current?.blockedBy.includes(actorPubky)) {
+      return failure('INVALID_STATE', 'This conversation is already blocked.');
+    }
+    const occurredAt = this.now().toISOString();
+    const conversation: MarketplaceConversation = {
+      id: command.aggregateId,
+      listingAggregateId: listing.aggregateId,
+      sellerPubky: listing.sellerPubky,
+      buyerPubky,
+      revision: currentRevision + 1,
+      lastMessageAt: current?.lastMessageAt ?? occurredAt,
+      messages: current?.messages ?? [],
+      blockedBy: [...(current?.blockedBy ?? []), actorPubky],
+    };
+    const event = this.createEvent(actorPubky, command, conversation.revision, 'message.blocked', occurredAt);
+    this.repository.putConversation(conversation);
+    this.repository.appendEvent(event);
+    return success(command, conversation.revision, event.id, { kind: 'conversation', conversation });
+  }
+
+  private flagRisk(actorPubky: string, command: FlagMarketplaceRiskCommand): MarketplaceCommandResult {
+    if (command.aggregateId !== `risk:${command.commandId}` || command.expectedRevision !== 0) {
+      return failure('INVALID_COMMAND', 'The risk-signal aggregate identity is invalid.');
+    }
+    const occurredAt = this.now().toISOString();
+    const signal: MarketplaceRiskSignal = {
+      id: command.commandId,
+      revision: 1,
+      actorPubky,
+      signalType: command.payload.signalType,
+      targetType: command.payload.targetType,
+      targetId: command.payload.targetId,
+      details: command.payload.details,
+      createdAt: occurredAt,
+    };
+    const event = this.createEvent(actorPubky, command, 1, 'trust.risk_flagged', occurredAt);
+    this.repository.putRiskSignal(signal);
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, { kind: 'risk_signal', signal });
   }
 
   private editReview(actorPubky: string, command: EditReviewCommand): MarketplaceCommandResult {

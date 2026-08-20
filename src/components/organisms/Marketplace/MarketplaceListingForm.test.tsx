@@ -13,13 +13,19 @@ import { MarketplaceListingForm } from './MarketplaceListingForm';
 const media: UseListingMediaPickerResult = {
   file: null,
   previewUrl: null,
+  items: [],
   error: null,
   inputRef: createRef<HTMLInputElement>(),
   onInputChange: vi.fn(),
   choose: vi.fn(),
   remove: vi.fn(),
+  removeAt: vi.fn(),
+  moveUp: vi.fn(),
+  moveDown: vi.fn(),
+  setItemAltText: vi.fn(),
   reset: vi.fn(),
   prepare: vi.fn(),
+  prepareGallery: vi.fn(),
 };
 
 function FormHarness({
@@ -53,6 +59,48 @@ describe('MarketplaceListingForm', () => {
 
     expect(screen.queryByText('Flat shipping (USD)')).not.toBeInTheDocument();
     expect(screen.queryByText('Weight (grams)')).not.toBeInTheDocument();
+  });
+
+  it('reorders and captions gallery photos', async () => {
+    const user = userEvent.setup();
+    const galleryMedia: UseListingMediaPickerResult = {
+      ...media,
+      items: [
+        {
+          id: 'photo_1',
+          file: new File(['a'], 'cover.jpg', { type: 'image/jpeg' }),
+          previewUrl: 'blob:cover',
+          altText: 'Cover',
+        },
+        {
+          id: 'photo_2',
+          file: new File(['b'], 'side.jpg', { type: 'image/jpeg' }),
+          previewUrl: 'blob:side',
+          altText: 'Side',
+        },
+      ],
+    };
+    function GalleryHarness() {
+      const form = useForm<CreateMarketplaceListingData>({
+        defaultValues: { ...createMarketplaceListingDefaults, fulfillment: 'pickup' },
+      });
+      return (
+        <MarketplaceListingForm
+          form={form}
+          media={galleryMedia}
+          onSubmit={vi.fn(async () => {})}
+          isPublishing={false}
+        />
+      );
+    }
+    render(<GalleryHarness />);
+
+    expect(screen.getByText('Cover photo')).toBeInTheDocument();
+    expect(screen.getByText('Photo 2')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Move photo 2 up' }));
+    expect(galleryMedia.moveUp).toHaveBeenCalledWith(1);
+    await user.click(screen.getByRole('button', { name: 'Add another photo' }));
+    expect(galleryMedia.choose).toHaveBeenCalled();
   });
 
   it('opens the dedicated image picker and submits through the form owner', async () => {

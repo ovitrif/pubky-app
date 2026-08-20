@@ -17,6 +17,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { printMarketplacePackingSlip } from '@/libs/commerce/packing-slip';
+import { printMarketplaceShippingLabel } from '@/libs/commerce/shipping-label';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 
 export function MarketplaceDashboard() {
@@ -345,6 +346,14 @@ export function MarketplaceDashboard() {
                           onClick={() => printMarketplacePackingSlip(order)}
                         >
                           Packing slip
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="rounded-full"
+                          onClick={() => printMarketplaceShippingLabel(order)}
+                        >
+                          Shipping label
                         </Button>
                         {order.payoutState === 'held' &&
                           ['delivered', 'completed'].includes(order.state) &&

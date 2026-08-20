@@ -144,6 +144,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getInvariants(actorPubky);
   }
 
+  static async getMarketplaceRiskSignals(actorPubky: string) {
+    return await MarketplaceGatewayService.getRiskSignals(actorPubky);
+  }
+
   static async searchMarketplaceAdmin(actorPubky: string, query: string) {
     return await MarketplaceGatewayService.searchAdmin(actorPubky, query);
   }

@@ -69,6 +69,7 @@ export function useMarketplaceCheckout(
               countryCode: data.countryCode.toUpperCase(),
             },
             guaranteePolicyVersion: 1,
+            paymentEndpoint: data.paymentEndpoint,
             ...(data.couponCode ? { couponCode: data.couponCode } : {}),
           },
         });

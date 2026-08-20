@@ -81,18 +81,26 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     let createdListingId: string | null = null;
 
     await form.handleSubmit(async (data) => {
-      const preparedMedia = await media.prepare(currentUserPubky, data.altText);
-      if (!preparedMedia) {
+      const preparedGallery = await media.prepareGallery(currentUserPubky, data.altText);
+      if (!preparedGallery?.length) {
         toast({
           variant: 'error',
-          description: media.file ? 'Could not prepare this listing image.' : 'Add a listing image.',
+          description: media.file
+            ? 'Could not prepare listing photos. Add a caption for each image.'
+            : 'Add a listing image.',
         });
         return;
       }
 
       try {
-        await CommerceController.commitCreateMedia(preparedMedia.record.id, preparedMedia.bytes);
-        const listing = buildListingRecord(currentUserPubky, data, preparedMedia.record);
+        for (const preparedMedia of preparedGallery) {
+          await CommerceController.commitCreateMedia(preparedMedia.record.id, preparedMedia.bytes);
+        }
+        const listing = buildListingRecord(
+          currentUserPubky,
+          data,
+          preparedGallery.map((prepared) => prepared.record),
+        );
         await CommerceController.commitUpsertListing(listing);
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
@@ -120,7 +128,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
 function buildListingRecord(
   ownerPubky: string,
   data: CreateMarketplaceListingData,
-  media: CommerceListingRecord['media'][number],
+  media: CommerceListingRecord['media'],
 ): CommerceListingRecord {
   const now = new Date();
   const listingId = crypto.randomUUID().replaceAll('-', '');
@@ -167,7 +175,7 @@ function buildListingRecord(
       countryCode: data.countryCode.toUpperCase(),
       region: data.region || undefined,
     },
-    media: [media],
+    media,
     variants: data.variants.map((variant, index) => ({
       id: `variant_${index + 1}`,
       sku: variant.sku || undefined,
@@ -182,7 +190,7 @@ function buildListingRecord(
         ? { amountMinor: Math.round(Number(variant.priceOverride) * 100), currency: 'USD', exponent: 2 }
         : undefined,
       quantity: Number(variant.quantity),
-      mediaIds: [media.id],
+      mediaIds: media.map((item) => item.id),
       enabled: true,
     })),
     sale,

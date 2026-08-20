@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Bell, Gavel, Heart, MapPin, PackageCheck, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
+import { ArrowLeft, Bell, Heart, MapPin, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -24,6 +24,7 @@ import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import { MarketplaceListingGallery } from '@/organisms/Marketplace/MarketplaceListingGallery';
 import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
@@ -140,17 +141,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
         </Link>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-          <div className="relative flex min-h-[440px] items-center justify-center overflow-hidden rounded-2xl border bg-linear-to-br from-brand/35 via-purple-500/15 to-card lg:min-h-[640px]">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.18),transparent_32%)]" />
-            {record.sale.format === 'auction' ? (
-              <Gavel className="size-32 text-foreground/75 drop-shadow-2xl" />
-            ) : (
-              <PackageCheck className="size-32 text-foreground/75 drop-shadow-2xl" />
-            )}
-            <Badge className="absolute top-4 left-4 bg-background/85 text-foreground backdrop-blur-md">
-              {record.sale.format === 'auction' ? 'Live auction' : 'Buy now'}
-            </Badge>
-          </div>
+          <MarketplaceListingGallery media={record.media} saleFormat={record.sale.format} />
 
           <div className="flex flex-col gap-5">
             <div>

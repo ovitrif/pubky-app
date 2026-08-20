@@ -24,11 +24,11 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           class="font-medium mt-1 text-sm text-muted-foreground"
           data-testid="typography"
         >
-          Upload a clear cover image. Metadata is stripped before publication.
+          Add up to 12 photos. The first image is the cover. Reorder, caption, and remove before publishing. Metadata is stripped.
         </p>
       </div>
       <div
-        class="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card bg-cover bg-center"
+        class="relative flex min-h-56 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-card"
       >
         <button
           class="inline-flex items-center justify-center whitespace-nowrap text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*=\\"size-\\"])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive font-semibold cursor-pointer border shadow-xs bg-secondary text-secondary-foreground hover:bg-accent h-10 gap-1 px-4 py-2 has-[>svg]:px-4 rounded-full"
@@ -73,6 +73,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
       <input
         accept="image/jpeg,image/png,image/webp"
         hidden=""
+        multiple=""
         type="file"
       />
       <div
@@ -84,7 +85,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           data-slot="label"
           for="altText"
         >
-          Image description
+          Cover image description
         </label>
         <div
           class="flex !bg-alpha-90/10 mx-0 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent pl-2 border-dashed h-14 text-lg mb-0"

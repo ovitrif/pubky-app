@@ -96,6 +96,7 @@ describe('useMarketplaceCheckout', () => {
             },
           ],
           guaranteePolicyVersion: 1,
+          paymentEndpoint: 'sandbox_paykit_btc',
         }),
       }),
     );

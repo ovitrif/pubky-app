@@ -30,14 +30,22 @@ vi.mock('@/hooks/useListingMediaPicker/useListingMediaPicker', () => ({
   useListingMediaPicker: () => ({
     file: new File(['image'], 'boots.jpg', { type: 'image/jpeg' }),
     previewUrl: 'blob:boots',
+    items: [],
     error: null,
     inputRef: { current: null },
     onInputChange: vi.fn(),
     choose: vi.fn(),
     remove: vi.fn(),
+    removeAt: vi.fn(),
+    moveUp: vi.fn(),
+    moveDown: vi.fn(),
+    setItemAltText: vi.fn(),
     reset: vi.fn(),
     prepare: vi.fn(async () =>
       mediaState.prepared ? { record: mediaRecord, bytes: new Uint8Array([1, 2, 3]) } : null,
+    ),
+    prepareGallery: vi.fn(async () =>
+      mediaState.prepared ? [{ record: mediaRecord, bytes: new Uint8Array([1, 2, 3]) }] : null,
     ),
   }),
 }));

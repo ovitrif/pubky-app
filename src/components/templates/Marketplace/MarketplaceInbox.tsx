@@ -2,6 +2,8 @@
 
 import { ArrowLeft, MessageCircle } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
+import { Badge } from '@/atoms/Badge/Badge';
+import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -14,7 +16,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const { conversations, isLoading, error } = useMarketplaceInbox();
+  const { conversations, isLoading, error, block } = useMarketplaceInbox();
 
   return (
     <ContentLayout
@@ -56,10 +58,11 @@ export function MarketplaceInbox() {
               const counterpart =
                 currentUserPubky === conversation.sellerPubky ? conversation.buyerPubky : conversation.sellerPubky;
               const listingRoute = listingRouteFromAggregate(conversation.listingAggregateId);
+              const blocked = Boolean(conversation.blockedBy?.length);
               return (
-                <Link key={conversation.id} href={listingRoute} overrideDefaults>
-                  <Card className="border py-4 transition-colors hover:border-brand/40">
-                    <CardContent className="flex items-center gap-4 px-4">
+                <Card key={conversation.id} className="border py-4">
+                  <CardContent className="flex items-center gap-4 px-4">
+                    <Link href={listingRoute} overrideDefaults className="flex min-w-0 flex-1 items-center gap-4">
                       <div className="rounded-full bg-brand/15 p-3 text-brand">
                         <MessageCircle className="size-5" />
                       </div>
@@ -71,12 +74,23 @@ export function MarketplaceInbox() {
                           {last?.text ?? 'Conversation started'}
                         </Typography>
                       </div>
-                      <time className="text-xs text-muted-foreground">
-                        {last ? new Date(last.createdAt).toLocaleDateString('en-US') : ''}
-                      </time>
-                    </CardContent>
-                  </Card>
-                </Link>
+                    </Link>
+                    {blocked && <Badge variant="outline">Blocked</Badge>}
+                    <time className="text-xs text-muted-foreground">
+                      {last ? new Date(last.createdAt).toLocaleDateString('en-US') : ''}
+                    </time>
+                    {!blocked && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="rounded-full"
+                        onClick={() => void block(conversation)}
+                      >
+                        Block
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
               );
             })}
           </div>

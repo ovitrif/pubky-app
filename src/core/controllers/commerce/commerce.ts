@@ -366,6 +366,10 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceInvariants(this.getCurrentUserPubky());
   }
 
+  static async getMarketplaceRiskSignals() {
+    return await CommerceApplication.getMarketplaceRiskSignals(this.getCurrentUserPubky());
+  }
+
   static async searchMarketplaceAdmin(query: unknown) {
     return await CommerceApplication.searchMarketplaceAdmin(
       this.getCurrentUserPubky(),

@@ -18,6 +18,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
   const { requireAuth } = useRequireAuth();
   const messages = useMarketplaceMessages(sellerPubky, listingId);
   const { previewUrl, error: attachmentError, inputRef, onInputChange, choose, remove } = messages.attachment;
+  const blocked = Boolean(messages.conversation?.blockedBy?.length);
 
   const submit = async () => {
     await messages.submit();
@@ -78,13 +79,19 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
             </Typography>
           )}
         </div>
-        <ControlledTextareaField
-          name="text"
-          control={messages.form.control}
-          label="Message"
-          placeholder="Is this still available?"
-          rows={3}
-        />
+        {blocked ? (
+          <Typography as="p" role="status" className="rounded-lg border bg-secondary/40 p-3 text-sm">
+            This conversation is blocked. Existing messages stay visible and no new messages can be sent.
+          </Typography>
+        ) : (
+          <ControlledTextareaField
+            name="text"
+            control={messages.form.control}
+            label="Message"
+            placeholder="Is this still available?"
+            rows={3}
+          />
+        )}
         <div className="flex items-center gap-3">
           {previewUrl ? (
             <div
@@ -122,7 +129,12 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
           <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
             Close
           </Button>
-          <Button className="rounded-full" onClick={submit}>
+          {currentUserPubky && currentUserPubky !== sellerPubky && !blocked && (
+            <Button variant="ghost" className="rounded-full" onClick={() => void messages.block()}>
+              Block conversation
+            </Button>
+          )}
+          <Button className="rounded-full" onClick={submit} disabled={blocked}>
             <Send className="mr-2 size-4" />
             Send
           </Button>

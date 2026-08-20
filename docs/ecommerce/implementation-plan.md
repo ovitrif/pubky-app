@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (PostgreSQL persistence and remaining product commands landed; live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (gallery, shipping labels, risk signals, conversation block, and checkout endpoint picker landed; live Paykit/videos remain)
 
 Legend:
 
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: PostgreSQL durability, pickup, partial returns, review media hashes, review reports, staff assign/reverse, enforcement decisions, invariant alerts, admin search, account export/delete, and sandbox invoice QR.
+Last shipped feature work: listing media gallery (reorder/captions), printable sandbox shipping labels, conversation block, labeled checkout payment-endpoint picker, and append-only `trust.flag_risk` review signals.
 
 Next required work, in order:
 
@@ -126,7 +126,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Existing Pubky sign-in and recovery continue to work.
 - [x] A signed-in user can create and edit shop name, bio, policies, location granularity, vacation mode, and default shipping/return settings.
 - [x] Public seller pages show active/sold listings, followers, sales, ratings, response time, and policy summaries.
-- [~] Follow/block/report actions are auth-gated and immediately reflected locally. — follow, listing report, and seller-blocked buyers exist
+- [x] Follow/block/report actions are auth-gated and immediately reflected locally. — follow, listing report, seller-blocked buyers, and conversation block
 - [~] Trust indicators distinguish verified facts from self-declared profile fields. — sandbox badge plus seller reputation aggregates
 
 ### Listings and inventory
@@ -134,8 +134,8 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Sellers can create draft, fixed-price, auction, and digital listings.
 - [x] Required fields include title, description, category, condition, price/currency, quantity, location granularity, delivery options, and media.
 - [~] Variants/SKUs support independent price, quantity, and status. — schema + form rows + PDP selector; limited option editor
-- [~] Media can be reordered, captioned, validated, retried, and removed. — one sanitized cover image; no gallery reorder/captions
-- [~] Drafts autosave. Publish, edit, duplicate, pause, reserve, sell, relist, and delete transitions are enforced. — autosave, publish, pause/activate; no duplicate/relist/delete studio
+- [x] Media can be reordered, captioned, validated, retried, and removed. — up to 12 photos, cover-first reorder, per-photo captions
+- [~] Drafts autosave. Publish, edit, duplicate, pause, reserve, sell, relist, and delete transitions are enforced. — autosave, publish, pause/activate/duplicate/delete; no dedicated relist studio
 - [x] Quantity cannot become negative; reserved inventory expires or converts atomically.
 - [x] Public records carry a schema version and stable `seller:listId` identifier.
 
@@ -150,7 +150,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Messaging and negotiation
 
 - [x] Buyer and seller can open a listing-scoped conversation.
-- [~] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — text + image attachments + unread; no block/cards
+- [~] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — text + image attachments + unread + block; no listing/offer cards
 - [x] Buyers can make, withdraw, accept, reject, and counter offers.
 - [x] Sellers can send private offers to watchers.
 - [x] Offer expiry, currency, quantity, and inventory reservation are enforced.
@@ -171,7 +171,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Cart validation refreshes price, stock, delivery availability, and listing state before checkout.
 - [x] Checkout captures delivery/contact details without placing raw private data in public records or telemetry.
 - [~] Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order. — sandbox shipping/tax plus coupon discount
-- [~] Buyers select an eligible Paykit payment endpoint and explicitly confirm order creation. — explicit checkout; no real endpoint picker
+- [~] Buyers select an eligible Paykit payment endpoint and explicitly confirm order creation. — labeled sandbox endpoint picker; live Bitkit picker unproven
 - [x] Duplicate checkout submission reuses the same idempotency key and cannot create duplicate orders/invoices.
 
 ### Paykit, Locks, and payment confirmation
@@ -193,7 +193,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Buyer and seller order views show a shared timeline with role-appropriate actions.
 - [x] Physical orders support address confirmation, handling deadline, shipment, carrier/tracking, delivery, and pickup.
 - [~] Digital orders support locked delivery, credential refresh, download/access audit, and content-integrity failure.
-- [x] Sellers can print a packing summary and mark ready/shipped.
+- [x] Sellers can print a packing summary and a labeled sandbox shipping label, and mark ready/shipped.
 - [x] Buyers can confirm receipt; deterministic sandbox delivery can advance automatically.
 - [x] Cancellation rules depend on payment and fulfillment state and preserve an immutable event history.
 
@@ -227,7 +227,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Tax, shipping, ledger, and guarantees
 
 - [~] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — fixed 8% quote
-- [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — flat sandbox shipping + tracking field
+- [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — flat sandbox shipping + tracking + printable sandbox label
 - [x] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
 - [x] Any unbalanced posting blocks order finalization and creates an operator finding.
 - [~] Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order. — sandbox guarantee checkbox
@@ -247,7 +247,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log.
 - [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
 - [x] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
-- [ ] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
+- [x] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
 - [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards; adversarial suite incomplete
 
 ### Privacy, security, observability, and operations
@@ -266,7 +266,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
 - [x] Retry queues preserve idempotency and never silently drop a transaction action.
-- [ ] Sign-out clears private commerce state and adapter credentials for the prior account.
+- [x] Sign-out clears private commerce state and adapter credentials for the prior account. — `useCommerceStore.reset()` plus Dexie `clearDatabase()`
 
 ## Architecture
 
