@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (started, not closed)
+Stopped at: **T8 — Hardening and parity audit** (in progress; product-gap closure landed)
 
 Legend:
 
@@ -22,19 +22,19 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T0 — Evidence and protocol audit** — upstream pins and constraints recorded; acceptance-to-test ledger still missing
 - [x] **T1 — Architecture and contracts** — ADRs 0019/0020, Zod contracts, threat model; PostgreSQL schema not implemented
 - [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory transaction service; not a durable DB
-- [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows; no saved searches
-- [x] **T4 — Messaging, offers, and auctions** — proxy bids, anti-sniping, 100-way concurrency tests; no watcher-only private offers or buy-now close
+- [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
+- [x] **T4 — Messaging, offers, and auctions** — proxy bids, anti-sniping, private watcher offers, buy-now close
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; no staff assignment/reversal
-- [x] **T7 — Seller operations** — dashboard, bulk pause/activate, CSV export, shop policies, moderation list; no promotions, statements, CSV import, or blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — unit/hook tests and one catalog VRT exist; full gates and verification ledger are open
-- [ ] **T9 — Documentation and demonstrations** — architecture docs exist; ops runbooks and feature videos do not
+- [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — marketplace unit/hook tests, catalog VRT, thin Cypress; full a11y/security/E2E gates and videos remain
+- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook; feature videos not recorded
 
 ### Delivery slices
 
 - [x] 1. Marketplace shell + sandbox catalog + listing creation
 - [x] 2. Discovery + favorites/follows + seller shop
-- [~] 3. Durable transaction service + inventory/ledger foundations — inventory/events yes; PostgreSQL and double-entry ledger no
+- [~] 3. Durable transaction service + inventory/ledger foundations — inventory/events/ledger yes; PostgreSQL schema drafted, not wired
 - [x] 4. Messaging + offers + concurrency-safe auctions
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
 - [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle exists; companion approval not proven
@@ -44,30 +44,30 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: seller dashboard, moderation report list, shop policy settings, and a thin marketplace Cypress browse/auth-gate.
+Last shipped feature work: saved searches, buy-now, private offers, balanced sandbox ledger, coupons, statements, payouts, review edit/reply/dimensions, blocked buyers, feed sections, related items, packing slips, and moderator restrict.
 
 Next required work, in order:
 
-1. Close T8: broader VRT/E2E/a11y/security/concurrency/migration coverage and a requirement-to-test ledger.
-2. Finish known product gaps below (saved searches, buy-now, ledger, staff moderation actions, promotions/statements).
-3. Close T9: local/Docker ops docs and reviewed feature videos.
+1. Close T8: broader VRT/E2E/a11y/security/concurrency/migration coverage and keep the verification ledger current.
+2. Wire PostgreSQL persistence and prove live Bitkit/Paykit companion flows.
+3. Close T9: record and review feature videos.
 
 ### Reachable routes
 
-| Route | Surface |
-| ----- | ------- |
-| `/marketplace` | Catalog, search, filters |
+| Route                                | Surface                                           |
+| ------------------------------------ | ------------------------------------------------- |
+| `/marketplace`                       | Catalog, search, filters                          |
 | `/marketplace/listing/[seller]/[id]` | Listing, cart, offer, bid, message, Locks, report |
-| `/marketplace/shop/[seller]` | Public shop + follow |
-| `/marketplace/sell` | Listing studio + draft autosave |
-| `/marketplace/cart` | Multi-item cart |
-| `/marketplace/orders` | Orders, sandbox payment, fulfillment actions |
-| `/marketplace/offers` | Offer inbox |
-| `/marketplace/messages` | Listing-scoped inbox |
-| `/marketplace/notifications` | Activity + preferences |
-| `/marketplace/dashboard` | Seller inventory/analytics |
-| `/marketplace/settings` | Shop policies + Paykit/Locks setup |
-| `/marketplace/moderation` | Open trust reports |
+| `/marketplace/shop/[seller]`         | Public shop + follow                              |
+| `/marketplace/sell`                  | Listing studio + draft autosave                   |
+| `/marketplace/cart`                  | Multi-item cart                                   |
+| `/marketplace/orders`                | Orders, sandbox payment, fulfillment actions      |
+| `/marketplace/offers`                | Offer inbox                                       |
+| `/marketplace/messages`              | Listing-scoped inbox                              |
+| `/marketplace/notifications`         | Activity + preferences                            |
+| `/marketplace/dashboard`             | Seller inventory/analytics                        |
+| `/marketplace/settings`              | Shop policies + Paykit/Locks setup                |
+| `/marketplace/moderation`            | Open trust reports                                |
 
 ## Definition of complete
 
@@ -126,8 +126,8 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Existing Pubky sign-in and recovery continue to work.
 - [x] A signed-in user can create and edit shop name, bio, policies, location granularity, vacation mode, and default shipping/return settings.
 - [~] Public seller pages show active/sold listings, followers, sales, ratings, response time, and policy summaries. — shop + listings + follow + vacation; ratings/response-time incomplete
-- [~] Follow/block/report actions are auth-gated and immediately reflected locally. — follow and listing report exist; no block
-- [~] Trust indicators distinguish verified facts from self-declared profile fields. — sandbox badge only
+- [~] Follow/block/report actions are auth-gated and immediately reflected locally. — follow, listing report, and seller-blocked buyers exist
+- [~] Trust indicators distinguish verified facts from self-declared profile fields. — sandbox badge plus seller reputation aggregates
 
 ### Listings and inventory
 
@@ -141,28 +141,28 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Discovery and social shopping
 
-- [~] Marketplace home exposes recommended, following, new, ending-soon, and category sections. — filter/sort catalog; no dedicated feed sections
-- [~] Search supports text, seller, category, condition, format, price range, delivery, location, sort, and saved searches. — text/category/condition/format/price/sort; no saved searches
+- [x] Marketplace home exposes recommended, following, new, ending-soon, and category sections.
+- [x] Search supports text, seller, category, condition, format, price range, delivery, location, sort, and saved searches.
 - [x] Listing grids support pagination, empty/error/loading states, responsive layouts, and deep links.
-- [~] Buyers can favorite listings, follow sellers, save searches, and receive relevant notifications. — favorite/follow/notifications; no saved searches
-- [~] Related items and seller inventory are visible without authentication. — public shop inventory; no related-item rail
+- [x] Buyers can favorite listings, follow sellers, save searches, and receive relevant notifications.
+- [x] Related items and seller inventory are visible without authentication.
 
 ### Messaging and negotiation
 
 - [x] Buyer and seller can open a listing-scoped conversation.
 - [~] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — text + image attachments + unread; no block/cards
 - [x] Buyers can make, withdraw, accept, reject, and counter offers.
-- [ ] Sellers can send private offers to watchers.
+- [x] Sellers can send private offers to watchers.
 - [x] Offer expiry, currency, quantity, and inventory reservation are enforced.
 - [x] Duplicate events are idempotent and transitions reject stale revisions.
 
 ### Auctions
 
-- [~] Sellers set start price, optional reserve, optional buy-now, bid increment policy, start/end times, and anti-sniping extension. — create-form + service; buy-now close not executed
+- [x] Sellers set start price, optional reserve, optional buy-now, bid increment policy, start/end times, and anti-sniping extension.
 - [x] Buyers see bid count, current price, reserve status, minimum next bid, end time, and their standing.
 - [x] Bids reject closed auctions, seller self-bids, invalid increments, stale revisions, and unaffordable sandbox balances.
 - [x] Proxy maximum bidding determines the winner and visible price deterministically.
-- [ ] Buy-now closes the auction when policy allows it.
+- [x] Buy-now closes the auction when policy allows it.
 - [x] Closing creates one winning order or an unsold result exactly once.
 
 ### Cart and checkout
@@ -170,7 +170,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Fixed-price items can be added, edited, removed, and grouped by seller.
 - [x] Cart validation refreshes price, stock, delivery availability, and listing state before checkout.
 - [x] Checkout captures delivery/contact details without placing raw private data in public records or telemetry.
-- [~] Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order. — hardcoded sandbox shipping/tax; no discounts
+- [~] Totals itemize subtotal, shipping, discount, tax estimate, and total in one currency per seller order. — sandbox shipping/tax plus coupon discount
 - [~] Buyers select an eligible Paykit payment endpoint and explicitly confirm order creation. — explicit checkout; no real endpoint picker
 - [x] Duplicate checkout submission reuses the same idempotency key and cannot create duplicate orders/invoices.
 
@@ -193,7 +193,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Buyer and seller order views show a shared timeline with role-appropriate actions.
 - [~] Physical orders support address confirmation, handling deadline, shipment, carrier/tracking, delivery, and pickup. — ship + track + deliver; no pickup/label flow
 - [~] Digital orders support locked delivery, credential refresh, download/access audit, and content-integrity failure.
-- [ ] Sellers can print a packing summary and mark ready/shipped. — ship exists; no packing slip
+- [x] Sellers can print a packing summary and mark ready/shipped.
 - [x] Buyers can confirm receipt; deterministic sandbox delivery can advance automatically.
 - [x] Cancellation rules depend on payment and fulfillment state and preserve an immutable event history.
 
@@ -210,28 +210,28 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Reviews and reputation
 
 - [x] Only completed transactions can produce one buyer review and one seller review per role.
-- [~] Rating, text, optional media, item accuracy, shipping, and communication dimensions are supported. — rating + text; no review media/dimensions
-- [ ] Reviews can be edited during a bounded window, replied to once, and reported.
-- [ ] Aggregate ratings update deterministically and exclude removed reviews.
+- [~] Rating, text, optional media, item accuracy, shipping, and communication dimensions are supported. — rating, text, and dimension scores; no review media
+- [~] Reviews can be edited during a bounded window, replied to once, and reported. — edit/reply exist; review report not dedicated
+- [x] Aggregate ratings update deterministically and exclude removed reviews.
 
 ### Seller tools and analytics
 
 - [~] Dashboard shows revenue-equivalent totals, paid orders, conversion, views, favorites, offers, sell-through, and fulfillment health. — inventory, orders, offers, revenue-equivalent
-- [~] Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview. — pause/activate + CSV export; no import/delete
+- [~] Inventory supports search, filters, bulk pause/relist/delete, low-stock state, and CSV export/import preview. — pause/activate/delete/duplicate + CSV export/import
 - [x] Order work queues expose awaiting payment, to ship, returns, disputes, and completed states.
-- [~] Shop settings cover policies, notifications, payment setup, shipping presets, blocked buyers, and vacation mode. — policies, vacation, notifications, payment link; no blocked buyers
-- [ ] Promotions support scheduled markdowns and usage-limited seller coupons without producing negative totals.
-- [ ] Seller statements export orders, fees, taxes, refunds, holds, external payouts, and adjustments and reconcile to the ledger.
+- [x] Shop settings cover policies, notifications, payment setup, shipping presets, blocked buyers, and vacation mode.
+- [x] Promotions support scheduled markdowns and usage-limited seller coupons without producing negative totals.
+- [x] Seller statements export orders, fees, taxes, refunds, holds, external payouts, and adjustments and reconcile to the ledger.
 - [x] Analytics clearly distinguish local prototype estimates from settled payment facts.
 
 ### Tax, shipping, ledger, and guarantees
 
 - [~] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — fixed 8% quote
 - [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — flat sandbox shipping + tracking field
-- [ ] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
-- [ ] Any unbalanced posting blocks order finalization and creates an operator finding.
+- [x] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
+- [x] Any unbalanced posting blocks order finalization and creates an operator finding.
 - [~] Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order. — sandbox guarantee checkbox
-- [ ] Sandbox hold/release and payout states are visibly simulated and blocked by open disputes, returns, risk holds, or unresolved payment status.
+- [x] Sandbox hold/release and payout states are visibly simulated and blocked by open disputes, returns, risk holds, or unresolved payment status.
 - [x] Real Paykit BTC confirmation is never described as escrow, card authorization, marketplace custody, or payout.
 
 ### Notifications
@@ -243,9 +243,9 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Trust, safety, and moderation
 
 - [~] Users can report listings, messages, reviews, and accounts with structured reasons and evidence. — listing report command/UI
-- [ ] Prohibited-item/category policy warnings are shown during listing creation.
+- [x] Prohibited-item/category policy warnings are shown during listing creation.
 - [~] Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log. — open-report list only
-- [ ] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
+- [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
 - [ ] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
 - [ ] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
 - [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards; adversarial suite incomplete
@@ -449,9 +449,16 @@ Each implementation task closes only through this loop:
 
 Ledger format:
 
-| Requirement                                 | Verification address                                    | Expected evidence                                 | Finding | Fix     | Re-verification | Status |
-| ------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- | ------- | ------- | --------------- | ------ |
-| Example: payment confirmation is idempotent | payment transition test + checkout E2E + order timeline | one paid transition after duplicate confirmations | Pending | Pending | Pending         | Open   |
+| Requirement                            | Verification address                                   | Expected evidence                     | Finding | Fix                   | Re-verification        | Status              |
+| -------------------------------------- | ------------------------------------------------------ | ------------------------------------- | ------- | --------------------- | ---------------------- | ------------------- |
+| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price      | Closed  | Service + UI          | Marketplace unit suite | Verified in sandbox |
+| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky   | Closed  | Dexie v6              | Hook test              | Verified in sandbox |
+| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger | Closed  | Integer ledger        | Marketplace unit suite | Verified in sandbox |
+| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter     | Closed  | Filter + trust.decide | Unit tests             | Verified in sandbox |
+| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                 | Closed  | Transaction service   | Marketplace unit suite | Verified in sandbox |
+| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                 | Open    | Pending               | Not run                | Unverified          |
+| PostgreSQL durability                  | `schema.sql` + migrations                              | restart preserves ledger              | Open    | Schema drafted only   | Not run                | Unverified          |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Pending               | Not recorded           | Unverified          |
 
 Required gates:
 
