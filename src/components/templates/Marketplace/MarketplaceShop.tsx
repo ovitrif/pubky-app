@@ -16,6 +16,7 @@ import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerce
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceSellerPolicies } from '@/organisms/Marketplace/MarketplaceSellerPolicies';
+import { MarketplaceTrustIndicators } from '@/organisms/Marketplace/MarketplaceTrustIndicators';
 import type { MarketplaceSellerReputation } from '@/services/marketplace/marketplace';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -127,6 +128,7 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
               </CardContent>
             </Card>
 
+            <MarketplaceTrustIndicators shop={shop.record} reputation={reputation} />
             <MarketplaceSellerPolicies shop={shop.record} />
 
             {(shop.record.collections ?? []).map((collection) => {

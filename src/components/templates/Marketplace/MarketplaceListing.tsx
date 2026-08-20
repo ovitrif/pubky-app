@@ -37,6 +37,7 @@ import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOffer
 import { MarketplaceQuantityStepper } from '@/organisms/Marketplace/MarketplaceQuantityStepper';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
 import { MarketplaceSellerPolicies } from '@/organisms/Marketplace/MarketplaceSellerPolicies';
+import { MarketplaceTrustIndicators } from '@/organisms/Marketplace/MarketplaceTrustIndicators';
 import { MarketplaceVacationNotice } from '@/organisms/Marketplace/MarketplaceVacationNotice';
 import type { MarketplaceSellerReputation } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -262,6 +263,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 />
               </div>
             )}
+            <MarketplaceTrustIndicators shop={shop?.record} reputation={reputation} listingRevision={record.revision} />
             <MarketplaceSellerPolicies
               shop={shop?.record}
               listingReturn={record.returnPolicy}
