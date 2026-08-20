@@ -233,10 +233,12 @@ function markBootsReadyForPickup() {
     const payload = res.json as {
       orders?: Array<{ id: string; revision: number; state: string; lines: Array<{ title: string }> }>;
     };
-    const order = (payload.orders ?? [])
-      .filter((item) => item.lines.some((line) => line.title.includes('Vintage leather boots')))
-      .sort((left, right) => right.revision - left.revision)[0];
-    expect(order, 'boots sale for pickup').to.exist;
+    const order = (payload.orders ?? []).find(
+      (item) =>
+        ['paid', 'processing'].includes(item.state) &&
+        item.lines.some((line) => line.title.includes('Vintage leather boots')),
+    );
+    expect(order, 'paid boots sale for pickup').to.exist;
     cy.marketplaceRequest('POST', '/v1/commands', BOOTS_SELLER, {
       aggregateId: `order:${order.id}`,
       expectedRevision: order.revision,
