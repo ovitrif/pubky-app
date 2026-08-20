@@ -16,7 +16,7 @@ export function marketplaceStaffActor(currentUserPubky: string): string {
 }
 
 export function marketplaceCommandActor(currentUserPubky: string, kind: string): string {
-  if (kind.startsWith('trust.') && kind !== 'trust.report') {
+  if ((kind.startsWith('trust.') && kind !== 'trust.report') || kind === 'inventory.reconcile_paid') {
     return marketplaceStaffActor(currentUserPubky);
   }
   return currentUserPubky;

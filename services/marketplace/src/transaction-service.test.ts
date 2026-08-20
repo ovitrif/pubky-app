@@ -850,6 +850,8 @@ describe('MarketplaceTransactionService', () => {
             tax: { amountMinor: 1_096 },
             total: { amountMinor: 14_796 },
             guaranteePolicyVersion: 1,
+            taxAdapterVersion: 'sandbox-us-8pct-v1',
+            shippingAdapterVersion: 'sandbox-flat-1200-v1',
             lines: [{ listingRevision: 1, contentHash: 'a'.repeat(64), quantity: 1 }],
           },
         ],
@@ -988,6 +990,72 @@ describe('MarketplaceTransactionService', () => {
       sellThroughPercent: 100,
       paidOrders: 1,
       conversionPercent: 100,
+    });
+  });
+
+  it('reconciles leftover reserved inventory on already-paid orders without rewriting payment events', async () => {
+    const { repository, service } = createService();
+    const order = await createPaidOrder(service);
+    const listing = repository.getListing(AGGREGATE_ID);
+    if (!listing) throw new Error('Expected registered listing');
+    repository.putListing({
+      ...listing,
+      state: 'reserved',
+      reservedQuantity: listing.soldQuantity,
+      soldQuantity: 0,
+    });
+    repository.putOrder({ ...order, inventoryState: 'reserved' });
+
+    expect(service.getInvariants().reservedOnPaidOrders).toEqual([order.id]);
+    await expect(
+      service.execute(BUYER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000000210',
+        aggregateId: 'inventory:reconcile',
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'inventory.reconcile_paid',
+        payload: {},
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+
+    const reconciled = await service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000211',
+      aggregateId: 'inventory:reconcile',
+      expectedRevision: 0,
+      issuedAt: NOW.toISOString(),
+      kind: 'inventory.reconcile_paid',
+      payload: {},
+    });
+    expect(reconciled).toMatchObject({
+      ok: true,
+      result: { kind: 'inventory_reconcile', convertedOrderIds: [order.id], failedOrderIds: [] },
+    });
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      reservedQuantity: 0,
+      soldQuantity: 1,
+      state: 'sold',
+    });
+    expect(repository.getOrder(order.id)).toMatchObject({ inventoryState: 'sold' });
+    expect(repository.getEvents().filter((event) => event.kind === 'payment.confirmed')).toHaveLength(1);
+    expect(repository.getEvents().some((event) => event.kind === 'inventory.reconciled')).toBe(true);
+    expect(service.getInvariants().reservedOnPaidOrders).toEqual([]);
+    expect(service.getMetrics()).toMatchObject({ orders: 1, paymentsConfirmed: 1, reservedOnPaidOrders: 0 });
+
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000000212',
+        aggregateId: 'inventory:reconcile',
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind: 'inventory.reconcile_paid',
+        payload: {},
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'inventory_reconcile', convertedOrderIds: [], skippedOrderIds: [order.id] },
     });
   });
 

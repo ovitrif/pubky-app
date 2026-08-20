@@ -2,6 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
+import {
+  MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
+  MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
+  quoteSandboxCheckoutTotals,
+  resolveSandboxOrderFulfillment,
+} from '../../../src/libs/commerce/tax-adapter';
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
@@ -42,6 +48,7 @@ import {
   type PlaceBidCommand,
   type ReadyForPickupCommand,
   type ReceiveReturnCommand,
+  type ReconcilePaidInventoryCommand,
   type RecordDigitalAccessCommand,
   type RecordExternalRefundCommand,
   type RefreshDigitalCredentialCommand,
@@ -458,6 +465,8 @@ export interface MarketplaceOrder {
   fulfillment: 'physical' | 'digital' | 'pickup';
   digitalDelivery: MarketplaceDigitalDelivery | null;
   inventoryState: 'reserved' | 'sold' | 'released';
+  taxAdapterVersion: string;
+  shippingAdapterVersion: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -511,6 +520,7 @@ export interface MarketplaceEvent {
     | 'listing.unwatched'
     | 'listing.viewed'
     | 'inventory.reserved'
+    | 'inventory.reconciled'
     | 'offer.created'
     | 'offer.created_private'
     | 'offer.countered'
@@ -615,7 +625,13 @@ export type MarketplaceCommandSuccess = {
     | { kind: 'report'; report: MarketplaceReport }
     | { kind: 'blocked_buyer'; sellerPubky: string; buyerPubky: string; blocked: boolean }
     | { kind: 'conversation'; conversation: MarketplaceConversation }
-    | { kind: 'risk_signal'; signal: MarketplaceRiskSignal };
+    | { kind: 'risk_signal'; signal: MarketplaceRiskSignal }
+    | {
+        kind: 'inventory_reconcile';
+        convertedOrderIds: string[];
+        skippedOrderIds: string[];
+        failedOrderIds: string[];
+      };
 };
 
 export type MarketplaceCommandFailure = {
@@ -1076,6 +1092,8 @@ export class InMemoryMarketplaceRepository {
           fulfillment: order.fulfillment ?? 'physical',
           digitalDelivery: order.digitalDelivery ?? null,
           inventoryState: order.inventoryState ?? inferHydratedInventoryState(order.state),
+          taxAdapterVersion: order.taxAdapterVersion ?? MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
+          shippingAdapterVersion: order.shippingAdapterVersion ?? MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
           returnRequest: order.returnRequest
             ? {
                 ...order.returnRequest,
@@ -1290,6 +1308,7 @@ export class MarketplaceTransactionService {
     oversoldListings: string[];
     duplicateAuctionWinners: string[];
     stuckFulfillment: string[];
+    reservedOnPaidOrders: string[];
   } {
     const orders = this.repository.exportSnapshot().orders;
     const unbalancedOrders = orders
@@ -1323,7 +1342,31 @@ export class MarketplaceTransactionService {
       .filter((order) => ['paid', 'processing', 'ready_for_pickup', 'shipped'].includes(order.state))
       .filter((order) => Date.parse(order.updatedAt) < Date.now() - 14 * 24 * 60 * 60 * 1_000)
       .map((order) => order.id);
-    return { unbalancedOrders, oversoldListings, duplicateAuctionWinners, stuckFulfillment };
+    const reservedOnPaidOrders = orders
+      .filter((order) => isPaidLikeOrderState(order.state) && order.inventoryState === 'reserved')
+      .map((order) => order.id);
+    return { unbalancedOrders, oversoldListings, duplicateAuctionWinners, stuckFulfillment, reservedOnPaidOrders };
+  }
+
+  getMetrics(): {
+    listings: number;
+    orders: number;
+    events: number;
+    paymentsConfirmed: number;
+    reportsOpen: number;
+    reservedOnPaidOrders: number;
+  } {
+    const snapshot = this.repository.exportSnapshot();
+    return {
+      listings: snapshot.listings.length,
+      orders: snapshot.orders.length,
+      events: snapshot.events.length,
+      paymentsConfirmed: snapshot.payments.filter((payment) => payment.state === 'confirmed').length,
+      reportsOpen: snapshot.reports.filter((report) => report.state === 'open').length,
+      reservedOnPaidOrders: snapshot.orders.filter(
+        (order) => isPaidLikeOrderState(order.state) && order.inventoryState === 'reserved',
+      ).length,
+    };
   }
 
   searchAdmin(
@@ -1524,6 +1567,8 @@ export class MarketplaceTransactionService {
         return this.watchListing(actorPubky, command, false);
       case 'listing.view':
         return this.viewListing(actorPubky, command);
+      case 'inventory.reconcile_paid':
+        return this.reconcilePaidInventory(actorPubky, command);
       case 'inventory.reserve':
         return this.reserveInventory(actorPubky, command);
       case 'offer.create':
@@ -1749,6 +1794,59 @@ export class MarketplaceTransactionService {
       listingAggregateId: listing.aggregateId,
       viewCount: viewCount + 1,
       counted: true,
+    });
+  }
+
+  private reconcilePaidInventory(actorPubky: string, command: ReconcilePaidInventoryCommand): MarketplaceCommandResult {
+    if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
+      return failure('UNAUTHORIZED', 'Only the sandbox operator may reconcile paid inventory.');
+    }
+    if (command.expectedRevision !== 0) {
+      return failure('INVALID_COMMAND', 'Paid inventory reconcile uses expected revision 0.');
+    }
+
+    const occurredAt = this.now().toISOString();
+    const convertedOrderIds: string[] = [];
+    const skippedOrderIds: string[] = [];
+    const failedOrderIds: string[] = [];
+    const eventIds: string[] = [];
+
+    for (const order of this.repository.exportSnapshot().orders) {
+      if (order.inventoryState !== 'reserved' || !isPaidLikeOrderState(order.state)) {
+        skippedOrderIds.push(order.id);
+        continue;
+      }
+      if (!this.convertReservedInventoryToSold(order, occurredAt)) {
+        failedOrderIds.push(order.id);
+        continue;
+      }
+      const updated: MarketplaceOrder = {
+        ...order,
+        revision: order.revision + 1,
+        inventoryState: 'sold',
+        updatedAt: occurredAt,
+      };
+      this.repository.putOrder(updated);
+      const event = this.createEvent(
+        actorPubky,
+        command,
+        updated.revision,
+        'inventory.reconciled',
+        occurredAt,
+        buildMarketplaceOrderAggregateId(order.id),
+      );
+      this.repository.appendEvent(event);
+      eventIds.push(event.id);
+      convertedOrderIds.push(order.id);
+    }
+
+    const commandEvent = this.createEvent(actorPubky, command, 1, 'inventory.reconciled', occurredAt);
+    this.repository.appendEvent(commandEvent);
+    return success(command, 1, [...eventIds, commandEvent.id], {
+      kind: 'inventory_reconcile',
+      convertedOrderIds,
+      skippedOrderIds,
+      failedOrderIds,
     });
   }
 
@@ -2716,8 +2814,7 @@ export class MarketplaceTransactionService {
         subtotal: { ...listing.unitPrice, amountMinor: listing.unitPrice.amountMinor * requested.quantity },
       }));
       const subtotalMinor = lines.reduce((total, line) => total + line.subtotal.amountMinor, 0);
-      const fulfillment = resolveOrderFulfillment(items.map(({ listing }) => listing.fulfillment));
-      const shippingMinor = fulfillment === 'digital' ? 0 : 1_200;
+      const fulfillment = resolveSandboxOrderFulfillment(items.map(({ listing }) => listing.fulfillment));
       const couponCode = command.payload.couponCode ?? null;
       const promotion = couponCode ? this.repository.getPromotion(sellerPubky, couponCode) : undefined;
       if (
@@ -2727,9 +2824,10 @@ export class MarketplaceTransactionService {
         return failure('INVALID_COMMAND', 'The coupon is invalid, expired, or exhausted.');
       }
       const discountMinor = promotion ? Math.round((subtotalMinor * promotion.percentOff) / 100) : 0;
-      const taxableMinor = Math.max(0, subtotalMinor - discountMinor) + shippingMinor;
-      const taxMinor = Math.round(taxableMinor * 0.08);
-      const totalMinor = taxableMinor + taxMinor;
+      const quote = quoteSandboxCheckoutTotals({ subtotalMinor, discountMinor, fulfillment });
+      const shippingMinor = quote.shippingMinor;
+      const taxMinor = quote.taxMinor;
+      const totalMinor = quote.totalMinor;
       const orderId = randomUUID();
       const paymentId = randomUUID();
       const order: MarketplaceOrder = {
@@ -2759,6 +2857,8 @@ export class MarketplaceTransactionService {
         fulfillment,
         digitalDelivery: null,
         inventoryState: 'reserved',
+        taxAdapterVersion: quote.taxAdapterVersion,
+        shippingAdapterVersion: quote.shippingAdapterVersion,
         createdAt: occurredAt,
         updatedAt: occurredAt,
       };
@@ -4376,12 +4476,8 @@ function formatSandboxMoney(amount: MarketplaceListingAggregate['unitPrice']): s
   return `${(amount.amountMinor / 10 ** amount.exponent).toFixed(amount.exponent)} ${amount.currency}`;
 }
 
-function resolveOrderFulfillment(
-  fulfillments: Array<MarketplaceListingAggregate['fulfillment']>,
-): MarketplaceOrder['fulfillment'] {
-  if (fulfillments.length > 0 && fulfillments.every((fulfillment) => fulfillment === 'digital')) return 'digital';
-  if (fulfillments.every((fulfillment) => fulfillment === 'pickup' || fulfillment === 'digital')) return 'pickup';
-  return 'physical';
+function isPaidLikeOrderState(state: MarketplaceOrder['state']): boolean {
+  return !['pending_payment', 'cancelled', 'refunded_external', 'closed'].includes(state);
 }
 
 function listingCard(listing: MarketplaceListingAggregate): MarketplaceMessageCard {

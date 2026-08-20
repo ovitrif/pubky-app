@@ -36,7 +36,8 @@ export function MarketplaceModeration() {
     (moderation.invariants?.unbalancedOrders.length ?? 0) +
     (moderation.invariants?.oversoldListings.length ?? 0) +
     (moderation.invariants?.duplicateAuctionWinners.length ?? 0) +
-    (moderation.invariants?.stuckFulfillment.length ?? 0);
+    (moderation.invariants?.stuckFulfillment.length ?? 0) +
+    (moderation.invariants?.reservedOnPaidOrders.length ?? 0);
 
   return (
     <ContentLayout
@@ -149,8 +150,31 @@ export function MarketplaceModeration() {
             Invariant alerts: {moderation.invariants?.unbalancedOrders.length ?? 0} unbalanced ledgers,{' '}
             {moderation.invariants?.oversoldListings.length ?? 0} oversold listings,{' '}
             {moderation.invariants?.duplicateAuctionWinners.length ?? 0} duplicate winners,{' '}
-            {moderation.invariants?.stuckFulfillment.length ?? 0} stuck fulfillments.
+            {moderation.invariants?.stuckFulfillment.length ?? 0} stuck fulfillments,{' '}
+            {moderation.invariants?.reservedOnPaidOrders.length ?? 0} paid orders still reserved.
           </div>
+        )}
+
+        {isMarketplaceSandboxOperator() && (
+          <Card className="border">
+            <CardContent className="grid gap-3 px-5">
+              <Typography as="h2" className="text-xl font-semibold">
+                Paid inventory reconcile
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Converts leftover reserved units on already-paid orders to sold. Appends inventory.reconciled events and
+                does not rewrite payment history.
+              </Typography>
+              <Button className="w-fit rounded-full" onClick={() => void moderation.reconcilePaidInventory()}>
+                Reconcile reserved paid orders
+              </Button>
+              {moderation.reconcileResult && (
+                <Typography as="p" role="status" className="text-sm">
+                  {moderation.reconcileResult}
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {moderation.isLoading ? (

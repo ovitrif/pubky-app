@@ -27,7 +27,9 @@ export function useMarketplaceModeration() {
     oversoldListings: string[];
     duplicateAuctionWinners: string[];
     stuckFulfillment: string[];
+    reservedOnPaidOrders: string[];
   } | null>(null);
+  const [reconcileResult, setReconcileResult] = useState<string | null>(null);
   const [riskSignals, setRiskSignals] = useState<MarketplaceRiskSignal[]>([]);
   const [riskTargetId, setRiskTargetId] = useState('');
   const [riskTargetType, setRiskTargetType] = useState<MarketplaceRiskSignal['targetType']>('listing');
@@ -152,6 +154,34 @@ export function useMarketplaceModeration() {
     }
   };
 
+  const reconcilePaidInventory = async () => {
+    try {
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: 'inventory:reconcile',
+        expectedRevision: 0,
+        issuedAt: new Date().toISOString(),
+        kind: 'inventory.reconcile_paid',
+        payload: {},
+      });
+      if (!response.ok) {
+        setError(response.error.message);
+        return;
+      }
+      const convertedIds = 'convertedOrderIds' in response.result ? response.result.convertedOrderIds : [];
+      const converted = Array.isArray(convertedIds) ? convertedIds.length : 0;
+      setReconcileResult(
+        converted === 0
+          ? 'No reserved paid orders needed conversion.'
+          : `Converted reserved inventory on ${converted} paid order${converted === 1 ? '' : 's'}.`,
+      );
+      await refresh();
+    } catch {
+      setError('Could not reconcile paid inventory.');
+    }
+  };
+
   return {
     reports,
     isLoading,
@@ -167,6 +197,8 @@ export function useMarketplaceModeration() {
     riskType,
     setRiskType,
     flagRisk,
+    reconcilePaidInventory,
+    reconcileResult,
     decide,
     assign,
     reverse,

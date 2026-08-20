@@ -21,6 +21,7 @@ describe('sandbox operator', () => {
     expect(isMarketplaceSandboxOperator()).toBe(true);
     expect(marketplaceStaffActor(USER)).toBe(MARKETPLACE_SANDBOX_MODERATOR);
     expect(marketplaceCommandActor(USER, 'trust.assign')).toBe(MARKETPLACE_SANDBOX_MODERATOR);
+    expect(marketplaceCommandActor(USER, 'inventory.reconcile_paid')).toBe(MARKETPLACE_SANDBOX_MODERATOR);
     expect(marketplaceCommandActor(USER, 'trust.report')).toBe(USER);
     expect(marketplaceCommandActor(USER, 'checkout.create')).toBe(USER);
   });

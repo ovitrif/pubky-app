@@ -151,6 +151,11 @@ export const unwatchListingCommandSchema = createCommerceCommandSchema('listing.
 
 export const viewListingCommandSchema = createCommerceCommandSchema('listing.view', z.object({}).strict());
 
+export const reconcilePaidInventoryCommandSchema = createCommerceCommandSchema(
+  'inventory.reconcile_paid',
+  z.object({}).strict(),
+);
+
 const offerTermsSchema = z
   .object({
     amount: commercePositiveMoneySchema,
@@ -578,6 +583,7 @@ export const marketplaceCommandSchema = z.union([
   watchListingCommandSchema,
   unwatchListingCommandSchema,
   viewListingCommandSchema,
+  reconcilePaidInventoryCommandSchema,
   createOfferCommandSchema,
   createPrivateOfferCommandSchema,
   counterOfferCommandSchema,
@@ -640,6 +646,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'reservation',
             'watch',
             'view',
+            'inventory_reconcile',
             'offer',
             'accepted_offer',
             'bid',
@@ -680,6 +687,7 @@ export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSche
 export type WatchListingCommand = z.infer<typeof watchListingCommandSchema>;
 export type UnwatchListingCommand = z.infer<typeof unwatchListingCommandSchema>;
 export type ViewListingCommand = z.infer<typeof viewListingCommandSchema>;
+export type ReconcilePaidInventoryCommand = z.infer<typeof reconcilePaidInventoryCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CreatePrivateOfferCommand = z.infer<typeof createPrivateOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;
@@ -731,6 +739,10 @@ export type MarketplaceCommandResponse = z.infer<typeof marketplaceCommandRespon
 
 export function buildMarketplaceListingAggregateId(sellerPubky: string, listingId: string): string {
   return `listing:${sellerPubky}_${listingId}`;
+}
+
+export function buildMarketplaceInventoryReconcileAggregateId(): string {
+  return 'inventory:reconcile';
 }
 
 export function buildMarketplaceOfferAggregateId(offerId: string): string {

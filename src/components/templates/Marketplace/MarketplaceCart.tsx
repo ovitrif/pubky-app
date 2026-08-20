@@ -19,6 +19,7 @@ import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCar
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { quoteSandboxCart, resolveListingFulfillmentMethod } from '@/libs/commerce/tax-adapter';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceQuantityStepper } from '@/organisms/Marketplace/MarketplaceQuantityStepper';
@@ -30,6 +31,19 @@ export function MarketplaceCart() {
   const { requireAuth } = useRequireAuth();
   const cart = useMarketplaceCart();
   const checkout = useMarketplaceCheckout(cart.items, cart.clear);
+  const estimate = quoteSandboxCart(
+    cart.items.map((item) => {
+      const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+      const price =
+        variant?.priceOverride ??
+        (item.listing.record.sale.format === 'auction' ? null : item.listing.record.sale.unitPrice);
+      return {
+        sellerId: item.listing.seller_id,
+        lineSubtotalMinor: (price?.amountMinor ?? 0) * item.quantity,
+        fulfillment: resolveListingFulfillmentMethod(item.listing.record.fulfillmentMethods),
+      };
+    }),
+  );
 
   const submit = async () => {
     const result = requireAuth(async () => checkout.submit());
@@ -182,8 +196,27 @@ export function MarketplaceCart() {
                       {formatCommerceMoney({ amountMinor: cart.subtotalMinor, currency: 'USD', exponent: 2 })}
                     </Typography>
                   </div>
+                  <div className="mt-2 flex justify-between text-sm text-muted-foreground">
+                    <Typography as="span">Sandbox shipping</Typography>
+                    <Typography as="span">
+                      {formatCommerceMoney({ amountMinor: estimate.shippingMinor, currency: 'USD', exponent: 2 })}
+                    </Typography>
+                  </div>
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <Typography as="span">Sandbox tax</Typography>
+                    <Typography as="span">
+                      {formatCommerceMoney({ amountMinor: estimate.taxMinor, currency: 'USD', exponent: 2 })}
+                    </Typography>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <Typography as="span">Estimated total</Typography>
+                    <Typography as="span" className="font-bold">
+                      {formatCommerceMoney({ amountMinor: estimate.totalMinor, currency: 'USD', exponent: 2 })}
+                    </Typography>
+                  </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
-                    Shipping and sandbox tax are calculated authoritatively at checkout.
+                    {estimate.taxAdapterVersion} + {estimate.shippingAdapterVersion}. Digital-only seller groups have $0
+                    shipping. Checkout remains the authority.
                   </Typography>
                 </div>
                 {currentUserPubky ? (
