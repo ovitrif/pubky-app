@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (enforced Next CSP + DNS-rebinding + restore drill; live Bitkit and remaining signed-in videos remain)
+Stopped at: **T8 — Hardening and parity audit** (trust labels + guarantee terms + buyer payment status; live Bitkit and remaining signed-in videos remain)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks plus labeled HTTP stub; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — enforced Next nonce CSP; resolved commerce URL DNS check; JSON/Postgres restore drill; marketplace muted-text AA override; live Bitkit and remaining videos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, enforced Next nonce CSP, DNS rebinding, restore drill; live Bitkit and remaining videos remain
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in stills plus Locks stub pages; Bitkit and remaining motion demos remain
 
 ### Delivery slices
@@ -39,7 +39,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
 - [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub; companion approval not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
-- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
+- [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; trust labels; guarantee terms; buyer payment status; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
 
 ### Where we stopped
@@ -127,7 +127,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] A signed-in user can create and edit shop name, bio, policies, location granularity, vacation mode, and default shipping/return settings.
 - [x] Public seller pages show active/sold listings, followers, sales, ratings, response time, and policy summaries.
 - [x] Follow/block/report actions are auth-gated and immediately reflected locally. — follow, listing report, seller-blocked buyers, and conversation block
-- [~] Trust indicators distinguish verified facts from self-declared profile fields. — sandbox badge plus seller reputation aggregates
+- [x] Trust indicators distinguish verified facts from self-declared profile fields. — shop/PDP `MarketplaceTrustIndicators` splits transaction-service facts from seller-declared copy
 
 ### Listings and inventory
 
@@ -180,7 +180,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [~] Seller payment setup launches the Paykit Server/Bitkit companion approval flow and reports setup state without exposing wallet secrets. — settings buttons open labeled `/connect` and `/setup` stubs; live companion unproven
 - [~] Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice. — client hooks + sandbox stub complete empty proofs; live invoice unproven
 - [ ] The real browser flow shows Paykit request/entitlement progress while Bitkit privately receives and executes the payment request; it does not expose or reconstruct the invoice.
-- [~] Real buyer-visible status distinguishes awaiting entitlement, confirmed, marketplace-expired, and manual review. — sandbox states labeled; real status mapping incomplete
+- [~] Real buyer-visible status distinguishes awaiting entitlement, confirmed, marketplace-expired, and manual review. — sandbox orders map those four labels; live Bitkit status mapping unproven
 - [x] The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated.
 - [x] Polling is abortable, bounded, resumable after reload, and tolerant of duplicate/reordered responses.
 - [x] A confirmed payment advances the order once; later duplicate confirmations are harmless.
@@ -231,7 +231,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — listing free/flat/calculated quotes + tracking + printable sandbox label; live carrier rates still sandbox
 - [x] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
 - [x] Any unbalanced posting blocks order finalization and creates an operator finding.
-- [~] Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order. — sandbox guarantee checkbox
+- [x] Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order. — `SANDBOX_GUARANTEE_POLICY` on PDP, shop, checkout, and order totals
 - [x] Sandbox hold/release and payout states are visibly simulated and blocked by open disputes, returns, risk holds, or unresolved payment status.
 - [x] Real Paykit BTC confirmation is never described as escrow, card authorization, marketplace custody, or payout.
 
@@ -262,7 +262,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Accessibility, responsiveness, and local-first behavior
 
-- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form and catalog filter axe suites; marketplace muted token AA on cards; signed-in manual review still needed
+- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, and trust indicators axe suites; marketplace muted token AA on cards; signed-in manual review still needed
 - [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT with feed sections
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
@@ -427,7 +427,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T8 — Hardening and parity audit `[~]` `[!]` stopped here
 
-- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, CSRF/origin/JSON CSP, enforced Next nonce CSP, DNS rebinding, restore drill, catalog VRT mock, thin Cypress browse/auth-gate
+- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, trust/guarantee/payment-status suites, CSRF/origin/JSON CSP, enforced Next nonce CSP, DNS rebinding, restore drill, catalog VRT mock, thin Cypress browse/auth-gate
 - [ ] Compare every acceptance item with authoritative runtime evidence.
 - [ ] Fix findings and repeat the complete affected verification scope.
 
