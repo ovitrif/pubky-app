@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (in progress; product-gap closure landed)
+Stopped at: **T8 — Hardening and parity audit** (PostgreSQL persistence and remaining product commands landed; live Paykit/videos remain)
 
 Legend:
 
@@ -20,8 +20,8 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 ### Task graph
 
 - [x] **T0 — Evidence and protocol audit** — upstream pins and constraints recorded; acceptance-to-test ledger still missing
-- [x] **T1 — Architecture and contracts** — ADRs 0019/0020, Zod contracts, threat model; PostgreSQL schema not implemented
-- [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory transaction service; not a durable DB
+- [x] **T1 — Architecture and contracts** — ADRs 0019/0020, Zod contracts, threat model; PostgreSQL schema applied on connect
+- [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory tests plus PostgreSQL write-through repository
 - [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
 - [x] **T4 — Messaging, offers, and auctions** — proxy bids, anti-sniping, private watcher offers, buy-now close
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
@@ -34,7 +34,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 - [x] 1. Marketplace shell + sandbox catalog + listing creation
 - [x] 2. Discovery + favorites/follows + seller shop
-- [~] 3. Durable transaction service + inventory/ledger foundations — inventory/events/ledger yes; PostgreSQL schema drafted, not wired
+- [x] 3. Durable transaction service + inventory/ledger foundations — PostgreSQL snapshot + events/ledger/outbox tables
 - [x] 4. Messaging + offers + concurrency-safe auctions
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
 - [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle exists; companion approval not proven
@@ -44,12 +44,12 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: saved searches, buy-now, private offers, balanced sandbox ledger, coupons, statements, payouts, review edit/reply/dimensions, blocked buyers, feed sections, related items, packing slips, and moderator restrict.
+Last shipped feature work: PostgreSQL durability, pickup, partial returns, review media hashes, review reports, staff assign/reverse, enforcement decisions, invariant alerts, admin search, account export/delete, and sandbox invoice QR.
 
 Next required work, in order:
 
 1. Close T8: broader VRT/E2E/a11y/security/concurrency/migration coverage and keep the verification ledger current.
-2. Wire PostgreSQL persistence and prove live Bitkit/Paykit companion flows.
+2. Prove live Bitkit/Paykit companion flows against the pinned Docker topology.
 3. Close T9: record and review feature videos.
 
 ### Reachable routes
@@ -125,7 +125,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [x] Existing Pubky sign-in and recovery continue to work.
 - [x] A signed-in user can create and edit shop name, bio, policies, location granularity, vacation mode, and default shipping/return settings.
-- [~] Public seller pages show active/sold listings, followers, sales, ratings, response time, and policy summaries. — shop + listings + follow + vacation; ratings/response-time incomplete
+- [x] Public seller pages show active/sold listings, followers, sales, ratings, response time, and policy summaries.
 - [~] Follow/block/report actions are auth-gated and immediately reflected locally. — follow, listing report, and seller-blocked buyers exist
 - [~] Trust indicators distinguish verified facts from self-declared profile fields. — sandbox badge plus seller reputation aggregates
 
@@ -180,7 +180,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [~] Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice. — client hooks exist
 - [ ] The real browser flow shows Paykit request/entitlement progress while Bitkit privately receives and executes the payment request; it does not expose or reconstruct the invoice.
 - [~] Real buyer-visible status distinguishes awaiting entitlement, confirmed, marketplace-expired, and manual review. — sandbox states labeled; real status mapping incomplete
-- [~] The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated. — labeled sandbox advance; no QR
+- [x] The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated.
 - [x] Polling is abortable, bounded, resumable after reload, and tolerant of duplicate/reordered responses.
 - [x] A confirmed payment advances the order once; later duplicate confirmations are harmless.
 - [~] Digital goods use a Locks access credential and verify content hashes. — hook/UI present; live delivery unproven
@@ -191,7 +191,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Orders and fulfillment
 
 - [x] Buyer and seller order views show a shared timeline with role-appropriate actions.
-- [~] Physical orders support address confirmation, handling deadline, shipment, carrier/tracking, delivery, and pickup. — ship + track + deliver; no pickup/label flow
+- [x] Physical orders support address confirmation, handling deadline, shipment, carrier/tracking, delivery, and pickup.
 - [~] Digital orders support locked delivery, credential refresh, download/access audit, and content-integrity failure.
 - [x] Sellers can print a packing summary and mark ready/shipped.
 - [x] Buyers can confirm receipt; deterministic sandbox delivery can advance automatically.
@@ -200,18 +200,18 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Returns, refunds, and disputes
 
 - [x] Buyers can request a return with reason, notes, and evidence within policy.
-- [~] Sellers can approve, reject, offer partial resolution, or request return shipment. — approve/receive; no partial-offer UI
+- [x] Sellers can approve, reject, offer partial resolution, or request return shipment.
 - [~] Return tracking and inspection lead to full, partial, denied, or externally-refunded outcomes.
 - [x] Because Paykit Server cannot spend, real refunds are recorded only after seller-provided external transaction evidence; the app never claims it moved funds.
 - [x] Buyers can escalate eligible orders to a dispute.
-- [~] Both parties can add evidence; moderators can decide, annotate, and close. — open/resolve commands; no evidence gallery or staff UI
+- [x] Both parties can add evidence; moderators can decide, annotate, and close.
 - [x] Every transition is role-checked, time-bounded, idempotent, and auditable.
 
 ### Reviews and reputation
 
 - [x] Only completed transactions can produce one buyer review and one seller review per role.
-- [~] Rating, text, optional media, item accuracy, shipping, and communication dimensions are supported. — rating, text, and dimension scores; no review media
-- [~] Reviews can be edited during a bounded window, replied to once, and reported. — edit/reply exist; review report not dedicated
+- [x] Rating, text, optional media, item accuracy, shipping, and communication dimensions are supported.
+- [x] Reviews can be edited during a bounded window, replied to once, and reported.
 - [x] Aggregate ratings update deterministically and exclude removed reviews.
 
 ### Seller tools and analytics
@@ -242,11 +242,11 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Trust, safety, and moderation
 
-- [~] Users can report listings, messages, reviews, and accounts with structured reasons and evidence. — listing report command/UI
+- [x] Users can report listings, messages, reviews, and accounts with structured reasons and evidence.
 - [x] Prohibited-item/category policy warnings are shown during listing creation.
-- [~] Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log. — open-report list only
+- [x] Moderator queues support assignment, notes, decisions, reversals, and an append-only audit log.
 - [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
-- [ ] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
+- [x] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
 - [ ] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history.
 - [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards; adversarial suite incomplete
 
@@ -254,10 +254,10 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation; adversarial suite incomplete
 - [x] Recovery phrases, payment secrets, raw delivery details, message bodies, evidence, access credentials, and private Pubky identifiers never enter analytics, logs, Sentry, or public records.
-- [ ] Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
+- [x] Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
 - [~] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live` and `/health/ready` only
-- [ ] Invariant alerts cover oversell, double winner, duplicate payment/refund, unbalanced ledger, stuck fulfillment, and authorization failures.
-- [ ] Admin searches and manual actions are role-scoped, redacted, reasoned, previewed, and append-only audited.
+- [x] Invariant alerts cover oversell, double winner, duplicate payment/refund, unbalanced ledger, stuck fulfillment, and authorization failures.
+- [x] Admin searches and manual actions are role-scoped, redacted, reasoned, previewed, and append-only audited.
 
 ### Accessibility, responsiveness, and local-first behavior
 
@@ -389,19 +389,19 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 - [x] Add marketplace ADRs for bounded contexts, public/private protocol, state machines, and adapter trust boundaries.
 - [x] Define Zod v4 wire schemas, domain types, IDs, integer money rules, ledger balancing, clocks, revisions, and idempotency.
-- [~] Define the Marketplace Transaction Service API, PostgreSQL schema, Pubky authentication, authorization matrix, event log, outbox, reconciliation, and failure semantics. — HTTP command API + in-memory events; no Postgres
+- [x] Define the Marketplace Transaction Service API, PostgreSQL schema, Pubky authentication, authorization matrix, event log, outbox, reconciliation, and failure semantics.
 - [x] Threat-model public records, private delivery data, access credentials, payment status, file uploads, reports, and telemetry.
 
 ### T2 — Local-first foundation `[x]`
 
 - [x] Add Dexie schemas/models, database version handling, local services, sync outbox, stores, controllers, and applications.
-- [~] Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock. — in-memory sandbox + health routes
+- [x] Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock.
 - [~] Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters. — catalog + payment advance + flat tax/shipping
 - [~] Verify account isolation, recovery, conflict handling, replay, and offline behavior. — command identity + Dexie scoping; restore drills pending
 
 ### T3 — Catalog and discovery `[x]`
 
-- [~] Build shop/listing forms, media, variants, inventory, lifecycle actions, marketplace routes, cards, grids, search/filter/sort, recommendations, favorites, follows, and saved searches. — no saved searches or recommendation rails
+- [x] Build shop/listing forms, media, variants, inventory, lifecycle actions, marketplace routes, cards, grids, search/filter/sort, recommendations, favorites, follows, and saved searches.
 - [x] Add public homeserver write/read adapters and preview-post support.
 
 ### T4 — Messaging, offers, and auctions `[x]`
@@ -449,16 +449,16 @@ Each implementation task closes only through this loop:
 
 Ledger format:
 
-| Requirement                            | Verification address                                   | Expected evidence                     | Finding | Fix                   | Re-verification        | Status              |
-| -------------------------------------- | ------------------------------------------------------ | ------------------------------------- | ------- | --------------------- | ---------------------- | ------------------- |
-| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price      | Closed  | Service + UI          | Marketplace unit suite | Verified in sandbox |
-| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky   | Closed  | Dexie v6              | Hook test              | Verified in sandbox |
-| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger | Closed  | Integer ledger        | Marketplace unit suite | Verified in sandbox |
-| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter     | Closed  | Filter + trust.decide | Unit tests             | Verified in sandbox |
-| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                 | Closed  | Transaction service   | Marketplace unit suite | Verified in sandbox |
-| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                 | Open    | Pending               | Not run                | Unverified          |
-| PostgreSQL durability                  | `schema.sql` + migrations                              | restart preserves ledger              | Open    | Schema drafted only   | Not run                | Unverified          |
-| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Pending               | Not recorded           | Unverified          |
+| Requirement                            | Verification address                                   | Expected evidence                     | Finding | Fix                    | Re-verification        | Status              |
+| -------------------------------------- | ------------------------------------------------------ | ------------------------------------- | ------- | ---------------------- | ---------------------- | ------------------- |
+| Buy-now closes an auction              | `transaction-service.test.ts` + listing buy-now button | one sold result at buy-now price      | Closed  | Service + UI           | Marketplace unit suite | Verified in sandbox |
+| Saved searches persist per account     | `useMarketplaceSavedSearches.test.ts` + filters UI     | Dexie row scoped to signed-in pubky   | Closed  | Dexie v6               | Hook test              | Verified in sandbox |
+| Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger | Closed  | Integer ledger         | Marketplace unit suite | Verified in sandbox |
+| Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter     | Closed  | Filter + trust.decide  | Unit tests             | Verified in sandbox |
+| Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                 | Closed  | Transaction service    | Marketplace unit suite | Verified in sandbox |
+| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                 | Open    | Pending                | Not run                | Unverified          |
+| PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect      | Closed  | Write-through snapshot | Marketplace unit suite | Verified in sandbox |
+| Feature videos                         | recorded walkthroughs                                  | all feature groups                    | Open    | Pending                | Not recorded           | Unverified          |
 
 Required gates:
 
