@@ -292,6 +292,16 @@ export const confirmOrderDeliveryCommandSchema = createCommerceCommandSchema(
   orderIdPayload,
 );
 
+export const recordDeliveryExceptionCommandSchema = createCommerceCommandSchema(
+  'fulfillment.record_exception',
+  orderIdPayload
+    .extend({
+      code: z.enum(['delayed', 'lost', 'damaged', 'refused']),
+      notes: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+);
+
 export const readyForPickupCommandSchema = createCommerceCommandSchema('fulfillment.ready_for_pickup', orderIdPayload);
 
 export const requestReturnCommandSchema = createCommerceCommandSchema(
@@ -619,6 +629,7 @@ export const marketplaceCommandSchema = z.union([
   shipOrderCommandSchema,
   readyForPickupCommandSchema,
   confirmOrderDeliveryCommandSchema,
+  recordDeliveryExceptionCommandSchema,
   requestReturnCommandSchema,
   approveReturnCommandSchema,
   receiveReturnCommandSchema,
@@ -729,6 +740,7 @@ export type ApproveOrderCancellationCommand = z.infer<typeof approveOrderCancell
 export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
 export type ReadyForPickupCommand = z.infer<typeof readyForPickupCommandSchema>;
 export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;
+export type RecordDeliveryExceptionCommand = z.infer<typeof recordDeliveryExceptionCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
 export type ApproveReturnCommand = z.infer<typeof approveReturnCommandSchema>;
 export type ReceiveReturnCommand = z.infer<typeof receiveReturnCommandSchema>;

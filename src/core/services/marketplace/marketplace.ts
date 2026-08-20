@@ -143,6 +143,7 @@ const notificationSchema = z
       'order_cancelled',
       'order_shipped',
       'order_delivered',
+      'delivery_exception',
       'return_updated',
       'refund_recorded',
       'dispute_updated',
@@ -249,6 +250,15 @@ const orderSchema = z
         state: z.enum(['ready_for_pickup', 'shipped', 'delivered']),
         shippedAt: z.string(),
         deliveredAt: z.string().nullable(),
+        exception: z
+          .object({
+            code: z.enum(['delayed', 'lost', 'damaged', 'refused']),
+            notes: z.string(),
+            recordedAt: z.string(),
+            actorPubky: commercePubkySchema,
+          })
+          .nullable()
+          .optional(),
       })
       .nullable()
       .optional(),

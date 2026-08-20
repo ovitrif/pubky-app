@@ -105,6 +105,9 @@ export function MarketplaceOrders() {
                       {order.shipment && (
                         <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                           {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
+                          {order.shipment.exception
+                            ? ` · Exception ${order.shipment.exception.code.replaceAll('_', ' ')}: ${order.shipment.exception.notes}`
+                            : ''}
                         </Typography>
                       )}
                       {order.returnRequest && (

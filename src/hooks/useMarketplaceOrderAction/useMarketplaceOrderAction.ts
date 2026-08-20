@@ -105,6 +105,12 @@ export function useMarketplaceOrderAction(
             text: data.text,
           });
           break;
+        case 'exception':
+          succeeded = await actOnOrder(order, 'fulfillment.record_exception', {
+            code: data.exceptionCode,
+            notes: data.reason,
+          });
+          break;
         case 'review_report': {
           const commandId = crypto.randomUUID();
           const response = await CommerceController.executeMarketplaceCommand({

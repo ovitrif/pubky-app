@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { normalizeSandboxTrackingNumber } from '../../../src/libs/commerce/carrier-adapter';
 import { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
 import {
   isSandboxFinance,
@@ -62,6 +63,7 @@ import {
   type ReadyForPickupCommand,
   type ReceiveReturnCommand,
   type ReconcilePaidInventoryCommand,
+  type RecordDeliveryExceptionCommand,
   type RecordDigitalAccessCommand,
   type RecordExternalRefundCommand,
   type RefreshDigitalCredentialCommand,
@@ -285,6 +287,7 @@ export interface MarketplaceNotification {
     | 'order_cancelled'
     | 'order_shipped'
     | 'order_delivered'
+    | 'delivery_exception'
     | 'return_updated'
     | 'refund_recorded'
     | 'dispute_updated'
@@ -330,6 +333,12 @@ export interface MarketplaceShipment {
   state: 'ready_for_pickup' | 'shipped' | 'delivered';
   shippedAt: string;
   deliveredAt: string | null;
+  exception: {
+    code: 'delayed' | 'lost' | 'damaged' | 'refused';
+    notes: string;
+    recordedAt: string;
+    actorPubky: string;
+  } | null;
 }
 
 export interface MarketplaceReturn {
@@ -568,6 +577,7 @@ export interface MarketplaceEvent {
     | 'fulfillment.shipped'
     | 'fulfillment.ready_for_pickup'
     | 'fulfillment.delivered'
+    | 'fulfillment.exception_recorded'
     | 'return.requested'
     | 'return.approved'
     | 'return.shipped'
@@ -1683,6 +1693,8 @@ export class MarketplaceTransactionService {
         return this.readyForPickup(actorPubky, command);
       case 'fulfillment.confirm_delivery':
         return this.confirmDelivery(actorPubky, command);
+      case 'fulfillment.record_exception':
+        return this.recordDeliveryException(actorPubky, command);
       case 'return.request':
         return this.requestReturn(actorPubky, command);
       case 'return.approve':
@@ -3207,17 +3219,20 @@ export class MarketplaceTransactionService {
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may ship this order.');
     if (!['paid', 'processing'].includes(order.state))
       return failure('INVALID_STATE', 'The order is not ready to ship.');
+    const trackingNumber = normalizeSandboxTrackingNumber(command.payload.trackingNumber);
+    if (!trackingNumber) return failure('INVALID_COMMAND', 'A normalized tracking number is required.');
     const occurredAt = this.now().toISOString();
     const updated: MarketplaceOrder = {
       ...order,
       revision: order.revision + 1,
       state: 'shipped',
       shipment: {
-        carrier: command.payload.carrier,
-        trackingNumber: command.payload.trackingNumber,
+        carrier: command.payload.carrier.trim(),
+        trackingNumber,
         state: 'shipped',
         shippedAt: occurredAt,
         deliveredAt: null,
+        exception: null,
       },
       updatedAt: occurredAt,
     };
@@ -3255,6 +3270,49 @@ export class MarketplaceTransactionService {
       'fulfillment.delivered',
       order.sellerPubky,
       'order_delivered',
+      occurredAt,
+    );
+  }
+
+  private recordDeliveryException(
+    actorPubky: string,
+    command: RecordDeliveryExceptionCommand,
+  ): MarketplaceCommandResult {
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    if (!resolved.ok) return resolved.failure;
+    const order = resolved.order;
+    if (order.buyerPubky !== actorPubky && order.sellerPubky !== actorPubky) {
+      return failure('UNAUTHORIZED', 'Only an order participant may record a delivery exception.');
+    }
+    if (!order.shipment || !['shipped', 'ready_for_pickup'].includes(order.state)) {
+      return failure('INVALID_STATE', 'A delivery exception requires an in-flight shipment.');
+    }
+    if (order.shipment.exception) {
+      return failure('INVALID_STATE', 'This shipment already has a delivery exception.');
+    }
+    const occurredAt = this.now().toISOString();
+    const updated: MarketplaceOrder = {
+      ...order,
+      revision: order.revision + 1,
+      shipment: {
+        ...order.shipment,
+        exception: {
+          code: command.payload.code,
+          notes: command.payload.notes,
+          recordedAt: occurredAt,
+          actorPubky,
+        },
+      },
+      updatedAt: occurredAt,
+    };
+    const counterpart = actorPubky === order.buyerPubky ? order.sellerPubky : order.buyerPubky;
+    return this.persistOrderAction(
+      actorPubky,
+      command,
+      updated,
+      'fulfillment.exception_recorded',
+      counterpart,
+      'delivery_exception',
       occurredAt,
     );
   }
@@ -3338,6 +3396,8 @@ export class MarketplaceTransactionService {
     if (order.state !== 'return_in_transit' || !order.returnRequest) {
       return failure('INVALID_STATE', 'The return is not awaiting shipment.');
     }
+    const trackingNumber = normalizeSandboxTrackingNumber(command.payload.trackingNumber);
+    if (!trackingNumber) return failure('INVALID_COMMAND', 'A normalized tracking number is required.');
     const occurredAt = this.now().toISOString();
     const updated: MarketplaceOrder = {
       ...order,
@@ -3346,8 +3406,8 @@ export class MarketplaceTransactionService {
         ...order.returnRequest,
         state: 'in_transit',
         returnShipment: {
-          carrier: command.payload.carrier,
-          trackingNumber: command.payload.trackingNumber,
+          carrier: command.payload.carrier.trim(),
+          trackingNumber,
           shippedAt: occurredAt,
         },
         updatedAt: occurredAt,
@@ -4167,6 +4227,7 @@ export class MarketplaceTransactionService {
         state: 'ready_for_pickup',
         shippedAt: occurredAt,
         deliveredAt: null,
+        exception: null,
       },
       updatedAt: occurredAt,
     };
@@ -4431,6 +4492,7 @@ export class MarketplaceTransactionService {
       'order_cancelled',
       'order_shipped',
       'order_delivered',
+      'delivery_exception',
       'return_updated',
       'refund_recorded',
       'dispute_updated',

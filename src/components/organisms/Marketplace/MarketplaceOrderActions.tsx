@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useWatch } from 'react-hook-form';
+import { Controller, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
+import { Label } from '@/atoms/Label/Label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
+import { printMarketplaceReverseLabel } from '@/libs/commerce/shipping-label';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -58,6 +61,11 @@ export function MarketplaceOrderActions({
             Ready for pickup
           </Button>
         )}
+        {['shipped', 'ready_for_pickup'].includes(order.state) && !order.shipment?.exception && (
+          <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('exception')}>
+            Record delivery exception
+          </Button>
+        )}
         {isBuyer && (order.state === 'shipped' || order.state === 'ready_for_pickup') && (
           <Button
             size="sm"
@@ -80,6 +88,16 @@ export function MarketplaceOrderActions({
         {isBuyer && order.state === 'return_in_transit' && (
           <Button size="sm" className="rounded-full" onClick={() => begin('return_ship')}>
             Add return tracking
+          </Button>
+        )}
+        {order.returnRequest && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="rounded-full"
+            onClick={() => printMarketplaceReverseLabel(order)}
+          >
+            Print reverse label
           </Button>
         )}
         {!isBuyer && order.state === 'return_requested' && (
@@ -217,7 +235,29 @@ export function MarketplaceOrderActions({
           <DialogHeader>
             <DialogTitle>{actionTitle(actionType)}</DialogTitle>
           </DialogHeader>
-          {['cancel', 'return', 'dispute'].includes(actionType) && (
+          {actionType === 'exception' && (
+            <div className="grid gap-2">
+              <Label htmlFor="exceptionCode">Exception type</Label>
+              <Controller
+                name="exceptionCode"
+                control={action.form.control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="exceptionCode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="delayed">Delayed</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                      <SelectItem value="damaged">Damaged</SelectItem>
+                      <SelectItem value="refused">Refused</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          )}
+          {['cancel', 'return', 'dispute', 'exception'].includes(actionType) && (
             <ControlledTextareaField
               name="reason"
               control={action.form.control}
@@ -307,5 +347,7 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Reply to review';
     case 'review_report':
       return 'Report this review';
+    case 'exception':
+      return 'Record delivery exception';
   }
 }

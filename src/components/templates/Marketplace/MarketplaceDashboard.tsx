@@ -32,7 +32,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { printMarketplacePackingSlip } from '@/libs/commerce/packing-slip';
-import { printMarketplaceShippingLabel } from '@/libs/commerce/shipping-label';
+import { printMarketplaceReverseLabel, printMarketplaceShippingLabel } from '@/libs/commerce/shipping-label';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceRelistDialog } from '@/organisms/Marketplace/MarketplaceRelistDialog';
 
@@ -388,6 +388,16 @@ export function MarketplaceDashboard() {
                         >
                           Shipping label
                         </Button>
+                        {order.returnRequest && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="rounded-full"
+                            onClick={() => printMarketplaceReverseLabel(order)}
+                          >
+                            Reverse label
+                          </Button>
+                        )}
                         {order.payoutState === 'held' &&
                           ['delivered', 'completed'].includes(order.state) &&
                           !order.dispute && (

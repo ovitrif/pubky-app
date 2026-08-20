@@ -1199,6 +1199,58 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 
+  it('records one in-flight delivery exception without refunding or rewriting payment', async () => {
+    const { service } = createService();
+    const order = await createPaidOrder(service);
+    await service.execute(
+      SELLER,
+      orderCommand('fulfillment.ship', order.id, 2, { carrier: 'Sandbox Post', trackingNumber: ' track-123 ' }, 1_240),
+    );
+
+    const recorded = await service.execute(
+      BUYER,
+      orderCommand(
+        'fulfillment.record_exception',
+        order.id,
+        3,
+        { code: 'delayed', notes: 'Sandbox Post scan stalled in New York.' },
+        1_241,
+      ),
+    );
+    expect(recorded).toMatchObject({
+      ok: true,
+      result: {
+        kind: 'order',
+        order: {
+          state: 'shipped',
+          shipment: {
+            trackingNumber: 'TRACK-123',
+            exception: { code: 'delayed', notes: 'Sandbox Post scan stalled in New York.', actorPubky: BUYER },
+          },
+        },
+      },
+    });
+    expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('delivery_exception');
+    await expect(
+      service.execute(
+        SELLER,
+        orderCommand(
+          'fulfillment.record_exception',
+          order.id,
+          4,
+          { code: 'lost', notes: 'Second exception must fail closed.' },
+          1_242,
+        ),
+      ),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
+    await expect(
+      service.execute(
+        OTHER_BUYER,
+        orderCommand('fulfillment.record_exception', order.id, 4, { code: 'lost', notes: 'Unrelated actor.' }, 1_243),
+      ),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+  });
+
   it('ships, confirms delivery, and allows one review per participant', async () => {
     const { service } = createService();
     const order = await createPaidOrder(service);

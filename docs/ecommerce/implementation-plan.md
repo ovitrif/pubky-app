@@ -231,7 +231,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Tax, shipping, ledger, and guarantees
 
 - [x] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — `sandbox-us-8pct-v1` + `sandbox-listing-shipping-v1` frozen on the order; pickup defaults to $12, digital $0, listing free/flat/calculated otherwise
-- [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — listing free/flat/calculated quotes + tracking + printable sandbox label; live carrier rates still sandbox
+- [x] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — listing free/flat/calculated quotes + `sandbox-carrier-table-v1` (US Post matches calculated $14) + normalized tracking + one delivery exception + printable reverse label; live carrier APIs still sandbox
 - [x] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
 - [x] Any unbalanced posting blocks order finalization and creates an operator finding.
 - [x] Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order. — `SANDBOX_GUARANTEE_POLICY` on PDP, shop, checkout, and order totals
@@ -265,7 +265,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Accessibility, responsiveness, and local-first behavior
 
-- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, and trust indicators axe suites; marketplace muted token AA on cards; signed-in manual review still needed
+- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, trust indicators, staff chrome, empty cart, and shipped-order actions axe suites; marketplace muted token AA on cards; signed-in manual review still needed
 - [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT with feed sections
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
@@ -400,7 +400,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 - [x] Add Dexie schemas/models, database version handling, local services, sync outbox, stores, controllers, and applications.
 - [x] Add the transaction service skeleton, PostgreSQL migrations, Pubky auth verifier, health/readiness, event/audit log, and deterministic clock.
-- [~] Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters. — catalog + payment advance + flat tax/shipping + HMAC Locks payment callback
+- [~] Add deterministic fixtures and sandbox payment, tax, carrier, hold/release, payout, and callback adapters. — catalog + payment advance + flat tax/shipping + HMAC callback + sandbox-carrier-table-v1
 - [x] Verify account isolation, recovery, conflict handling, replay, and offline behavior. — command identity + Dexie scoping; JSON/Postgres restore drill
 
 ### T3 — Catalog and discovery `[x]`

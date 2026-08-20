@@ -168,6 +168,8 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Order shipped';
     case 'order_delivered':
       return 'Delivery confirmed';
+    case 'delivery_exception':
+      return 'Delivery exception recorded';
     case 'return_updated':
       return 'Return updated';
     case 'refund_recorded':

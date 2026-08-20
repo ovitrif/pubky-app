@@ -248,8 +248,10 @@ export function MarketplaceCart() {
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
                     {estimate.taxAdapterVersion} + {estimate.shippingAdapterVersion}. Digital-only seller groups have $0
-                    shipping. Physical listings use free, flat, or sandbox-calculated rates. Seller coupon SAVE10 is
-                    quoted here at 10% off items; checkout remains the authority and cannot exceed items.
+                    shipping. Physical listings use free, flat, or sandbox-calculated rates. The labeled carrier table
+                    sandbox-carrier-table-v1 names Sandbox Post, Express, and Returns; checkout still uses the listing
+                    quote. Seller coupon SAVE10 is quoted here at 10% off items; checkout remains the authority and
+                    cannot exceed items.
                   </Typography>
                 </div>
                 {currentUserPubky ? (

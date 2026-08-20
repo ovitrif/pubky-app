@@ -68,4 +68,4 @@ Manual sandbox procedure:
 
 Do not replay Paykit/Locks side effects from a restored snapshot. The drill restores marketplace authority only.
 
-Checkout tax/shipping uses `sandbox-us-8pct-v1` and `sandbox-listing-shipping-v1`. Digital-only seller groups have $0 shipping. Pickup without listing options still uses the $12 flat quote. Physical listings can quote free, flat, or sandbox-calculated (`$6 + $4/kg`) shipping.
+Checkout tax/shipping uses `sandbox-us-8pct-v1` and `sandbox-listing-shipping-v1`. Digital-only seller groups have $0 shipping. Pickup without listing options still uses the $12 flat quote. Physical listings can quote free, flat, or sandbox-calculated (`$6 + $4/kg`) shipping. `sandbox-carrier-table-v1` labels Sandbox Post / Express / Returns and zone surcharges; US Sandbox Post stays equal to the calculated listing quote. `fulfillment.record_exception` records one delayed/lost/damaged/refused fact on an in-flight shipment and does not refund. Reverse labels are printable sandbox documents only.
