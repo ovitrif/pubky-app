@@ -1,9 +1,11 @@
 'use client';
 
 import { KeyRound, LoaderCircle, WalletCards } from 'lucide-react';
+import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode } from '@/config/commerce';
 import { useLocksPayment } from '@/hooks/useLocksPayment/useLocksPayment';
 
 export function MarketplaceLocksPayment({
@@ -16,6 +18,7 @@ export function MarketplaceLocksPayment({
   criterionId: string;
 }) {
   const payment = useLocksPayment({ creatorPubky, lockResource, criterionId });
+  const sandbox = getCommerceAdapterMode() === 'sandbox';
 
   return (
     <Card className="gap-4 border border-brand/30 py-5">
@@ -31,6 +34,11 @@ export function MarketplaceLocksPayment({
             <Typography as="p" className="text-sm text-muted-foreground">
               Paykit sends the private Bitcoin request to Bitkit. Pubky App never receives wallet keys.
             </Typography>
+            {sandbox && (
+              <Badge variant="secondary" className="mt-2">
+                Sandbox stub · empty proof · no Bitcoin
+              </Badge>
+            )}
           </div>
         </div>
 
