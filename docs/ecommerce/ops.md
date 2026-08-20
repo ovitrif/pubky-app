@@ -64,7 +64,7 @@ Manual sandbox procedure:
 3. Recreate or truncate `marketplace` (`marketplace_snapshots`, events, ledger, aggregates, commands, outbox).
 4. `INSERT INTO marketplace_snapshots (id, payload, updated_at) VALUES ('default', $snapshot::jsonb, now())`.
 5. Start `npm run marketplace` and confirm `/health/ready` reports `storage: postgres`.
-6. Re-read the same listing aggregate, order, and ledger; `GET /v1/invariants` must show no unbalanced orders.
+6. Re-read the same listing aggregate, order (including the buyer delivery address from the snapshot), and ledger; `GET /v1/invariants` must show no unbalanced orders. The denormalized `marketplace_aggregates` order payload omits `deliveryAddress`; the snapshot is the restart source of truth.
 
 Do not replay Paykit/Locks side effects from a restored snapshot. The drill restores marketplace authority only.
 

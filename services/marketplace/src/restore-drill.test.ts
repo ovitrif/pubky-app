@@ -8,7 +8,8 @@ import {
   buildMarketplaceListingAggregateId,
   buildMarketplacePaymentAggregateId,
 } from './contracts';
-import { applyMarketplaceSchema, PostgresMarketplaceRepository } from './postgres-repository';
+import { MARKETPLACE_TEST_DATABASE_URL, withExclusiveMarketplaceTestDb } from './marketplace-test-db';
+import { PostgresMarketplaceRepository } from './postgres-repository';
 import {
   InMemoryMarketplaceRepository,
   type MarketplaceRepositorySnapshot,
@@ -18,8 +19,7 @@ import {
 const SELLER = 'y'.repeat(52);
 const BUYER = 'b'.repeat(52);
 const NOW = new Date('2026-08-20T10:00:00.000Z');
-const DATABASE_URL =
-  process.env.MARKETPLACE_TEST_DATABASE_URL ?? 'postgres://marketplace:marketplace@127.0.0.1:5432/marketplace_test';
+const DATABASE_URL = MARKETPLACE_TEST_DATABASE_URL;
 
 async function seedPaidOrder(repository: InMemoryMarketplaceRepository): Promise<string> {
   const service = new MarketplaceTransactionService(repository, () => NOW);
@@ -86,7 +86,16 @@ function expectRestoredPaidOrder(service: MarketplaceTransactionService, orderId
     soldQuantity: 1,
   });
   const orders = service.getOrders(BUYER);
-  expect(orders[0]).toMatchObject({ id: orderId, state: 'paid', inventoryState: 'sold' });
+  expect(orders[0]).toMatchObject({
+    id: orderId,
+    state: 'paid',
+    inventoryState: 'sold',
+    deliveryAddress: {
+      name: 'Restore Buyer',
+      line1: '1 Market Street',
+      city: 'New York',
+    },
+  });
   const ledger = service.getLedger(BUYER, orderId);
   const debit = ledger
     .filter(({ direction }) => direction === 'debit')
@@ -126,32 +135,27 @@ const available = await postgresAvailable();
 
 describe.skipIf(!available)('marketplace PostgreSQL restore drill', () => {
   it('rehydrates a file snapshot into a fresh database', async () => {
-    const pool = new Pool({ connectionString: DATABASE_URL });
-    await applyMarketplaceSchema(pool);
-    await pool.query(
-      `TRUNCATE marketplace_outbox, marketplace_events, marketplace_ledger_entries, marketplace_aggregates, marketplace_commands, marketplace_snapshots RESTART IDENTITY CASCADE`,
-    );
-    await pool.end();
+    await withExclusiveMarketplaceTestDb(async () => {
+      const first = await PostgresMarketplaceRepository.connect(DATABASE_URL);
+      const orderId = await seedPaidOrder(first);
+      const snapshot = first.exportSnapshot();
+      const snapshotPath = path.join(tmpdir(), `marketplace-restore-${Date.now()}.json`);
+      await writeFile(snapshotPath, JSON.stringify(snapshot), 'utf8');
+      await first.close();
 
-    const first = await PostgresMarketplaceRepository.connect(DATABASE_URL);
-    const orderId = await seedPaidOrder(first);
-    const snapshot = first.exportSnapshot();
-    const snapshotPath = path.join(tmpdir(), `marketplace-restore-${Date.now()}.json`);
-    await writeFile(snapshotPath, JSON.stringify(snapshot), 'utf8');
-    await first.close();
+      const reset = new Pool({ connectionString: DATABASE_URL });
+      await reset.query(
+        `TRUNCATE marketplace_outbox, marketplace_events, marketplace_ledger_entries, marketplace_aggregates, marketplace_commands, marketplace_snapshots RESTART IDENTITY CASCADE`,
+      );
+      await reset.query(
+        `INSERT INTO marketplace_snapshots (id, payload, updated_at) VALUES ('default', $1::jsonb, now())`,
+        [JSON.stringify(snapshot)],
+      );
+      await reset.end();
 
-    const reset = new Pool({ connectionString: DATABASE_URL });
-    await reset.query(
-      `TRUNCATE marketplace_outbox, marketplace_events, marketplace_ledger_entries, marketplace_aggregates, marketplace_commands, marketplace_snapshots RESTART IDENTITY CASCADE`,
-    );
-    await reset.query(
-      `INSERT INTO marketplace_snapshots (id, payload, updated_at) VALUES ('default', $1::jsonb, now())`,
-      [JSON.stringify(snapshot)],
-    );
-    await reset.end();
-
-    const second = await PostgresMarketplaceRepository.connect(DATABASE_URL);
-    expectRestoredPaidOrder(new MarketplaceTransactionService(second, () => NOW), orderId);
-    await second.close();
+      const second = await PostgresMarketplaceRepository.connect(DATABASE_URL);
+      expectRestoredPaidOrder(new MarketplaceTransactionService(second, () => NOW), orderId);
+      await second.close();
+    });
   });
 });

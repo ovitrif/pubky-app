@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (signed callbacks + staff step-up + support/finance/risk consoles + 100-way concurrency + vendored Locks JS/WASM; live Bitkit remains)
+Stopped at: **T8 — Hardening and parity audit** (winning orders + 390×844 add-to-cart + address restore; live Bitkit remains)
 
 Legend:
 
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: HMAC-signed Locks payment callbacks with a replay window, plus staff step-up tokens for decide/hold/refund/reconcile.
+Last shipped feature work: auction/offer winning orders with address confirmation, plus listing purchase actions kept above the fold at 390×844.
 
 Next required work, in order:
 
@@ -265,8 +265,8 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Accessibility, responsiveness, and local-first behavior
 
-- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, trust indicators, staff chrome, empty cart, and shipped-order actions axe suites; marketplace muted token AA on cards; signed-in manual review still needed
-- [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT with feed sections
+- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, trust indicators, staff chrome, empty cart, shipped-order actions, and confirm-address dialog axe suites; marketplace muted token AA on cards; signed-in manual review still needed
+- [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT; Add to cart / Make offer sit next to quantity above the fold on a 390×844 listing
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
 - [x] Retry queues preserve idempotency and never silently drop a transaction action.

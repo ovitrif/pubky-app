@@ -1,4 +1,5 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
@@ -30,6 +31,23 @@ describe('MarketplaceOrderActions accessibility', () => {
       <MarketplaceOrderActions order={order} isBuyer actOnOrder={vi.fn(async () => true)} />,
     );
     const results = await axe.run(container, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
+    });
+    const blocking = results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''));
+    expect(blocking).toEqual([]);
+  });
+
+  it('has no serious or critical automated violations on the confirm-address dialog', async () => {
+    const pending = asOpaque<MarketplaceOrder>({
+      ...order,
+      state: 'pending_payment',
+      deliveryAddress: null,
+      shipment: undefined,
+    });
+    render(<MarketplaceOrderActions order={pending} isBuyer actOnOrder={vi.fn(async () => true)} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm delivery address' }));
+    expect(await screen.findByRole('dialog', { name: 'Confirm delivery address' })).toBeTruthy();
+    const results = await axe.run(document.body, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
     });
     const blocking = results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''));
