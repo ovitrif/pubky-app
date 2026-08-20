@@ -200,6 +200,34 @@ describe('CommerceController', () => {
     sessionStorage.clear();
   });
 
+  it('sends finance staff commands as the reserved finance actor', async () => {
+    sessionStorage.setItem(MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY, '1');
+    sessionStorage.setItem('pubky.marketplace.sandboxStaffRole', 'finance');
+    const execute = vi.spyOn(CommerceApplication, 'executeMarketplaceCommand').mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000823',
+      aggregateId: 'inventory:reconcile',
+      revision: 1,
+      eventIds: ['00000000-0000-4000-8000-000000000824'],
+      result: { kind: 'inventory_reconcile' },
+    });
+    const command = {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000823',
+      aggregateId: 'inventory:reconcile',
+      expectedRevision: 0,
+      issuedAt: '2026-08-19T23:00:00.000Z',
+      kind: 'inventory.reconcile_paid',
+      payload: {},
+    };
+
+    await CommerceController.executeMarketplaceCommand(command);
+
+    expect(execute).toHaveBeenCalledWith('p'.repeat(52), command);
+    sessionStorage.clear();
+  });
+
   it('validates private message attachments before gateway upload', async () => {
     const upload = vi.spyOn(CommerceApplication, 'uploadMarketplaceAttachment').mockResolvedValue({
       id: '00000000-0000-4000-8000-000000000996',

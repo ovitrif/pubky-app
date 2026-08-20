@@ -8,6 +8,7 @@ import {
 } from '../../../src/libs/commerce/marketplace-http-security';
 import { commerceAggregateIdSchema, commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import { PostgresMarketplaceRepository } from './postgres-repository';
+import { isSandboxFinance, isSandboxModerator, isSandboxRisk } from '../../../src/libs/commerce/sandbox-roles';
 import {
   InMemoryMarketplaceRepository,
   MARKETPLACE_SANDBOX_MODERATOR,
@@ -406,16 +407,31 @@ export function createMarketplaceHttpServer({
       if (request.method === 'GET' && request.url === '/v1/invariants') {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
-        if (!actorResult.success || actorResult.data !== MARKETPLACE_SANDBOX_MODERATOR) {
+        if (!actorResult.success || (!isSandboxModerator(actorResult.data) && !isSandboxFinance(actorResult.data))) {
           writeJson(
             response,
             403,
-            { error: { code: 'UNAUTHORIZED', message: 'Operator identity is required.' } },
+            { error: { code: 'UNAUTHORIZED', message: 'Finance or operator identity is required.' } },
             mode,
           );
           return;
         }
         writeJson(response, 200, service.getInvariants(), mode);
+        return;
+      }
+
+      if (request.method === 'GET' && request.url === '/v1/enforcements') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Risk identity is required.' } }, mode);
+          return;
+        }
+        if (!isSandboxRisk(actorResult.data) && !isSandboxModerator(actorResult.data)) {
+          writeJson(response, 403, { error: { code: 'UNAUTHORIZED', message: 'Risk role required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, { enforcements: service.getEnforcements(actorResult.data) }, mode);
         return;
       }
 

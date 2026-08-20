@@ -154,6 +154,9 @@ describe('isDynamicPublicRoute', () => {
       expect(isDynamicPublicRoute('/marketplace/orders')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/messages')).toBe(false);
       expect(isDynamicPublicRoute('/marketplace/notifications')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/support')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/risk')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/finance')).toBe(false);
     });
 
     it('exposes the catalog index during auth hydration', () => {

@@ -94,6 +94,10 @@ export class CommerceController {
     return await CommerceApplication.getMarketplaceOrders(this.getCurrentUserPubky());
   }
 
+  static async getMarketplaceStaffOrders() {
+    return await CommerceApplication.getMarketplaceOrders(this.getMarketplaceStaffActor());
+  }
+
   static async getMarketplacePayment(paymentId: unknown) {
     return await CommerceApplication.getMarketplacePayment(
       this.getCurrentUserPubky(),
@@ -119,6 +123,13 @@ export class CommerceController {
   static async getMarketplaceLedger(orderId?: unknown) {
     return await CommerceApplication.getMarketplaceLedger(
       this.getCurrentUserPubky(),
+      orderId === undefined ? undefined : CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  static async getMarketplaceStaffLedger(orderId?: unknown) {
+    return await CommerceApplication.getMarketplaceLedger(
+      this.getMarketplaceStaffActor(),
       orderId === undefined ? undefined : CommerceRecordNormalizer.entityId(orderId),
     );
   }
@@ -395,6 +406,10 @@ export class CommerceController {
 
   static async getMarketplaceRiskSignals() {
     return await CommerceApplication.getMarketplaceRiskSignals(this.getMarketplaceStaffActor());
+  }
+
+  static async getMarketplaceEnforcements() {
+    return await CommerceApplication.getMarketplaceEnforcements(this.getMarketplaceStaffActor());
   }
 
   static async searchMarketplaceAdmin(query: unknown) {

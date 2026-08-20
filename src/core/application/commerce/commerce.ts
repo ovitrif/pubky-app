@@ -188,6 +188,10 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getRiskSignals(actorPubky);
   }
 
+  static async getMarketplaceEnforcements(actorPubky: string) {
+    return await MarketplaceGatewayService.getEnforcements(actorPubky);
+  }
+
   static async searchMarketplaceAdmin(actorPubky: string, query: string) {
     return await MarketplaceGatewayService.searchAdmin(actorPubky, query);
   }

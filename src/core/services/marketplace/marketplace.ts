@@ -248,6 +248,7 @@ const orderSchema = z
       .nullable()
       .optional(),
     fulfillment: z.enum(['physical', 'digital', 'pickup']).optional(),
+    inventoryState: z.enum(['reserved', 'sold', 'released']).optional(),
     digitalDelivery: z
       .object({
         credentialId: z.uuid(),
@@ -327,6 +328,16 @@ const orderSchema = z
           mediaHashes: z.array(z.string()).optional(),
           reply: z.string().nullable().optional(),
           editedAt: z.string().nullable().optional(),
+          createdAt: z.string(),
+        }),
+      )
+      .optional(),
+    supportNotes: z
+      .array(
+        z.object({
+          id: z.uuid(),
+          actorPubky: commercePubkySchema,
+          text: z.string(),
           createdAt: z.string(),
         }),
       )
@@ -472,7 +483,14 @@ export type MarketplacePromotion = z.infer<typeof promotionSchema>;
 export type MarketplaceSellerStatement = z.infer<typeof statementSchema>;
 export type MarketplaceSellerAnalytics = z.infer<typeof analyticsSchema>;
 export type MarketplaceSellerReputation = z.infer<typeof reputationSchema>;
+const enforcementSchema = z.object({
+  subjectPubky: commercePubkySchema,
+  actions: z.array(z.enum(['warning', 'visibility_limit', 'message_limit', 'transaction_hold', 'suspension', 'ban'])),
+  updatedAt: z.string(),
+});
+
 export type MarketplaceRiskSignal = z.infer<typeof riskSignalSchema>;
+export type MarketplaceEnforcement = z.infer<typeof enforcementSchema>;
 
 export class MarketplaceGatewayService {
   private constructor() {}
@@ -976,6 +994,27 @@ export class MarketplaceGatewayService {
       });
     }
     return parsed.data.signals;
+  }
+
+  static async getEnforcements(actor: string): Promise<MarketplaceEnforcement[]> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/enforcements`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getEnforcements',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getEnforcements', url);
+    const parsed = z.object({ enforcements: z.array(enforcementSchema) }).safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid enforcements.', {
+        service: ErrorService.Marketplace,
+        operation: 'getEnforcements',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data.enforcements;
   }
 
   static async exportAccount(actor: string): Promise<unknown> {

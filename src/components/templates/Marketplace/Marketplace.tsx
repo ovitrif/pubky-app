@@ -1,7 +1,19 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Bell, Gavel, HandCoins, MessageCircle, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
+import {
+  ArrowRight,
+  Bell,
+  Gavel,
+  HandCoins,
+  Landmark,
+  LifeBuoy,
+  MessageCircle,
+  Shield,
+  ShieldCheck,
+  ShoppingCart,
+  Store,
+} from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -9,6 +21,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceCatalog } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog';
+import { isMarketplaceSandboxOperator } from '@/libs/commerce/sandbox-operator';
 import { useRecentlyViewedListings } from '@/hooks/useRecentlyViewedListings/useRecentlyViewedListings';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
@@ -100,6 +113,30 @@ export function Marketplace() {
                 <Bell className="mr-2 size-4" />
                 Activity
               </Button>
+              {isMarketplaceSandboxOperator() && (
+                <>
+                  <Button
+                    variant="ghost"
+                    className="rounded-full"
+                    onClick={() => router.push(MARKETPLACE_ROUTES.SUPPORT)}
+                  >
+                    <LifeBuoy className="mr-2 size-4" />
+                    Support
+                  </Button>
+                  <Button variant="ghost" className="rounded-full" onClick={() => router.push(MARKETPLACE_ROUTES.RISK)}>
+                    <Shield className="mr-2 size-4" />
+                    Risk
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="rounded-full"
+                    onClick={() => router.push(MARKETPLACE_ROUTES.FINANCE)}
+                  >
+                    <Landmark className="mr-2 size-4" />
+                    Finance
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </section>

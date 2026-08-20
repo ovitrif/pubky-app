@@ -3,6 +3,14 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
 import {
+  isSandboxFinance,
+  isSandboxModerator,
+  isSandboxRisk,
+  isSandboxSupport,
+  marketplaceSandboxRoleForActor,
+} from '../../../src/libs/commerce/sandbox-roles';
+import { redactMarketplaceOrderForStaff } from '../../../src/libs/commerce/staff-order';
+import {
   MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR,
   MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
   MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
@@ -12,6 +20,7 @@ import {
 import { commercePubkySchema } from '../../../src/libs/commerce/transaction-contracts';
 import {
   type AcceptOfferCommand,
+  type AddMarketplaceSupportNoteCommand,
   type AdvanceSandboxPaymentCommand,
   type ApproveOrderCancellationCommand,
   type ApproveReturnCommand,
@@ -21,6 +30,7 @@ import {
   buildMarketplaceBlockedBuyersAggregateId,
   buildMarketplaceCheckoutAggregateId,
   buildMarketplaceConversationAggregateId,
+  buildMarketplaceEnforcementAggregateId,
   buildMarketplaceListingAggregateId,
   buildMarketplaceOfferAggregateId,
   buildMarketplaceOrderAggregateId,
@@ -39,6 +49,7 @@ import {
   type DecideMarketplaceReportCommand,
   type EditReviewCommand,
   type FlagMarketplaceRiskCommand,
+  type HoldMarketplaceRiskCommand,
   type InspectReturnCommand,
   type IssueDigitalCredentialCommand,
   type MarketplaceCommand,
@@ -53,6 +64,7 @@ import {
   type RecordDigitalAccessCommand,
   type RecordExternalRefundCommand,
   type RefreshDigitalCredentialCommand,
+  type ReleaseMarketplaceRiskCommand,
   type RegisterListingCommand,
   type RejectOfferCommand,
   type ReleasePayoutCommand,
@@ -469,8 +481,16 @@ export interface MarketplaceOrder {
   inventoryState: 'reserved' | 'sold' | 'released';
   taxAdapterVersion: string;
   shippingAdapterVersion: string;
+  supportNotes: MarketplaceSupportNote[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MarketplaceSupportNote {
+  id: string;
+  actorPubky: string;
+  text: string;
+  createdAt: string;
 }
 
 export interface MarketplaceDigitalDelivery {
@@ -569,6 +589,9 @@ export interface MarketplaceEvent {
     | 'trust.assigned'
     | 'trust.reversed'
     | 'trust.risk_flagged'
+    | 'support.noted'
+    | 'risk.held'
+    | 'risk.released'
     | 'message.blocked'
     | 'buyer.blocked'
     | 'buyer.unblocked'
@@ -628,6 +651,7 @@ export type MarketplaceCommandSuccess = {
     | { kind: 'blocked_buyer'; sellerPubky: string; buyerPubky: string; blocked: boolean }
     | { kind: 'conversation'; conversation: MarketplaceConversation }
     | { kind: 'risk_signal'; signal: MarketplaceRiskSignal }
+    | { kind: 'enforcement'; enforcement: MarketplaceEnforcement }
     | {
         kind: 'inventory_reconcile';
         convertedOrderIds: string[];
@@ -663,7 +687,12 @@ export type MarketplaceAttachmentStoreResult =
   | { ok: true; attachment: MarketplaceAttachmentMetadata }
   | { ok: false; code: 'INVALID_ATTACHMENT' | 'UNAUTHORIZED'; message: string };
 
-export { MARKETPLACE_SANDBOX_MODERATOR };
+export {
+  MARKETPLACE_SANDBOX_FINANCE,
+  MARKETPLACE_SANDBOX_MODERATOR,
+  MARKETPLACE_SANDBOX_RISK,
+  MARKETPLACE_SANDBOX_SUPPORT,
+} from '../../../src/libs/commerce/sandbox-actors';
 
 type StoredCommand = {
   requestHash: string;
@@ -1097,6 +1126,7 @@ export class InMemoryMarketplaceRepository {
           inventoryState: order.inventoryState ?? inferHydratedInventoryState(order.state),
           taxAdapterVersion: order.taxAdapterVersion ?? MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
           shippingAdapterVersion: order.shippingAdapterVersion ?? MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
+          supportNotes: order.supportNotes ?? [],
           returnRequest: order.returnRequest
             ? {
                 ...order.returnRequest,
@@ -1234,6 +1264,13 @@ export class MarketplaceTransactionService {
   }
 
   getOrders(actorPubky: string): MarketplaceOrder[] {
+    if (isSandboxSupport(actorPubky) || isSandboxFinance(actorPubky)) {
+      return this.repository
+        .exportSnapshot()
+        .orders.map((order) =>
+          redactMarketplaceOrderForStaff(order, { keepRefundEvidence: isSandboxFinance(actorPubky) }),
+        );
+    }
     return this.repository.getOrdersForActor(actorPubky);
   }
 
@@ -1248,14 +1285,18 @@ export class MarketplaceTransactionService {
   }
 
   getReports(actorPubky: string): MarketplaceReport[] {
-    return actorPubky === MARKETPLACE_SANDBOX_MODERATOR ? this.repository.getReports() : [];
+    return isSandboxModerator(actorPubky) ? this.repository.getReports() : [];
   }
 
   getRiskSignals(actorPubky: string): MarketplaceRiskSignal[] {
     const signals = this.repository.getRiskSignals();
-    return actorPubky === MARKETPLACE_SANDBOX_MODERATOR
+    return isSandboxModerator(actorPubky) || isSandboxRisk(actorPubky)
       ? signals
       : signals.filter((signal) => signal.actorPubky === actorPubky);
+  }
+
+  getEnforcements(actorPubky: string): MarketplaceEnforcement[] {
+    return isSandboxModerator(actorPubky) || isSandboxRisk(actorPubky) ? this.repository.listEnforcements() : [];
   }
 
   getRestrictedListingIds(): string[] {
@@ -1263,6 +1304,9 @@ export class MarketplaceTransactionService {
   }
 
   getLedger(actorPubky: string, orderId?: string): MarketplaceLedgerEntry[] {
+    if (isSandboxFinance(actorPubky)) {
+      return orderId ? this.repository.getLedgerForOrder(orderId) : this.repository.exportSnapshot().ledger;
+    }
     return orderId
       ? this.repository
           .getLedgerForOrder(orderId)
@@ -1381,32 +1425,34 @@ export class MarketplaceTransactionService {
     orders: Array<{ id: string; state: string }>;
     riskSignals: MarketplaceRiskSignal[];
   } {
-    if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
+    const role = marketplaceSandboxRoleForActor(actorPubky);
+    if (!role) {
       return { reports: [], listings: [], orders: [], riskSignals: [] };
     }
     const needle = query.trim().toLowerCase();
     const matches = (value: string) => !needle || value.toLowerCase().includes(needle);
-    return {
-      reports: this.repository
-        .getReports()
-        .filter(
-          (report) =>
-            matches(report.targetId) || matches(report.reason) || matches(report.details) || matches(report.id),
-        ),
-      listings: this.repository
-        .listListings()
-        .filter((listing) => matches(listing.aggregateId) || matches(listing.title)),
-      orders: this.repository
-        .exportSnapshot()
-        .orders.filter((order) => matches(order.id) || matches(order.buyerPubky) || matches(order.sellerPubky))
-        .map((order) => ({ id: order.id, state: order.state })),
-      riskSignals: this.repository
-        .getRiskSignals()
-        .filter(
-          (signal) =>
-            matches(signal.targetId) || matches(signal.signalType) || matches(signal.details) || matches(signal.id),
-        ),
-    };
+    const reports = this.repository
+      .getReports()
+      .filter(
+        (report) => matches(report.targetId) || matches(report.reason) || matches(report.details) || matches(report.id),
+      );
+    const listings = this.repository
+      .listListings()
+      .filter((listing) => matches(listing.aggregateId) || matches(listing.title));
+    const orders = this.repository
+      .exportSnapshot()
+      .orders.filter((order) => matches(order.id) || matches(order.buyerPubky) || matches(order.sellerPubky))
+      .map((order) => ({ id: order.id, state: order.state }));
+    const riskSignals = this.repository
+      .getRiskSignals()
+      .filter(
+        (signal) =>
+          matches(signal.targetId) || matches(signal.signalType) || matches(signal.details) || matches(signal.id),
+      );
+    if (role === 'moderator') return { reports, listings, orders, riskSignals };
+    if (role === 'support') return { reports: [], listings: [], orders, riskSignals: [] };
+    if (role === 'risk') return { reports: [], listings, orders: [], riskSignals };
+    return { reports: [], listings: [], orders, riskSignals: [] };
   }
 
   exportRepositorySnapshot(): MarketplaceRepositorySnapshot {
@@ -1666,6 +1712,12 @@ export class MarketplaceTransactionService {
         return this.reverseReport(actorPubky, command);
       case 'trust.flag_risk':
         return this.flagRisk(actorPubky, command);
+      case 'support.note':
+        return this.addSupportNote(actorPubky, command);
+      case 'risk.hold':
+        return this.holdRisk(actorPubky, command);
+      case 'risk.release':
+        return this.releaseRisk(actorPubky, command);
     }
   }
 
@@ -1806,8 +1858,8 @@ export class MarketplaceTransactionService {
   }
 
   private reconcilePaidInventory(actorPubky: string, command: ReconcilePaidInventoryCommand): MarketplaceCommandResult {
-    if (actorPubky !== MARKETPLACE_SANDBOX_MODERATOR) {
-      return failure('UNAUTHORIZED', 'Only the sandbox operator may reconcile paid inventory.');
+    if (!isSandboxFinance(actorPubky)) {
+      return failure('UNAUTHORIZED', 'Only sandbox finance may reconcile paid inventory.');
     }
     if (command.expectedRevision !== 0) {
       return failure('INVALID_COMMAND', 'Paid inventory reconcile uses expected revision 0.');
@@ -2754,13 +2806,13 @@ export class MarketplaceTransactionService {
       if (listing.restricted) {
         return failure('INVALID_STATE', 'A restricted listing cannot enter checkout.');
       }
-      if (listing.saleFormat !== 'fixed_price' || listing.state !== 'available') {
-        return failure('INVALID_STATE', 'Only available fixed-price listings can enter checkout.');
-      }
       if (requested.expectedRevision !== listing.serverRevision) {
         return failure('REVISION_CONFLICT', 'A checkout listing revision is stale.', {
           currentRevision: listing.serverRevision,
         });
+      }
+      if (listing.saleFormat !== 'fixed_price' || listing.state !== 'available') {
+        return failure('INVALID_STATE', 'Only available fixed-price listings can enter checkout.');
       }
       if (requested.quantity > listing.availableQuantity) {
         return failure('INSUFFICIENT_INVENTORY', 'Checkout quantity is unavailable.', {
@@ -2882,6 +2934,7 @@ export class MarketplaceTransactionService {
         inventoryState: 'reserved',
         taxAdapterVersion: quote.taxAdapterVersion,
         shippingAdapterVersion: quote.shippingAdapterVersion,
+        supportNotes: [],
         createdAt: occurredAt,
         updatedAt: occurredAt,
       };
@@ -3458,10 +3511,12 @@ export class MarketplaceTransactionService {
   }
 
   private recordExternalRefund(actorPubky: string, command: RecordExternalRefundCommand): MarketplaceCommandResult {
-    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command);
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command, { allowFinance: true });
     if (!resolved.ok) return resolved.failure;
     const order = resolved.order;
-    if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may record a refund.');
+    if (order.sellerPubky !== actorPubky && !isSandboxFinance(actorPubky)) {
+      return failure('UNAUTHORIZED', 'Only the seller or sandbox finance may record a refund.');
+    }
     if (
       !['return_inspection', 'disputed', 'cancelled'].includes(order.state) ||
       command.payload.amountMinor > order.total.amountMinor ||
@@ -3731,6 +3786,9 @@ export class MarketplaceTransactionService {
   }
 
   private flagRisk(actorPubky: string, command: FlagMarketplaceRiskCommand): MarketplaceCommandResult {
+    if (!isSandboxRisk(actorPubky) && !isSandboxModerator(actorPubky)) {
+      return failure('UNAUTHORIZED', 'Only sandbox risk or moderation may flag review signals.');
+    }
     if (command.aggregateId !== `risk:${command.commandId}` || command.expectedRevision !== 0) {
       return failure('INVALID_COMMAND', 'The risk-signal aggregate identity is invalid.');
     }
@@ -3749,6 +3807,76 @@ export class MarketplaceTransactionService {
     this.repository.putRiskSignal(signal);
     this.repository.appendEvent(event);
     return success(command, 1, event.id, { kind: 'risk_signal', signal });
+  }
+
+  private addSupportNote(actorPubky: string, command: AddMarketplaceSupportNoteCommand): MarketplaceCommandResult {
+    if (!isSandboxSupport(actorPubky)) {
+      return failure('UNAUTHORIZED', 'Only sandbox support may add order notes.');
+    }
+    const resolved = this.getOrderAction(actorPubky, command.payload.orderId, command, { allowSupport: true });
+    if (!resolved.ok) return resolved.failure;
+    const occurredAt = this.now().toISOString();
+    const note: MarketplaceSupportNote = {
+      id: command.commandId,
+      actorPubky,
+      text: command.payload.text,
+      createdAt: occurredAt,
+    };
+    const updated: MarketplaceOrder = {
+      ...resolved.order,
+      revision: resolved.order.revision + 1,
+      supportNotes: [...(resolved.order.supportNotes ?? []), note],
+      updatedAt: occurredAt,
+    };
+    this.repository.putOrder(updated);
+    const event = this.createEvent(actorPubky, command, updated.revision, 'support.noted', occurredAt);
+    this.repository.appendEvent(event);
+    return success(command, updated.revision, event.id, {
+      kind: 'order',
+      order: redactMarketplaceOrderForStaff(updated),
+    });
+  }
+
+  private holdRisk(actorPubky: string, command: HoldMarketplaceRiskCommand): MarketplaceCommandResult {
+    return this.mutateRiskHold(actorPubky, command, true);
+  }
+
+  private releaseRisk(actorPubky: string, command: ReleaseMarketplaceRiskCommand): MarketplaceCommandResult {
+    return this.mutateRiskHold(actorPubky, command, false);
+  }
+
+  private mutateRiskHold(
+    actorPubky: string,
+    command: HoldMarketplaceRiskCommand | ReleaseMarketplaceRiskCommand,
+    hold: boolean,
+  ): MarketplaceCommandResult {
+    if (!isSandboxRisk(actorPubky)) {
+      return failure('UNAUTHORIZED', 'Only sandbox risk may apply or release transaction holds.');
+    }
+    if (command.aggregateId !== buildMarketplaceEnforcementAggregateId(command.payload.subjectPubky)) {
+      return failure('INVALID_COMMAND', 'The enforcement aggregate id is invalid.');
+    }
+    const current = this.repository.getEnforcement(command.payload.subjectPubky);
+    const currentRevision = current ? 1 : 0;
+    if (command.expectedRevision !== currentRevision) {
+      return failure('REVISION_CONFLICT', 'The enforcement revision is stale.', { currentRevision });
+    }
+    const hasHold = Boolean(current?.actions.includes('transaction_hold'));
+    if (hold && hasHold) return failure('INVALID_STATE', 'A transaction hold is already in place.');
+    if (!hold && !hasHold) return failure('INVALID_STATE', 'There is no transaction hold to release.');
+    const occurredAt = this.now().toISOString();
+    const actions = hold
+      ? [...new Set([...(current?.actions ?? []), 'transaction_hold' as const])]
+      : (current?.actions ?? []).filter((action) => action !== 'transaction_hold');
+    const enforcement: MarketplaceEnforcement = {
+      subjectPubky: command.payload.subjectPubky,
+      actions,
+      updatedAt: occurredAt,
+    };
+    this.repository.putEnforcement(enforcement);
+    const event = this.createEvent(actorPubky, command, 1, hold ? 'risk.held' : 'risk.released', occurredAt);
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, { kind: 'enforcement', enforcement });
   }
 
   private editReview(actorPubky: string, command: EditReviewCommand): MarketplaceCommandResult {
@@ -4124,10 +4252,14 @@ export class MarketplaceTransactionService {
     actorPubky: string,
     orderId: string,
     command: MarketplaceCommand,
+    options: { allowFinance?: boolean; allowSupport?: boolean } = {},
   ): { ok: true; order: MarketplaceOrder } | { ok: false; failure: MarketplaceCommandFailure } {
     const order = this.repository.getOrder(orderId);
     if (!order) return { ok: false, failure: failure('NOT_FOUND', 'The order was not found.') };
-    if (actorPubky !== order.buyerPubky && actorPubky !== order.sellerPubky) {
+    const isParticipant = actorPubky === order.buyerPubky || actorPubky === order.sellerPubky;
+    const staffAllowed =
+      (options.allowFinance && isSandboxFinance(actorPubky)) || (options.allowSupport && isSandboxSupport(actorPubky));
+    if (!isParticipant && !staffAllowed) {
       return { ok: false, failure: failure('UNAUTHORIZED', 'Only order participants may act on it.') };
     }
     if (command.aggregateId !== buildMarketplaceOrderAggregateId(order.id)) {

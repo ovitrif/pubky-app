@@ -33,6 +33,7 @@ describe('marketplace signed-in', { defaultCommandTimeout: 30_000 }, () => {
       checkoutDigitalPatternPack();
       sellViaHttpAndShip();
       moderateAsSandboxOperator();
+      workSupportFinanceRisk();
 
       cy.visit('/marketplace/notifications');
       cy.location('pathname').should('eq', '/marketplace/notifications');
@@ -512,4 +513,33 @@ function moderateAsSandboxOperator() {
     });
   cy.contains('dismissed').should('be.visible');
   cy.screenshot('signed-in-moderation', { overwrite: true });
+}
+
+function workSupportFinanceRisk() {
+  cy.visit('/marketplace/support');
+  cy.location('pathname').should('eq', '/marketplace/support');
+  cy.contains('Sandbox operator · support').should('be.visible');
+  cy.contains('cannot refund').should('be.visible');
+  cy.contains('street and name redacted').should('be.visible');
+  cy.get('#supportNote').clear().type('Buyer asked about pickup hours.');
+  cy.contains('button', 'Add support note').click();
+  cy.contains('Note: Buyer asked about pickup hours.').should('be.visible');
+  cy.screenshot('signed-in-support', { overwrite: true });
+
+  cy.visit('/marketplace/finance');
+  cy.location('pathname').should('eq', '/marketplace/finance');
+  cy.contains('Sandbox operator · finance').should('be.visible');
+  cy.contains('cannot decide reports').should('be.visible');
+  cy.contains('h2', 'Ledger').should('be.visible');
+  cy.contains('button', 'Reconcile reserved paid orders').should('be.visible');
+  cy.contains('button', 'Record external refund').should('be.visible');
+  cy.screenshot('signed-in-finance', { overwrite: true });
+
+  cy.visit('/marketplace/risk');
+  cy.location('pathname').should('eq', '/marketplace/risk');
+  cy.contains('Sandbox operator · risk').should('be.visible');
+  cy.contains('cannot refund').should('be.visible');
+  cy.contains('button', 'Hold transactions').should('be.visible');
+  cy.contains('button', 'Record risk signal').should('be.visible');
+  cy.screenshot('signed-in-risk', { overwrite: true });
 }

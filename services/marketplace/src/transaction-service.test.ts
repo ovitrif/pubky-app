@@ -6,9 +6,13 @@ import {
   buildMarketplaceOfferAggregateId,
   buildMarketplacePaymentAggregateId,
 } from './contracts';
+import { MARKETPLACE_REDACTED } from '../../../src/libs/commerce/staff-order';
 import {
   InMemoryMarketplaceRepository,
+  MARKETPLACE_SANDBOX_FINANCE,
   MARKETPLACE_SANDBOX_MODERATOR,
+  MARKETPLACE_SANDBOX_RISK,
+  MARKETPLACE_SANDBOX_SUPPORT,
   MarketplaceTransactionService,
 } from './transaction-service';
 
@@ -1062,7 +1066,7 @@ describe('MarketplaceTransactionService', () => {
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
 
-    const reconciled = await service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+    const reconciled = await service.execute(MARKETPLACE_SANDBOX_FINANCE, {
       version: 1,
       commandId: '00000000-0000-4000-8000-000000000211',
       aggregateId: 'inventory:reconcile',
@@ -1087,7 +1091,7 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getMetrics()).toMatchObject({ orders: 1, paymentsConfirmed: 1, reservedOnPaidOrders: 0 });
 
     await expect(
-      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+      service.execute(MARKETPLACE_SANDBOX_FINANCE, {
         version: 1,
         commandId: '00000000-0000-4000-8000-000000000212',
         aggregateId: 'inventory:reconcile',
@@ -1116,7 +1120,7 @@ describe('MarketplaceTransactionService', () => {
     repository.putOrder({ ...order, inventoryState: 'sold' });
 
     await expect(
-      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+      service.execute(MARKETPLACE_SANDBOX_FINANCE, {
         version: 1,
         commandId: '00000000-0000-4000-8000-000000000213',
         aggregateId: 'inventory:reconcile',
@@ -2013,4 +2017,197 @@ describe('MarketplaceTransactionService', () => {
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'IDEMPOTENCY_CONFLICT' } });
   });
+
+  it('separates support, risk, finance, and moderator powers', async () => {
+    const { service } = createService();
+    const order = await createPaidOrder(service);
+    const note = await service.execute(MARKETPLACE_SANDBOX_SUPPORT, {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001610',
+      aggregateId: `order:${order.id}`,
+      expectedRevision: order.revision,
+      issuedAt: NOW.toISOString(),
+      kind: 'support.note',
+      payload: { orderId: order.id, text: 'Buyer asked about pickup hours.' },
+    });
+    expect(note).toMatchObject({
+      ok: true,
+      result: { kind: 'order', order: { supportNotes: [{ text: 'Buyer asked about pickup hours.' }] } },
+    });
+    const supportOrders = service.getOrders(MARKETPLACE_SANDBOX_SUPPORT);
+    expect(supportOrders).toHaveLength(1);
+    expect(supportOrders[0]?.deliveryAddress.line1).toBe(MARKETPLACE_REDACTED);
+    expect(JSON.stringify(supportOrders)).not.toContain('1 Market Street');
+    expect(service.getReports(MARKETPLACE_SANDBOX_SUPPORT)).toEqual([]);
+    expect(service.getLedger(MARKETPLACE_SANDBOX_SUPPORT)).toEqual([]);
+
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_SUPPORT, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001611',
+        aggregateId: `order:${order.id}`,
+        expectedRevision: order.revision + 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'refund.record_external',
+        payload: { orderId: order.id, amountMinor: 1_000, transactionId: 'ext-refund-1' },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_FINANCE, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001612',
+        aggregateId: `report:${order.id}`,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'trust.decide',
+        payload: {
+          reportId: '00000000-0000-4000-8000-000000001699',
+          decision: 'ban',
+          notes: 'Finance cannot moderate.',
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+
+    const hold = await service.execute(MARKETPLACE_SANDBOX_RISK, {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001613',
+      aggregateId: `enforcement:${BUYER}`,
+      expectedRevision: 0,
+      issuedAt: NOW.toISOString(),
+      kind: 'risk.hold',
+      payload: { subjectPubky: BUYER, notes: 'Payment pattern needs review.' },
+    });
+    expect(hold).toMatchObject({
+      ok: true,
+      result: { kind: 'enforcement', enforcement: { subjectPubky: BUYER, actions: ['transaction_hold'] } },
+    });
+    expect(service.getEnforcements(MARKETPLACE_SANDBOX_RISK)).toHaveLength(1);
+    expect(service.getEnforcements(MARKETPLACE_SANDBOX_FINANCE)).toEqual([]);
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_MODERATOR, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001614',
+        aggregateId: `enforcement:${BUYER}`,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'risk.release',
+        payload: { subjectPubky: BUYER, notes: 'Moderator cannot release holds.' },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } });
+    await expect(
+      service.execute(MARKETPLACE_SANDBOX_RISK, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000001615',
+        aggregateId: `enforcement:${BUYER}`,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'risk.release',
+        payload: { subjectPubky: BUYER, notes: 'Reviewed and released.' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'enforcement', enforcement: { actions: [] } },
+    });
+
+    expect(service.getLedger(MARKETPLACE_SANDBOX_FINANCE).length).toBeGreaterThan(0);
+    expect(service.searchAdmin(MARKETPLACE_SANDBOX_SUPPORT, order.id).orders).toHaveLength(1);
+    expect(service.searchAdmin(MARKETPLACE_SANDBOX_SUPPORT, order.id).reports).toEqual([]);
+    expect(service.searchAdmin(MARKETPLACE_SANDBOX_FINANCE, order.id).reports).toEqual([]);
+  });
+
+  it('allows exactly one of 100 concurrent checkouts to take the last unit', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const results = await Promise.all(
+      Array.from({ length: 100 }, (_, index) => {
+        const command = checkoutCommand();
+        return service.execute(concurrentBuyer(index), {
+          ...command,
+          commandId: concurrentCommandId(2_000 + index),
+          aggregateId: buildMarketplaceCheckoutAggregateId(concurrentCommandId(2_000 + index)),
+        });
+      }),
+    );
+    const accepted = results.filter(({ ok }) => ok);
+    const rejected = results.filter(({ ok }) => !ok);
+    expect(accepted).toHaveLength(1);
+    expect(rejected).toHaveLength(99);
+    expect(
+      rejected.every(
+        (result) =>
+          !result.ok &&
+          (result.error.code === 'REVISION_CONFLICT' ||
+            result.error.code === 'INSUFFICIENT_INVENTORY' ||
+            result.error.code === 'INVALID_STATE'),
+      ),
+    ).toBe(true);
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      availableQuantity: 0,
+      reservedQuantity: 1,
+      serverRevision: 2,
+    });
+  });
+
+  it('allows exactly one of 100 concurrent last bids to advance an auction', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerAuctionCommand());
+    const results = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        service.execute(concurrentBuyer(index), placeBidCommand(100 + index, 10_000 + index * 100, 1)),
+      ),
+    );
+    expect(results.filter(({ ok }) => ok)).toHaveLength(1);
+    expect(results.filter(({ ok }) => !ok)).toHaveLength(99);
+    expect(repository.getListing(AGGREGATE_ID)?.auction?.bidCount).toBe(1);
+    expect(repository.getListing(AGGREGATE_ID)?.serverRevision).toBe(2);
+  });
+
+  it('closes an ended auction exactly once under 100 concurrent close commands', async () => {
+    let now = new Date(NOW);
+    const repository = new InMemoryMarketplaceRepository();
+    const service = new MarketplaceTransactionService(repository, () => new Date(now));
+    await service.execute(SELLER, registerAuctionCommand());
+    await service.execute(BUYER, placeBidCommand(30, 10_000, 1));
+    await service.execute(OTHER_BUYER, placeBidCommand(31, 8_000, 2));
+    now = new Date(NOW.getTime() + 11 * 60 * 1_000);
+    const results = await Promise.all(
+      Array.from({ length: 100 }, (_, index) => service.execute(SELLER, closeAuctionCommand(3, 3_000 + index))),
+    );
+    const accepted = results.filter(({ ok }) => ok);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({
+      ok: true,
+      result: { kind: 'auction_result', outcome: 'sold', winnerPubky: BUYER },
+    });
+    expect(results.filter(({ ok }) => !ok)).toHaveLength(99);
+    expect(repository.getListing(AGGREGATE_ID)?.auction?.status).toBe('sold');
+    expect(repository.getEvents().filter((event) => event.kind.startsWith('auction.closed_'))).toHaveLength(1);
+  });
+
+  it('confirms a sandbox payment at most once under 100 concurrent advances', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') throw new Error('Checkout fixture failed');
+    const paymentId = checkout.result.payments[0].id;
+    const results = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        service.execute(BUYER, paymentCommand(paymentId, 1, 'confirmed', 1, 4_000 + index)),
+      ),
+    );
+    expect(results.filter(({ ok }) => ok)).toHaveLength(1);
+    expect(results.filter(({ ok }) => !ok)).toHaveLength(99);
+    expect(repository.getPayment(paymentId)?.state).toBe('confirmed');
+    expect(repository.getEvents().filter((event) => event.kind === 'payment.confirmed')).toHaveLength(1);
+    expect(service.getOrders(BUYER)[0]?.state).toBe('paid');
+  });
 });
+
+function concurrentBuyer(index: number): string {
+  const alphabet = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+  return `t${alphabet[index % 32]}${alphabet[Math.floor(index / 32) % 32]}${'u'.repeat(49)}`;
+}
+
+function concurrentCommandId(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString().padStart(12, '0')}`;
+}

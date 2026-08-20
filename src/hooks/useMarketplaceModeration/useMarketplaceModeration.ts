@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import type { MarketplaceReport, MarketplaceRiskSignal } from '@/services/marketplace/marketplace';
+import { useMarketplaceStaffPage } from '@/hooks/useMarketplaceStaffPage/useMarketplaceStaffPage';
+import type { MarketplaceReport } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export type MarketplaceModerationDecision =
@@ -18,45 +19,30 @@ export type MarketplaceModerationDecision =
 
 export function useMarketplaceModeration() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const staff = useMarketplaceStaffPage('moderator');
   const [reports, setReports] = useState<MarketplaceReport[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(Boolean(currentUserPubky));
   const [error, setError] = useState<string | null>(null);
-  const [invariants, setInvariants] = useState<{
-    unbalancedOrders: string[];
-    oversoldListings: string[];
-    duplicateAuctionWinners: string[];
-    stuckFulfillment: string[];
-    reservedOnPaidOrders: string[];
-  } | null>(null);
-  const [reconcileResult, setReconcileResult] = useState<string | null>(null);
-  const [riskSignals, setRiskSignals] = useState<MarketplaceRiskSignal[]>([]);
-  const [riskTargetId, setRiskTargetId] = useState('');
-  const [riskTargetType, setRiskTargetType] = useState<MarketplaceRiskSignal['targetType']>('listing');
-  const [riskType, setRiskType] = useState<MarketplaceRiskSignal['signalType']>('auction_manipulation');
 
   const refresh = async () => {
     if (!currentUserPubky) return;
-    const [nextReports, nextSearch, nextInvariants, nextSignals] = await Promise.all([
+    const [nextReports, nextSearch] = await Promise.all([
       CommerceController.getMarketplaceReports(),
       query.trim() ? CommerceController.searchMarketplaceAdmin(query).catch(() => null) : Promise.resolve(null),
-      CommerceController.getMarketplaceInvariants().catch(() => null),
-      CommerceController.getMarketplaceRiskSignals().catch(() => []),
     ]);
     setReports(nextSearch?.reports ?? nextReports);
-    setInvariants(nextInvariants);
-    setRiskSignals(nextSearch?.riskSignals ?? nextSignals);
   };
 
   useEffect(() => {
-    if (!currentUserPubky) {
-      setIsLoading(false);
+    if (!currentUserPubky || !staff.ready) {
+      setIsLoading(Boolean(currentUserPubky) && !staff.ready);
       return;
     }
     refresh()
       .catch(() => setError('This account does not have marketplace moderator access.'))
       .finally(() => setIsLoading(false));
-  }, [currentUserPubky, query]);
+  }, [currentUserPubky, query, staff.ready]);
 
   const decide = async (report: MarketplaceReport, decision: MarketplaceModerationDecision) => {
     try {
@@ -122,85 +108,15 @@ export function useMarketplaceModeration() {
     }
   };
 
-  const flagRisk = async () => {
-    if (!riskTargetId.trim()) {
-      setError('Enter a listing, order, user, payment, or auction id to flag.');
-      return;
-    }
-    try {
-      const commandId = crypto.randomUUID();
-      const response = await CommerceController.executeMarketplaceCommand({
-        version: 1,
-        commandId,
-        aggregateId: `risk:${commandId}`,
-        expectedRevision: 0,
-        issuedAt: new Date().toISOString(),
-        kind: 'trust.flag_risk',
-        payload: {
-          signalType: riskType,
-          targetType: riskTargetType,
-          targetId: riskTargetId.trim(),
-          details: `Sandbox risk review for ${riskType.replaceAll('_', ' ')}. Transaction history was not rewritten.`,
-        },
-      });
-      if (!response.ok) {
-        setError(response.error.message);
-        return;
-      }
-      setRiskTargetId('');
-      await refresh();
-    } catch {
-      setError('Could not record this risk signal.');
-    }
-  };
-
-  const reconcilePaidInventory = async () => {
-    try {
-      const response = await CommerceController.executeMarketplaceCommand({
-        version: 1,
-        commandId: crypto.randomUUID(),
-        aggregateId: 'inventory:reconcile',
-        expectedRevision: 0,
-        issuedAt: new Date().toISOString(),
-        kind: 'inventory.reconcile_paid',
-        payload: {},
-      });
-      if (!response.ok) {
-        setError(response.error.message);
-        return;
-      }
-      const convertedIds = 'convertedOrderIds' in response.result ? response.result.convertedOrderIds : [];
-      const converted = Array.isArray(convertedIds) ? convertedIds.length : 0;
-      setReconcileResult(
-        converted === 0
-          ? 'No reserved paid orders needed conversion.'
-          : `Converted reserved inventory on ${converted} paid order${converted === 1 ? '' : 's'}.`,
-      );
-      await refresh();
-    } catch {
-      setError('Could not reconcile paid inventory.');
-    }
-  };
-
   return {
     reports,
     isLoading,
     error,
     query,
     setQuery,
-    invariants,
-    riskSignals,
-    riskTargetId,
-    setRiskTargetId,
-    riskTargetType,
-    setRiskTargetType,
-    riskType,
-    setRiskType,
-    flagRisk,
-    reconcilePaidInventory,
-    reconcileResult,
     decide,
     assign,
     reverse,
+    isOperator: staff.isOperator,
   };
 }
