@@ -866,6 +866,7 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getOrders(SELLER)).toHaveLength(1);
     expect(service.getOrders(OTHER_BUYER)).toEqual([]);
     expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('order_created');
+    expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('order_created');
   });
 
   it('advances sandbox payment through detection to confirmation and issues a receipt', async () => {
@@ -894,6 +895,7 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getReceipt(BUYER, confirmed.result.receipt.id)).toEqual(confirmed.result.receipt);
     expect(service.getReceipt(OTHER_BUYER, confirmed.result.receipt.id)).toBeNull();
     expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('payment_confirmed');
+    expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('payment_confirmed');
   });
 
   it('rejects duplicate checkout lines, stale stock, self-purchase, and invalid payment transitions', async () => {

@@ -2683,6 +2683,7 @@ export class MarketplaceTransactionService {
       this.repository.appendEvent(event);
       eventIds.push(event.id);
       this.notify(sellerPubky, actorPubky, 'order_created', `order:${orderId}`, occurredAt);
+      this.notify(actorPubky, sellerPubky, 'order_created', `order:${orderId}`, occurredAt);
     }
 
     for (const { requested, listing } of resolved) {
@@ -2775,6 +2776,7 @@ export class MarketplaceTransactionService {
       this.repository.putReceipt(receipt);
       this.repository.appendEvent(receiptEvent);
       this.notify(order.sellerPubky, actorPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
+      this.notify(order.buyerPubky, order.sellerPubky, 'payment_confirmed', `order:${order.id}`, occurredAt);
       if (updatedOrder.fulfillment === 'digital') {
         updatedOrder = {
           ...updatedOrder,
