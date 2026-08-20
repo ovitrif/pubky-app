@@ -12,3 +12,9 @@ export const DB_INIT_MAX_ATTEMPTS = 3;
 
 /** Base delay (ms) for the linear backoff between database init retries. */
 export const DB_INIT_RETRY_BASE_DELAY_MS = 150;
+
+/**
+ * Wall-clock budget for a single DatabaseProvider initialize attempt.
+ * Hung IndexedDB `open`/`exists` calls otherwise leave the app on a spinner forever.
+ */
+export const DB_INIT_TIMEOUT_MS = 8_000;

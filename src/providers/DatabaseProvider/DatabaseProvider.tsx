@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Container } from '@/atoms/Container/Container';
 import { Spinner } from '@/atoms/Spinner/Spinner';
+import { DB_INIT_TIMEOUT_MS } from '@/config/database';
 import { db } from '@/database/franky/franky';
 import { AppError } from '@/libs/error/error';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
@@ -29,17 +30,40 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   // Guards against the 'close' event (manually deleteding indexedDB fires this event) that fires during recreateDatabase() → this.close().
   // Without this, the close handler would re-trigger initDatabase and cause an infinite loop.
   const isInitializingRef = useRef(false);
+  const initGenerationRef = useRef(0);
 
   const initDatabase = async () => {
+    const generation = ++initGenerationRef.current;
     isInitializingRef.current = true;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       setError(null);
-      const { wasDbReset } = await db.initialize();
+      setIsReady(false);
+      const initializePromise = db.initialize();
+      initializePromise.catch(() => {
+        // Prevent an unhandled rejection if initialization loses the timeout race.
+      });
+      const { wasDbReset } = await Promise.race([
+        initializePromise,
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(
+              Err.database(DatabaseErrorCode.INIT_FAILED, 'Database initialization timed out', {
+                service: ErrorService.Local,
+                operation: 'initDatabase',
+                context: { timeoutMs: DB_INIT_TIMEOUT_MS },
+              }),
+            );
+          }, DB_INIT_TIMEOUT_MS);
+        }),
+      ]);
+      if (generation !== initGenerationRef.current) return;
       if (wasDbReset) {
         useMigrationStore.getState().setWasDbReset(true);
       }
       setIsReady(true);
     } catch (err) {
+      if (generation !== initGenerationRef.current) return;
       setIsReady(false);
       if (err instanceof AppError) {
         setError(err);
@@ -54,7 +78,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         );
       }
     } finally {
-      isInitializingRef.current = false;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (generation === initGenerationRef.current) {
+        isInitializingRef.current = false;
+      }
     }
   };
 

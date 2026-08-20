@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DB_INIT_TIMEOUT_MS } from '@/config/database';
 import { db } from '@/database/franky/franky';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -129,6 +130,23 @@ describe('DatabaseProvider', () => {
 
     expect(screen.getByText('Test Content')).toBeInTheDocument();
     expect(useMigrationStore.getState().wasDbReset).toBe(false);
+  });
+
+  it('renders the recovery screen when initialization hangs past the timeout', async () => {
+    vi.spyOn(db, 'initialize').mockReturnValue(new Promise(() => {}));
+
+    render(
+      <DatabaseProvider>
+        <div>Test Content</div>
+      </DatabaseProvider>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DB_INIT_TIMEOUT_MS);
+    });
+
+    expect(screen.queryByText('Test Content')).not.toBeInTheDocument();
+    expect(screen.getByTestId('database-error-screen')).toBeInTheDocument();
   });
 
   it('renders the recovery screen for unexpected (non-AppError) failures', async () => {
