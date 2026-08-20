@@ -829,6 +829,49 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 
+  it('quotes listing-level free shipping on checkout instead of the flat sandbox default', async () => {
+    const { service } = createService();
+    const jacketId = buildMarketplaceListingAggregateId(SELLER, 'denim_jacket');
+    await service.execute(SELLER, {
+      ...registerCommand(2, {
+        commandId: '00000000-0000-4000-8000-000000001180',
+        aggregateId: jacketId,
+        payload: {
+          ...registerCommand().payload,
+          listingId: 'denim_jacket',
+          unitPrice: { amountMinor: 8_800, currency: 'USD', exponent: 2 },
+          fulfillment: 'physical',
+          shippingQuoteMinor: 0,
+        },
+      }),
+    });
+
+    const result = await service.execute(BUYER, {
+      ...checkoutCommand(),
+      commandId: '00000000-0000-4000-8000-000000001181',
+      aggregateId: buildMarketplaceCheckoutAggregateId('00000000-0000-4000-8000-000000001181'),
+      payload: {
+        ...checkoutCommand().payload,
+        lines: [{ listingAggregateId: jacketId, expectedRevision: 1, quantity: 1 }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        kind: 'checkout',
+        orders: [
+          {
+            shipping: { amountMinor: 0 },
+            tax: { amountMinor: 704 },
+            total: { amountMinor: 9_504 },
+            shippingAdapterVersion: 'sandbox-listing-shipping-v1',
+          },
+        ],
+      },
+    });
+  });
+
   it('creates an immutable checkout snapshot, reservation, order, and sandbox payment', async () => {
     const { repository, service } = createService();
     await service.execute(SELLER, registerCommand());
@@ -851,7 +894,7 @@ describe('MarketplaceTransactionService', () => {
             total: { amountMinor: 14_796 },
             guaranteePolicyVersion: 1,
             taxAdapterVersion: 'sandbox-us-8pct-v1',
-            shippingAdapterVersion: 'sandbox-flat-1200-v1',
+            shippingAdapterVersion: 'sandbox-listing-shipping-v1',
             lines: [{ listingRevision: 1, contentHash: 'a'.repeat(64), quantity: 1 }],
           },
         ],

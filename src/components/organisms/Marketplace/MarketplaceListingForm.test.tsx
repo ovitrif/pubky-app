@@ -49,6 +49,7 @@ describe('MarketplaceListingForm', () => {
     expect(screen.getByRole('heading', { name: 'Item details' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Price and availability' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Delivery and returns' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Shipping rate')).toBeInTheDocument();
     expect(screen.getByText('Flat shipping (USD)')).toBeInTheDocument();
     expect(screen.getByText('Weight (grams)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish listing' })).toBeInTheDocument();

@@ -38,6 +38,7 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
     setItemAltText,
   } = media;
   const fulfillment = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT });
+  const shippingPricing = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICING });
   const saleFormat = useWatch({ control: form.control, name: CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT });
   const optionDimensions = useFieldArray({
     control: form.control,
@@ -478,14 +479,27 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
 
           {fulfillment === 'physical' && (
             <>
+              <FormSelect
+                form={form}
+                name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICING}
+                label="Shipping rate"
+                disabled={isPublishing}
+                options={[
+                  { value: 'free', label: 'Free shipping' },
+                  { value: 'flat', label: 'Flat rate' },
+                  { value: 'calculated', label: 'Sandbox calculated from weight' },
+                ]}
+              />
               <div className="grid gap-5 sm:grid-cols-2">
-                <ControlledInputField
-                  name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
-                  control={form.control}
-                  label="Flat shipping (USD)"
-                  placeholder="12.00"
-                  disabled={isPublishing}
-                />
+                {shippingPricing === 'flat' && (
+                  <ControlledInputField
+                    name={CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICE}
+                    control={form.control}
+                    label="Flat shipping (USD)"
+                    placeholder="12.00"
+                    disabled={isPublishing}
+                  />
+                )}
                 <ControlledInputField
                   name={CREATE_MARKETPLACE_LISTING_FIELDS.WEIGHT_GRAMS}
                   control={form.control}
@@ -494,6 +508,11 @@ export function MarketplaceListingForm({ form, media, onSubmit, isPublishing }: 
                   disabled={isPublishing}
                 />
               </div>
+              {shippingPricing === 'calculated' && (
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  Sandbox calculated shipping is $6 plus $4 per kilogram, rounded up. Checkout freezes that quote.
+                </Typography>
+              )}
               <div className="grid gap-5 sm:grid-cols-3">
                 <ControlledInputField
                   name={CREATE_MARKETPLACE_LISTING_FIELDS.LENGTH_MM}
@@ -542,6 +561,7 @@ function FormSelect({
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.CONDITION
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.SALE_FORMAT
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT
+    | typeof CREATE_MARKETPLACE_LISTING_FIELDS.SHIPPING_PRICING
     | typeof CREATE_MARKETPLACE_LISTING_FIELDS.RETURN_DAYS;
   label: string;
   options: Array<{ value: string; label: string }>;

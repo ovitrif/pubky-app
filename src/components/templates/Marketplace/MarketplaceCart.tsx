@@ -19,7 +19,11 @@ import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCar
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { quoteSandboxCart, resolveListingFulfillmentMethod } from '@/libs/commerce/tax-adapter';
+import {
+  quoteSandboxCart,
+  quoteSandboxListingShippingMinor,
+  resolveListingFulfillmentMethod,
+} from '@/libs/commerce/tax-adapter';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceQuantityStepper } from '@/organisms/Marketplace/MarketplaceQuantityStepper';
@@ -41,6 +45,11 @@ export function MarketplaceCart() {
         sellerId: item.listing.seller_id,
         lineSubtotalMinor: (price?.amountMinor ?? 0) * item.quantity,
         fulfillment: resolveListingFulfillmentMethod(item.listing.record.fulfillmentMethods),
+        shippingMinor: quoteSandboxListingShippingMinor({
+          fulfillment: resolveListingFulfillmentMethod(item.listing.record.fulfillmentMethods),
+          shippingOptions: item.listing.record.shippingOptions,
+          packageWeightGrams: item.listing.record.package?.weightGrams,
+        }),
       };
     }),
   );
@@ -216,7 +225,8 @@ export function MarketplaceCart() {
                   </div>
                   <Typography as="p" className="mt-2 text-xs text-muted-foreground">
                     {estimate.taxAdapterVersion} + {estimate.shippingAdapterVersion}. Digital-only seller groups have $0
-                    shipping. Checkout remains the authority.
+                    shipping. Physical listings use free, flat, or sandbox-calculated rates. Checkout remains the
+                    authority.
                   </Typography>
                 </div>
                 {currentUserPubky ? (

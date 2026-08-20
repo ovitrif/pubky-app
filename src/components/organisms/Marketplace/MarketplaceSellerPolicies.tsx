@@ -6,9 +6,11 @@ import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/
 export function MarketplaceSellerPolicies({
   shop,
   listingReturn,
+  listingShipping,
 }: {
   shop?: Pick<CommerceShopRecord, 'shippingPolicy' | 'returnPolicy'> | null;
   listingReturn?: CommerceListingRecord['returnPolicy'];
+  listingShipping?: string;
 }) {
   return (
     <section aria-labelledby="marketplace-policies-heading" className="rounded-xl border bg-card/60 p-4">
@@ -16,14 +18,21 @@ export function MarketplaceSellerPolicies({
         Buying policies
       </Typography>
       <div className="mt-3 flex flex-col gap-3">
-        {shop?.shippingPolicy && (
+        {(listingShipping || shop?.shippingPolicy) && (
           <div>
             <Typography as="p" className="text-xs text-muted-foreground">
               Shipping
             </Typography>
-            <Typography as="p" className="text-sm">
-              {shop.shippingPolicy}
-            </Typography>
+            {listingShipping && (
+              <Typography as="p" className="text-sm">
+                {listingShipping}
+              </Typography>
+            )}
+            {shop?.shippingPolicy && (
+              <Typography as="p" className="text-sm">
+                {shop.shippingPolicy}
+              </Typography>
+            )}
           </div>
         )}
         <div>

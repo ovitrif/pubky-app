@@ -7,13 +7,13 @@ describe('marketplace', () => {
 
     cy.get('body').then(($body) => {
       if ($body.text().includes('Sandbox · no real funds')) {
-        cy.contains('10 items').should('be.visible');
+        cy.contains('11 items').should('be.visible');
         cy.get('input[placeholder="Search items, styles, or sellers"]').type('camera');
         cy.contains('1 item').should('be.visible');
         cy.contains('35mm rangefinder camera').should('be.visible');
         cy.contains('Vintage leather boots').should('not.exist');
         cy.contains('button', 'Clear').click();
-        cy.contains('10 items').should('be.visible');
+        cy.contains('11 items').should('be.visible');
       } else {
         cy.contains('Marketplace transactions are unavailable in this deployment.').should('be.visible');
       }
@@ -98,7 +98,9 @@ describe('marketplace', () => {
     cy.visit(`/marketplace/shop/${seller}`);
     cy.contains('h1', 'Satoshi Vintage').should('be.visible');
     cy.contains('Buying policies').should('be.visible');
+    cy.contains('Featured').should('be.visible');
     cy.contains('Vintage leather boots').should('be.visible');
+    cy.contains('Washed denim jacket').should('be.visible');
     cy.screenshot('shop-buying-policies', { overwrite: true });
 
     cy.visit('/marketplace');
@@ -116,7 +118,7 @@ describe('marketplace', () => {
     const seller = 'y'.repeat(52);
     cy.visit(`/marketplace/listing/${seller}/leather_boots`);
     cy.contains('h1', 'Vintage leather boots').should('be.visible');
-    cy.contains('4 available').should('be.visible');
+    cy.contains('12 available').should('be.visible');
     cy.get('button[aria-label="Increase Vintage leather boots quantity"]').click();
     cy.contains('button', 'Add to cart').click();
     cy.contains('Added to cart').should('be.visible');

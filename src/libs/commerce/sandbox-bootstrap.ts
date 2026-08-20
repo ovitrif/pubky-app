@@ -3,16 +3,27 @@ import {
   MARKETPLACE_SANDBOX_AUCTION_SEED_BIDDERS,
   MARKETPLACE_SANDBOX_AUCTION_SEED_MULTIPLIERS,
 } from './sandbox-actors';
+import {
+  MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR,
+  quoteSandboxListingShippingMinor,
+  resolveListingFulfillmentMethod,
+} from './tax-adapter';
 import type { CommerceMoney } from './transaction-contracts';
 
-export function sandboxListingAutoAcceptAmount(
-  listing: CommerceListingRecord,
-): CommerceMoney | null {
+export function sandboxListingAutoAcceptAmount(listing: CommerceListingRecord): CommerceMoney | null {
   return listing.sale.format === 'auction' ? null : (listing.sale.autoAcceptAmount ?? null);
 }
 
 export function sandboxListingCatalogQuantity(listing: CommerceListingRecord): number {
   return listing.variants.reduce((total, variant) => total + variant.quantity, 0);
+}
+
+export function sandboxListingShippingQuoteMinor(listing: CommerceListingRecord): number {
+  return quoteSandboxListingShippingMinor({
+    fulfillment: resolveListingFulfillmentMethod(listing.fulfillmentMethods),
+    shippingOptions: listing.shippingOptions,
+    packageWeightGrams: listing.package?.weightGrams,
+  });
 }
 
 export function sandboxListingNeedsReregister(
@@ -21,11 +32,18 @@ export function sandboxListingNeedsReregister(
     availableQuantity?: number;
     reservedQuantity?: number;
     soldQuantity?: number;
+    shippingQuoteMinor?: number | null;
   } | null,
   listing: CommerceListingRecord,
 ): boolean {
   if (!existing) return true;
   if (JSON.stringify(existing.autoAcceptAmount ?? null) !== JSON.stringify(sandboxListingAutoAcceptAmount(listing))) {
+    return true;
+  }
+  if (
+    (existing.shippingQuoteMinor ?? MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR) !==
+    sandboxListingShippingQuoteMinor(listing)
+  ) {
     return true;
   }
   const serviceQuantity =

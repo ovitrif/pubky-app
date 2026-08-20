@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
   MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
+  quoteSandboxCalculatedShippingMinor,
   quoteSandboxCart,
   quoteSandboxCheckoutTotals,
+  quoteSandboxListingShippingMinor,
   resolveListingFulfillmentMethod,
   resolveSandboxOrderFulfillment,
 } from './tax-adapter';
@@ -15,7 +18,7 @@ describe('sandbox tax adapter', () => {
       totalMinor: 14_796,
       taxableMinor: 13_700,
       taxAdapterVersion: MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
-      shippingAdapterVersion: 'sandbox-flat-1200-v1',
+      shippingAdapterVersion: MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
     });
   });
 
@@ -26,7 +29,7 @@ describe('sandbox tax adapter', () => {
       totalMinor: 2_592,
       taxableMinor: 2_400,
       taxAdapterVersion: MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
-      shippingAdapterVersion: 'sandbox-flat-1200-v1',
+      shippingAdapterVersion: MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
     });
   });
 
@@ -45,6 +48,36 @@ describe('sandbox tax adapter', () => {
     expect(quote.sellerGroupCount).toBe(2);
     expect(quote.shippingMinor).toBe(1_200);
     expect(quote.taxMinor).toBe(Math.round((19_000 + 1_200) * 0.08) + Math.round(2_400 * 0.08));
+  });
+
+  it('uses the cheapest listing shipping option and one shipment per seller', () => {
+    expect(
+      quoteSandboxListingShippingMinor({
+        fulfillment: 'physical',
+        shippingOptions: [{ pricing: 'free' }],
+      }),
+    ).toBe(0);
+    expect(
+      quoteSandboxListingShippingMinor({
+        fulfillment: 'physical',
+        shippingOptions: [{ pricing: 'flat', price: { amountMinor: 800 } }],
+      }),
+    ).toBe(800);
+    expect(quoteSandboxCalculatedShippingMinor(1_800)).toBe(1_400);
+    expect(
+      quoteSandboxListingShippingMinor({
+        fulfillment: 'physical',
+        shippingOptions: [{ pricing: 'calculated' }],
+        packageWeightGrams: 1_800,
+      }),
+    ).toBe(1_400);
+
+    const quote = quoteSandboxCart([
+      { sellerId: 'y'.repeat(52), lineSubtotalMinor: 8_800, fulfillment: 'physical', shippingMinor: 0 },
+      { sellerId: 'y'.repeat(52), lineSubtotalMinor: 12_500, fulfillment: 'pickup', shippingMinor: 1_200 },
+    ]);
+    expect(quote.shippingMinor).toBe(1_200);
+    expect(quote.totalMinor).toBe(8_800 + 12_500 + 1_200 + Math.round((8_800 + 12_500 + 1_200) * 0.08));
   });
 
   it('resolves mixed seller fulfillments the same way checkout does', () => {

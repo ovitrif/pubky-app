@@ -217,16 +217,38 @@ function buildListingRecord(
         }
       : undefined,
     shippingOptions: isPhysical
-      ? [
-          {
-            id: 'seller_flat_rate',
-            pricing: 'flat',
-            label: 'Seller shipping',
-            price: { amountMinor: Math.round(Number(data.shippingPrice) * 100), currency: 'USD', exponent: 2 },
-            estimatedMinDays: 3,
-            estimatedMaxDays: 7,
-          },
-        ]
+      ? data.shippingPricing === 'free'
+        ? [
+            {
+              id: 'seller_free_shipping',
+              pricing: 'free' as const,
+              label: 'Free shipping',
+              estimatedMinDays: 3,
+              estimatedMaxDays: 7,
+            },
+          ]
+        : data.shippingPricing === 'calculated'
+          ? [
+              {
+                id: 'seller_calculated_rate',
+                pricing: 'calculated' as const,
+                label: 'Sandbox calculated shipping',
+                provider: 'sandbox',
+                serviceCode: 'weight_v1',
+                estimatedMinDays: 3,
+                estimatedMaxDays: 7,
+              },
+            ]
+          : [
+              {
+                id: 'seller_flat_rate',
+                pricing: 'flat' as const,
+                label: 'Seller shipping',
+                price: { amountMinor: Math.round(Number(data.shippingPrice) * 100), currency: 'USD', exponent: 2 },
+                estimatedMinDays: 3,
+                estimatedMaxDays: 7,
+              },
+            ]
       : [],
     returnPolicy: {
       acceptsReturns: returnWindowDays !== undefined,

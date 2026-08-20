@@ -11,7 +11,11 @@ describe('sandboxListingNeedsReregister', () => {
     expect(sandboxListingNeedsReregister({ autoAcceptAmount: null }, vase!)).toBe(true);
     expect(
       sandboxListingNeedsReregister(
-        { autoAcceptAmount: { amountMinor: 6_000, currency: 'USD', exponent: 2 }, availableQuantity: 1 },
+        {
+          autoAcceptAmount: { amountMinor: 6_000, currency: 'USD', exponent: 2 },
+          availableQuantity: 1,
+          shippingQuoteMinor: 1_200,
+        },
         vase!,
       ),
     ).toBe(false);
@@ -22,19 +26,37 @@ describe('sandboxListingNeedsReregister', () => {
     expect(boots).toBeDefined();
     expect(
       sandboxListingNeedsReregister(
-        { autoAcceptAmount: null, availableQuantity: 1, reservedQuantity: 0, soldQuantity: 0 },
+        {
+          autoAcceptAmount: null,
+          availableQuantity: 1,
+          reservedQuantity: 0,
+          soldQuantity: 0,
+          shippingQuoteMinor: 1_200,
+        },
         boots!,
       ),
     ).toBe(true);
     expect(
       sandboxListingNeedsReregister(
-        { autoAcceptAmount: null, availableQuantity: 4, reservedQuantity: 0, soldQuantity: 0 },
+        {
+          autoAcceptAmount: null,
+          availableQuantity: 12,
+          reservedQuantity: 0,
+          soldQuantity: 0,
+          shippingQuoteMinor: 1_200,
+        },
         boots!,
       ),
     ).toBe(false);
     expect(
       sandboxListingNeedsReregister(
-        { autoAcceptAmount: null, availableQuantity: 2, reservedQuantity: 4, soldQuantity: 0 },
+        {
+          autoAcceptAmount: null,
+          availableQuantity: 6,
+          reservedQuantity: 6,
+          soldQuantity: 0,
+          shippingQuoteMinor: 1_200,
+        },
         boots!,
       ),
     ).toBe(false);
@@ -43,7 +65,9 @@ describe('sandboxListingNeedsReregister', () => {
 
 describe('sandboxAuctionSeedPlan', () => {
   it('places two proxy bids without using seller identities', () => {
-    const camera = createCommerceSandboxCatalog().listings.find((listing) => listing.listingId === 'rangefinder_camera');
+    const camera = createCommerceSandboxCatalog().listings.find(
+      (listing) => listing.listingId === 'rangefinder_camera',
+    );
     expect(camera).toBeDefined();
     const unitPrice = { amountMinor: 4_500, currency: 'USD', exponent: 2 };
     const increment = { amountMinor: 500, currency: 'USD', exponent: 2 };

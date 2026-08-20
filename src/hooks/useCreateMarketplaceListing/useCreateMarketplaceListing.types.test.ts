@@ -19,6 +19,23 @@ describe('createMarketplaceListingSchema', () => {
     ).toBe(true);
   });
 
+  it('allows free physical shipping without a flat price', () => {
+    expect(
+      createMarketplaceListingSchema.safeParse({
+        ...createMarketplaceListingDefaults,
+        title: 'Washed denim jacket',
+        description: 'Soft mid-wash denim jacket.',
+        price: '88.00',
+        shippingPricing: 'free',
+        weightGrams: '900',
+        lengthMillimeters: '600',
+        widthMillimeters: '400',
+        heightMillimeters: '80',
+        altText: 'Denim jacket on a hanger',
+      }).success,
+    ).toBe(true);
+  });
+
   it('allows pickup without package or shipping fields', () => {
     expect(
       createMarketplaceListingSchema.safeParse({

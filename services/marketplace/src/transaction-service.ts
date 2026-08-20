@@ -3,6 +3,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { MARKETPLACE_SANDBOX_MODERATOR } from '../../../src/libs/commerce/sandbox-actors';
 import {
+  MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR,
   MARKETPLACE_SANDBOX_SHIPPING_ADAPTER_VERSION,
   MARKETPLACE_SANDBOX_TAX_ADAPTER_VERSION,
   quoteSandboxCheckoutTotals,
@@ -94,6 +95,7 @@ export interface MarketplaceListingAggregate {
   offersOpenTo: 'anyone' | 'watchers';
   autoAcceptAmount: MarketplaceListingAggregate['unitPrice'] | null;
   fulfillment: 'physical' | 'digital' | 'pickup';
+  shippingQuoteMinor: number | null;
   digitalLock: {
     policyUri: string;
     criterionId: string;
@@ -1036,6 +1038,7 @@ export class InMemoryMarketplaceRepository {
         {
           ...listing,
           fulfillment: listing.fulfillment ?? 'physical',
+          shippingQuoteMinor: listing.shippingQuoteMinor ?? null,
           digitalLock: listing.digitalLock ?? null,
           offersOpenTo: listing.offersOpenTo ?? 'anyone',
           autoAcceptAmount: listing.autoAcceptAmount ?? null,
@@ -1712,6 +1715,7 @@ export class MarketplaceTransactionService {
       offersOpenTo: payload.offersOpenTo ?? (payload.saleFormat === 'offer' ? 'watchers' : 'anyone'),
       autoAcceptAmount: payload.autoAcceptAmount ?? null,
       fulfillment: payload.fulfillment,
+      shippingQuoteMinor: payload.shippingQuoteMinor ?? null,
       digitalLock: payload.digitalLock ?? null,
       auction: payload.auctionTerms
         ? {
@@ -2828,7 +2832,18 @@ export class MarketplaceTransactionService {
         return failure('INVALID_COMMAND', 'The coupon is invalid, expired, or exhausted.');
       }
       const discountMinor = promotion ? Math.round((subtotalMinor * promotion.percentOff) / 100) : 0;
-      const quote = quoteSandboxCheckoutTotals({ subtotalMinor, discountMinor, fulfillment });
+      const listingShippingMinor =
+        fulfillment === 'digital'
+          ? 0
+          : Math.max(
+              ...items.map(({ listing }) => listing.shippingQuoteMinor ?? MARKETPLACE_SANDBOX_FLAT_SHIPPING_MINOR),
+            );
+      const quote = quoteSandboxCheckoutTotals({
+        subtotalMinor,
+        discountMinor,
+        fulfillment,
+        shippingMinor: listingShippingMinor,
+      });
       const shippingMinor = quote.shippingMinor;
       const taxMinor = quote.taxMinor;
       const totalMinor = quote.totalMinor;

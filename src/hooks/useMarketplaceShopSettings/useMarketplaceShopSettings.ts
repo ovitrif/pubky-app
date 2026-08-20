@@ -19,7 +19,7 @@ export function useMarketplaceShopSettings() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const [revision, setRevision] = useState(0);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
-  const [collections, setCollections] = useState<Array<{ id: string; name: string; listingIds: string[] }>>([]);
+  const [sellerListings, setSellerListings] = useState<Array<{ listingId: string; title: string }>>([]);
   const form = useForm<MarketplaceShopSettingsData>({
     resolver: zodResolver(marketplaceShopSettingsSchema),
     defaultValues: marketplaceShopSettingsDefaults,
@@ -28,12 +28,16 @@ export function useMarketplaceShopSettings() {
 
   useEffect(() => {
     if (!currentUserPubky) return;
-    Promise.all([CommerceController.getShop(currentUserPubky), CommerceController.getBlockedBuyers().catch(() => [])])
-      .then(([shop, blocked]) => {
+    Promise.all([
+      CommerceController.getShop(currentUserPubky),
+      CommerceController.getBlockedBuyers().catch(() => []),
+      CommerceController.getListingsBySeller(currentUserPubky).catch(() => []),
+    ])
+      .then(([shop, blocked, listings]) => {
+        setSellerListings(listings.map((listing) => ({ listingId: listing.listing_id, title: listing.record.title })));
         if (shop) {
           setRevision(shop.record.revision);
           setCreatedAt(shop.record.createdAt);
-          setCollections(shop.record.collections ?? []);
           form.reset({
             name: shop.record.name,
             bio: shop.record.bio,
@@ -43,6 +47,7 @@ export function useMarketplaceShopSettings() {
             returnPolicy: shop.record.returnPolicy,
             vacationMode: shop.record.vacationMode,
             blockedBuyers: blocked.join('\n'),
+            collections: shop.record.collections ?? [],
           });
           return;
         }
@@ -70,7 +75,7 @@ export function useMarketplaceShopSettings() {
           shippingPolicy: data.shippingPolicy,
           returnPolicy: data.returnPolicy,
           vacationMode: data.vacationMode,
-          collections,
+          collections: data.collections,
         });
         const requested = [
           ...new Set(
@@ -150,5 +155,5 @@ export function useMarketplaceShopSettings() {
     }
   };
 
-  return { form, revision, submit, exportAccount, deleteLocalData };
+  return { form, revision, sellerListings, submit, exportAccount, deleteLocalData };
 }

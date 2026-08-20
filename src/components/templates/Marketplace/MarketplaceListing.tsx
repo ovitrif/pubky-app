@@ -22,6 +22,7 @@ import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMa
 import { useRecordRecentlyViewedListing } from '@/hooks/useRecentlyViewedListings/useRecentlyViewedListings';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { commerceListingSalePrice } from '@/libs/commerce/marketplace-records';
+import { quoteSandboxListingShippingMinor, resolveListingFulfillmentMethod } from '@/libs/commerce/tax-adapter';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceAuctionStatus } from '@/organisms/Marketplace/MarketplaceAuctionStatus';
@@ -143,6 +144,18 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
   const price = commerceListingSalePrice(record.sale);
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
+  const fulfillment = resolveListingFulfillmentMethod(record.fulfillmentMethods);
+  const shippingMinor = quoteSandboxListingShippingMinor({
+    fulfillment,
+    shippingOptions: record.shippingOptions,
+    packageWeightGrams: record.package?.weightGrams,
+  });
+  const shippingLabel =
+    fulfillment === 'digital'
+      ? 'Digital delivery · no shipping'
+      : shippingMinor === 0
+        ? 'Free shipping'
+        : `Quoted shipping ${formatCommerceMoney({ amountMinor: shippingMinor, currency: 'USD', exponent: 2 })}`;
 
   return (
     <ContentLayout
@@ -249,7 +262,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 />
               </div>
             )}
-            <MarketplaceSellerPolicies shop={shop?.record} listingReturn={record.returnPolicy} />
+            <MarketplaceSellerPolicies
+              shop={shop?.record}
+              listingReturn={record.returnPolicy}
+              listingShipping={shippingLabel}
+            />
 
             <div className="flex flex-wrap gap-2">
               {record.tags.map((tag) => (
@@ -294,7 +311,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   <Typography as="p" className="text-sm text-muted-foreground">
                     {record.fulfillmentMethods.includes('digital')
                       ? 'Locks credential after payment'
-                      : `${record.location.region ? `${record.location.region}, ` : ''}${record.location.countryCode}`}
+                      : `${shippingLabel} · ${record.location.region ? `${record.location.region}, ` : ''}${record.location.countryCode}`}
                   </Typography>
                 </div>
               </div>

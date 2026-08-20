@@ -44,8 +44,8 @@ describe('LocalCommerceService', () => {
 
     expect(await LocalCommerceService.getAllShops()).toHaveLength(10);
     expect((await LocalCommerceService.getAllShops())[0]?.record.collections.length).toBeGreaterThan(0);
-    expect(await LocalCommerceService.getAllListings()).toHaveLength(10);
-    expect(await CommerceListingProjectionModel.table.count()).toBe(10);
+    expect(await LocalCommerceService.getAllListings()).toHaveLength(11);
+    expect(await CommerceListingProjectionModel.table.count()).toBe(11);
   });
 
   it('refreshes sandbox shop vacation mode and listing sale terms without wiping later local listings', async () => {
@@ -321,6 +321,23 @@ describe('LocalCommerceService', () => {
     expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([]);
   });
 
+  it('caps cart adds at the listing available quantity', async () => {
+    const listing = createCommerceListingFixture();
+    listing.variants[0].quantity = 2;
+    await LocalCommerceService.upsertListing(listing, 'synced');
+    const listingId = `${COMMERCE_FIXTURE_SELLER}:${listing.listingId}`;
+
+    await LocalCommerceService.addCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 2, 100);
+    await expect(
+      LocalCommerceService.addCartItem(COMMERCE_FIXTURE_BUYER, listingId, 'variant_01', 1, 150),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+    expect(await LocalCommerceService.getCartItems(COMMERCE_FIXTURE_BUYER)).toEqual([
+      expect.objectContaining({ quantity: 2 }),
+    ]);
+  });
+
   it('increments cart quantity and merges a reserved guest cart into a signed-in owner', async () => {
     const listing = createCommerceListingFixture();
     listing.variants[0].quantity = 4;
@@ -350,7 +367,7 @@ describe('LocalCommerceService', () => {
 
     await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(true);
     const refreshed = await LocalCommerceService.getListing(`${boots.ownerPubky}:${boots.listingId}`);
-    expect(refreshed?.record.variants[0].quantity).toBe(4);
+    expect(refreshed?.record.variants[0].quantity).toBe(12);
     expect(await LocalCommerceService.getListing(`${extra.ownerPubky}:boots_01`)).not.toBeNull();
   });
 

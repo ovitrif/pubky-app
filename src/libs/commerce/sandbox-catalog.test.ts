@@ -9,21 +9,32 @@ describe('createCommerceSandboxCatalog', () => {
 
     expect(first).toEqual(second);
     expect(first.shops).toHaveLength(10);
-    expect(first.listings).toHaveLength(10);
-    expect(first.projections).toHaveLength(10);
+    expect(first.listings).toHaveLength(11);
+    expect(first.projections).toHaveLength(11);
     expect(
       first.listings.some((listing) => listing.fulfillmentMethods.includes('digital') && listing.digitalLock),
     ).toBe(true);
     expect(first.listings.some((listing) => listing.sale.format === 'offer')).toBe(true);
     expect(
-      first.listings.some((listing) => listing.listingId === 'leather_boots' && listing.variants[0].quantity === 4),
+      first.listings.some((listing) => listing.listingId === 'leather_boots' && listing.variants[0].quantity === 12),
+    ).toBe(true);
+    expect(
+      first.listings.some(
+        (listing) =>
+          listing.listingId === 'denim_jacket' &&
+          listing.fulfillmentMethods.includes('physical') &&
+          listing.shippingOptions.some((option) => option.pricing === 'free'),
+      ),
     ).toBe(true);
     expect(first.shops.some((shop) => shop.vacationMode && shop.name === 'Soft Fork Studio')).toBe(true);
     expect(
       first.shops.some(
         (shop) =>
           shop.name === 'Satoshi Vintage' &&
-          shop.collections.some((collection) => collection.listingIds.includes('leather_boots')),
+          shop.collections.some(
+            (collection) =>
+              collection.listingIds.includes('leather_boots') && collection.listingIds.includes('denim_jacket'),
+          ),
       ),
     ).toBe(true);
     expect(
@@ -50,7 +61,7 @@ describe('createCommerceSandboxCatalog', () => {
 
     expect(new Set(listings.map(({ sale }) => sale.format))).toEqual(new Set(['fixed_price', 'auction', 'offer']));
     expect(new Set(listings.flatMap(({ fulfillmentMethods }) => fulfillmentMethods))).toEqual(
-      new Set(['pickup', 'digital']),
+      new Set(['pickup', 'physical', 'digital']),
     );
     expect(new Set(listings.map(({ categoryId }) => categoryId.split('-')[0]))).toEqual(
       new Set(['fashion', 'electronics', 'home', 'collectibles']),

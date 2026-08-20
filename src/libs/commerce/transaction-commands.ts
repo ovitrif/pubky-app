@@ -31,6 +31,7 @@ const registerListingPayloadSchema = z
     offersOpenTo: z.enum(['anyone', 'watchers']).optional(),
     autoAcceptAmount: commercePositiveMoneySchema.optional(),
     fulfillment: z.enum(['physical', 'digital', 'pickup']).default('physical'),
+    shippingQuoteMinor: z.number().int().min(0).max(10_000_000).optional(),
     digitalLock: z
       .object({
         policyUri: z

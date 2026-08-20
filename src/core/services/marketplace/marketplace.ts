@@ -28,6 +28,7 @@ const listingProjectionSchema = z
     unitPrice: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
     saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
     listingRevision: z.number().int().positive().optional(),
+    shippingQuoteMinor: z.number().int().min(0).max(10_000_000).nullable().optional(),
     autoAcceptAmount: z
       .object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() })
       .nullable()

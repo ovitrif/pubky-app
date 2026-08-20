@@ -21,6 +21,7 @@ export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   OPTION_DIMENSIONS: 'optionDimensions',
   VARIANTS: 'variants',
   FULFILLMENT: 'fulfillment',
+  SHIPPING_PRICING: 'shippingPricing',
   SHIPPING_PRICE: 'shippingPrice',
   WEIGHT_GRAMS: 'weightGrams',
   LENGTH_MM: 'lengthMillimeters',
@@ -91,6 +92,7 @@ export const createMarketplaceListingSchema = z
       .max(COMMERCE_LISTING_MAX_OPTION_DIMENSIONS, 'Listings support at most three option dimensions.'),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
     fulfillment: z.enum(['pickup', 'physical', 'digital']),
+    shippingPricing: z.enum(['free', 'flat', 'calculated']),
     shippingPrice: z.string().trim(),
     weightGrams: z.string().trim(),
     lengthMillimeters: z.string().trim(),
@@ -105,13 +107,15 @@ export const createMarketplaceListingSchema = z
   })
   .superRefine((data, context) => {
     if (data.fulfillment === 'physical') {
-      const shipping = moneyInputSchema.safeParse(data.shippingPrice);
-      if (!shipping.success) {
-        context.addIssue({
-          code: 'custom',
-          path: ['shippingPrice'],
-          message: shipping.error.issues[0]?.message ?? 'Shipping price is required.',
-        });
+      if (data.shippingPricing === 'flat') {
+        const shipping = moneyInputSchema.safeParse(data.shippingPrice);
+        if (!shipping.success) {
+          context.addIssue({
+            code: 'custom',
+            path: ['shippingPrice'],
+            message: shipping.error.issues[0]?.message ?? 'Shipping price is required.',
+          });
+        }
       }
       if (!/^[1-9]\d*$/.test(data.weightGrams) || Number(data.weightGrams) > 1_000_000) {
         context.addIssue({
@@ -217,6 +221,7 @@ export const createMarketplaceListingDraftSchema = z
         })),
     ),
     fulfillment: z.enum(['pickup', 'physical', 'digital']),
+    shippingPricing: z.enum(['free', 'flat', 'calculated']),
     shippingPrice: z.string(),
     weightGrams: z.string(),
     lengthMillimeters: z.string(),
@@ -244,6 +249,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   optionDimensions: [{ name: 'Size' }, { name: 'Color' }, { name: 'Style' }],
   variants: [{ sku: '', optionValues: ['', '', ''], quantity: '1', priceOverride: '' }],
   fulfillment: 'physical',
+  shippingPricing: 'flat',
   shippingPrice: '',
   weightGrams: '',
   lengthMillimeters: '',

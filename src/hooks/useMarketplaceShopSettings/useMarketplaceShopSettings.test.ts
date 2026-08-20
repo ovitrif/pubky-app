@@ -14,6 +14,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getShop: vi.fn(),
     commitUpsertShop: vi.fn(),
     getBlockedBuyers: vi.fn(),
+    getListingsBySeller: vi.fn(),
     executeMarketplaceCommand: vi.fn(),
   },
 }));
@@ -27,6 +28,12 @@ describe('useMarketplaceShopSettings', () => {
     vi.clearAllMocks();
     vi.mocked(CommerceController.getShop).mockResolvedValue(null);
     vi.mocked(CommerceController.getBlockedBuyers).mockResolvedValue([]);
+    vi.mocked(CommerceController.getListingsBySeller).mockResolvedValue([
+      {
+        listing_id: 'leather_boots',
+        record: { title: 'Vintage leather boots' },
+      } as never,
+    ]);
     vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
       ok: true,
       version: 1,
@@ -69,6 +76,47 @@ describe('useMarketplaceShopSettings', () => {
     expect(CommerceController.commitUpsertShop).toHaveBeenCalledWith(
       expect.objectContaining({
         collections: [{ id: 'leather_boots_featured', name: 'Featured', listingIds: ['leather_boots'] }],
+      }),
+    );
+  });
+
+  it('publishes an edited shop collection with seller listings', async () => {
+    vi.mocked(CommerceController.getShop).mockResolvedValue({
+      id: OWNER,
+      owner_id: OWNER,
+      revision: 2,
+      sync_status: 'synced',
+      updated_at: 1,
+      record: {
+        schemaVersion: 1,
+        recordType: 'shop',
+        ownerPubky: OWNER,
+        revision: 2,
+        createdAt: '2026-08-19T20:00:00.000Z',
+        updatedAt: '2026-08-19T21:00:00.000Z',
+        name: 'Satoshi Vintage',
+        bio: 'Independent circular fashion.',
+        location: { countryCode: 'US' },
+        shippingPolicy: 'Ships within three business days.',
+        returnPolicy: 'Returns accepted within 30 days unless marked final sale.',
+        vacationMode: false,
+        collections: [{ id: 'leather_boots_featured', name: 'Featured', listingIds: ['leather_boots'] }],
+      },
+    });
+
+    const { result } = renderHook(() => useMarketplaceShopSettings());
+    await waitFor(() => expect(result.current.revision).toBe(2));
+    await waitFor(() => expect(result.current.sellerListings).toHaveLength(1));
+    act(() => {
+      result.current.form.setValue('collections', [
+        { id: 'leather_boots_featured', name: 'Archive denim', listingIds: ['leather_boots'] },
+      ]);
+    });
+    await act(() => result.current.submit());
+
+    expect(CommerceController.commitUpsertShop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collections: [{ id: 'leather_boots_featured', name: 'Archive denim', listingIds: ['leather_boots'] }],
       }),
     );
   });

@@ -93,7 +93,24 @@ export class LocalCommerceService {
     now: number,
   ): Promise<void> {
     const current = await CommerceCartItemModel.findById(this.cartItemId(ownerId, listingId, variantId));
-    await this.upsertCartItem(ownerId, listingId, variantId, (current?.quantity ?? 0) + quantity, now);
+    const listing = await CommerceListingModel.findById(listingId);
+    const variant = listing?.record.variants.find(({ id, enabled }) => id === variantId && enabled);
+    if (!listing || !variant) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart item is unavailable in the requested quantity.', {
+        service: ErrorService.Local,
+        operation: 'addCartItem',
+        context: { listingFound: Boolean(listing), variantFound: Boolean(variant), quantity },
+      });
+    }
+    const nextQuantity = Math.min((current?.quantity ?? 0) + quantity, variant.quantity);
+    if (nextQuantity <= (current?.quantity ?? 0)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Cart already has the available quantity.', {
+        service: ErrorService.Local,
+        operation: 'addCartItem',
+        context: { quantity: current?.quantity ?? 0, available: variant.quantity },
+      });
+    }
+    await this.upsertCartItem(ownerId, listingId, variantId, nextQuantity, now);
   }
 
   static async mergeCart(fromOwnerId: string, toOwnerId: string, now: number): Promise<void> {

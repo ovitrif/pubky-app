@@ -26,6 +26,8 @@ type CatalogEntry = {
   tags: string[];
   saleFormat: CommerceListingRecord['sale']['format'];
   fulfillment?: CommerceListingRecord['fulfillmentMethods'][number];
+  shipping?: 'free' | 'flat' | 'calculated';
+  weightGrams?: number;
   colorHash: string;
   vacationMode?: boolean;
   autoAcceptAmountMinor?: number;
@@ -45,7 +47,7 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     tags: ['vintage', 'leather'],
     saleFormat: 'fixed_price',
     colorHash: 'a',
-    quantity: 4,
+    quantity: 12,
   },
   {
     seller: 'b'.repeat(52),
@@ -141,6 +143,9 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     saleFormat: 'fixed_price',
     colorHash: '1',
     quantity: 2,
+    fulfillment: 'physical',
+    shipping: 'calculated',
+    weightGrams: 1_800,
   },
   {
     seller: 'k'.repeat(52),
@@ -171,6 +176,23 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
     saleFormat: 'offer',
     colorHash: '3',
   },
+  {
+    seller: 'y'.repeat(52),
+    shopName: 'Satoshi Vintage',
+    listingId: 'denim_jacket',
+    title: 'Washed denim jacket',
+    description: 'Soft mid-wash denim jacket with free physical shipping.',
+    categoryId: 'fashion-jackets',
+    condition: 'excellent',
+    amountMinor: 8_800,
+    tags: ['denim', 'jacket'],
+    saleFormat: 'fixed_price',
+    fulfillment: 'physical',
+    shipping: 'free',
+    weightGrams: 900,
+    colorHash: '5',
+    quantity: 2,
+  },
 ];
 
 function sandboxShopCollectionName(entry: CatalogEntry): string {
@@ -181,8 +203,17 @@ function sandboxShopCollectionName(entry: CatalogEntry): string {
   return 'Featured';
 }
 
-export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
-  const shops = CATALOG_ENTRIES.map((entry, index) =>
+function createSandboxShops(entries: CatalogEntry[]): CommerceShopRecord[] {
+  const groups = new Map<string, { entry: CatalogEntry; index: number; listingIds: string[] }>();
+  entries.forEach((entry, index) => {
+    const current = groups.get(entry.seller);
+    if (current) {
+      current.listingIds.push(entry.listingId);
+      return;
+    }
+    groups.set(entry.seller, { entry, index, listingIds: [entry.listingId] });
+  });
+  return [...groups.values()].map(({ entry, index, listingIds }) =>
     commerceShopRecordSchema.parse({
       schemaVersion: COMMERCE_CONTRACT_VERSION,
       recordType: 'shop',
@@ -200,11 +231,15 @@ export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
         {
           id: `${entry.listingId}_featured`,
           name: sandboxShopCollectionName(entry),
-          listingIds: [entry.listingId],
+          listingIds,
         },
       ],
     }),
   );
+}
+
+export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
+  const shops = createSandboxShops(CATALOG_ENTRIES);
 
   const listings = CATALOG_ENTRIES.map((entry, index) => createListing(entry, index));
   const projections = listings.map((listing, index) => {
@@ -227,6 +262,54 @@ export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
   });
 
   return { shops, listings, projections };
+}
+
+function sandboxListingPackage(entry: CatalogEntry): CommerceListingRecord['package'] {
+  if (entry.fulfillment !== 'physical') return undefined;
+  return {
+    weightGrams: entry.weightGrams ?? 900,
+    lengthMillimeters: 600,
+    widthMillimeters: 400,
+    heightMillimeters: 80,
+  };
+}
+
+function sandboxListingShippingOptions(entry: CatalogEntry): CommerceListingRecord['shippingOptions'] {
+  if (entry.fulfillment !== 'physical') return [];
+  if (entry.shipping === 'calculated') {
+    return [
+      {
+        id: 'catalog_calculated_shipping',
+        pricing: 'calculated',
+        label: 'Sandbox calculated shipping',
+        provider: 'sandbox',
+        serviceCode: 'weight_v1',
+        estimatedMinDays: 3,
+        estimatedMaxDays: 7,
+      },
+    ];
+  }
+  if (entry.shipping === 'flat') {
+    return [
+      {
+        id: 'catalog_flat_shipping',
+        pricing: 'flat',
+        label: 'Flat shipping',
+        price: { amountMinor: 1_200, currency: 'USD', exponent: 2 },
+        estimatedMinDays: 3,
+        estimatedMaxDays: 7,
+      },
+    ];
+  }
+  return [
+    {
+      id: 'catalog_free_shipping',
+      pricing: 'free',
+      label: 'Free shipping',
+      estimatedMinDays: 3,
+      estimatedMaxDays: 7,
+    },
+  ];
 }
 
 function createListing(entry: CatalogEntry, index: number): CommerceListingRecord {
@@ -268,7 +351,10 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
     ownerPubky: entry.seller,
     revision: 1,
     createdAt: '2026-08-19T20:00:00.000Z',
-    updatedAt: `2026-08-19T21:${index.toString().padStart(2, '0')}:00.000Z`,
+    updatedAt:
+      entry.listingId === 'denim_jacket'
+        ? '2026-08-19T20:59:00.000Z'
+        : `2026-08-19T21:${index.toString().padStart(2, '0')}:00.000Z`,
     listingId: entry.listingId,
     state: 'active',
     title: entry.title,
@@ -313,6 +399,7 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
     ],
     sale,
     fulfillmentMethods: [entry.fulfillment ?? 'pickup'],
+    package: sandboxListingPackage(entry),
     digitalLock:
       entry.fulfillment === 'digital'
         ? {
@@ -322,7 +409,7 @@ function createListing(entry: CatalogEntry, index: number): CommerceListingRecor
             minimumConfirmations: 1,
           }
         : undefined,
-    shippingOptions: [],
+    shippingOptions: sandboxListingShippingOptions(entry),
     returnPolicy: {
       acceptsReturns: true,
       returnWindowDays: 30,

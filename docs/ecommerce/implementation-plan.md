@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (reserved→sold conversion, seller analytics, option editor, axe/SSRF suites landed; live Bitkit and remaining videos remain)
+Stopped at: **T8 — Hardening and parity audit** (listing shipping quotes, shop collection editor, Satoshi second listing; live Bitkit and remaining videos remain)
 
 Legend:
 
@@ -227,8 +227,8 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Tax, shipping, ledger, and guarantees
 
-- [x] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — `sandbox-us-8pct-v1` + `sandbox-flat-1200-v1` frozen on the order
-- [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — flat sandbox shipping + tracking + printable sandbox label
+- [x] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — `sandbox-us-8pct-v1` + `sandbox-listing-shipping-v1` frozen on the order; pickup defaults to $12, digital $0, listing free/flat/calculated otherwise
+- [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — listing free/flat/calculated quotes + tracking + printable sandbox label; live carrier rates still sandbox
 - [x] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
 - [x] Any unbalanced posting blocks order finalization and creates an operator finding.
 - [~] Guarantee eligibility, exclusions, evidence requirements, deadlines, and policy version are shown before purchase and frozen on the order. — sandbox guarantee checkbox

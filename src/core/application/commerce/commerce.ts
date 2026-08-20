@@ -9,6 +9,7 @@ import {
   sandboxListingAutoAcceptAmount,
   sandboxListingCatalogQuantity,
   sandboxListingNeedsReregister,
+  sandboxListingShippingQuoteMinor,
 } from '@/libs/commerce/sandbox-bootstrap';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
@@ -435,6 +436,7 @@ export class CommerceApplication {
             : listing.fulfillmentMethods.includes('physical')
               ? 'physical'
               : 'pickup',
+          shippingQuoteMinor: sandboxListingShippingQuoteMinor(listing),
           digitalLock: listing.digitalLock,
           auctionTerms:
             listing.sale.format === 'auction'

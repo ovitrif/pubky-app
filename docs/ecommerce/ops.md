@@ -44,4 +44,4 @@ The Locks / Paykit stub exposes `/health/live` and `/health/ready` on both ports
 
 Operator routes (sandbox moderator only): `/v1/invariants` (includes `reservedOnPaidOrders`) and `/v1/admin/search?q=`. `inventory.reconcile_paid` converts leftover reserved units on already-paid orders to sold and appends `inventory.reconciled` events. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.
 
-Checkout tax/shipping uses `sandbox-us-8pct-v1` and `sandbox-flat-1200-v1`. Digital-only seller groups have $0 shipping. Pickup still uses the flat sandbox shipping quote.
+Checkout tax/shipping uses `sandbox-us-8pct-v1` and `sandbox-listing-shipping-v1`. Digital-only seller groups have $0 shipping. Pickup without listing options still uses the $12 flat quote. Physical listings can quote free, flat, or sandbox-calculated (`$6 + $4/kg`) shipping.

@@ -78,8 +78,11 @@ export function useMarketplaceCart() {
       }
       await CommerceController.commitAddCartItem(listingId, variantId, quantity);
       toast({ title: 'Added to cart' });
-    } catch {
-      toast({ variant: 'error', description: 'Could not add this item to the cart.' });
+    } catch (error) {
+      toast({
+        variant: 'error',
+        description: error instanceof Error ? error.message : 'Could not add this item to the cart.',
+      });
     }
   };
 

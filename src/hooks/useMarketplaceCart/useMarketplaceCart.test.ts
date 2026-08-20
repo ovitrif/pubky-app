@@ -55,6 +55,26 @@ describe('useMarketplaceCart', () => {
     expect(CommerceController.mergeGuestCart).not.toHaveBeenCalled();
   });
 
+  it('surfaces the available-quantity error when add fails', async () => {
+    const listingId = `${'y'.repeat(52)}:leather_boots`;
+    vi.mocked(CommerceController.getListing).mockResolvedValue({
+      record: { sale: { format: 'fixed_price' } },
+    } as never);
+    vi.mocked(CommerceController.commitAddCartItem).mockRejectedValue(
+      new Error('Cart already has the available quantity.'),
+    );
+
+    const { result } = renderHook(() => useMarketplaceCart());
+    await act(async () => {
+      await result.current.add(listingId, 'default', 1);
+    });
+
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Cart already has the available quantity.',
+    });
+  });
+
   it('merges the reserved guest cart after sign-in', () => {
     state.currentUserPubky = 'y'.repeat(52);
     renderHook(() => useMarketplaceCart());
