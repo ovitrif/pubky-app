@@ -26,6 +26,18 @@ export function formatCommerceSaleFormat(format: 'fixed_price' | 'auction' | 'of
   return 'Buy now';
 }
 
+export function formatCommerceDateTime(iso: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+    timeZoneName: 'short',
+  }).format(new Date(iso));
+}
+
 export function formatCommerceCondition(condition: string): string {
   return condition
     .split('_')

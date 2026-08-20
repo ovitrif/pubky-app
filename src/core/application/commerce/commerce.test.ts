@@ -3,6 +3,7 @@ import * as commerceConfig from '@/config/commerce';
 import { CommerceListingModel, CommerceShopModel } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceListingFixture,
@@ -38,6 +39,11 @@ describe('CommerceApplication', () => {
 
   it('seeds catalog data only when sandbox mode is explicit', async () => {
     const seed = vi.spyOn(LocalCommerceService, 'seedSandboxCatalog').mockResolvedValue(true);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue({
+      ok: false,
+      error: { code: 'UNAVAILABLE', message: 'test double' },
+    });
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
 
     await expect(CommerceApplication.initializeSandboxCatalog()).resolves.toBe(false);

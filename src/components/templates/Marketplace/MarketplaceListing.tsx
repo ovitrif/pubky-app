@@ -24,15 +24,19 @@ import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/fo
 import { commerceListingSalePrice } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
+import { MarketplaceAuctionStatus } from '@/organisms/Marketplace/MarketplaceAuctionStatus';
 import { MarketplaceBidDialog } from '@/organisms/Marketplace/MarketplaceBidDialog';
 import { MarketplaceBidHistory } from '@/organisms/Marketplace/MarketplaceBidHistory';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplaceListingGallery } from '@/organisms/Marketplace/MarketplaceListingGallery';
+import { MarketplaceListingShare } from '@/organisms/Marketplace/MarketplaceListingShare';
 import { MarketplaceLocksPayment } from '@/organisms/Marketplace/MarketplaceLocksPayment';
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReportDialog } from '@/organisms/Marketplace/MarketplaceReportDialog';
+import { MarketplaceSellerPolicies } from '@/organisms/Marketplace/MarketplaceSellerPolicies';
 import { MarketplaceVacationNotice } from '@/organisms/Marketplace/MarketplaceVacationNotice';
+import type { MarketplaceSellerReputation } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -44,6 +48,7 @@ export interface MarketplaceListingProps {
 export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListingProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState('');
+  const [reputation, setReputation] = useState<MarketplaceSellerReputation | null>(null);
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
@@ -64,6 +69,13 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     initialize().catch(() => {
       if (active) setError('This listing could not be loaded.');
     });
+    CommerceController.getSellerReputation(sellerPubky)
+      .then((next) => {
+        if (active) setReputation(next);
+      })
+      .catch(() => {
+        if (active) setReputation(null);
+      });
     return () => {
       active = false;
     };
@@ -167,13 +179,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     : ''}
                 {formatCommerceMoney(displayPrice)}
               </Typography>
-              {negotiation.projection?.auction && (
-                <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-                  {negotiation.projection.auction.bidCount}{' '}
-                  {negotiation.projection.auction.bidCount === 1 ? 'bid' : 'bids'} ·{' '}
-                  {negotiation.projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
-                </Typography>
-              )}
               {record.sale.format !== 'auction' && record.sale.autoAcceptAmount && (
                 <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                   Seller auto-accepts offers at or above {formatCommerceMoney(record.sale.autoAcceptAmount)}.
@@ -182,6 +187,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             </div>
 
             {shop?.record.vacationMode && <MarketplaceVacationNotice />}
+            {record.sale.format === 'auction' && (
+              <MarketplaceAuctionStatus
+                fallback={record.sale}
+                auction={negotiation.projection?.auction ?? null}
+                history={negotiation.projection?.visibleBidHistory ?? []}
+                currentUserPubky={currentUserPubky}
+              />
+            )}
 
             <Card className="gap-4 border py-5">
               <CardContent className="flex items-center justify-between gap-4 px-5">
@@ -192,6 +205,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   <Typography as="p" className="font-semibold">
                     {shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`}
                   </Typography>
+                  <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                    {reputation
+                      ? `${reputation.averageRating ?? '—'} · ${reputation.reviewCount} reviews · ${reputation.salesCount} sales`
+                      : 'Owner-signed shop'}
+                  </Typography>
                 </div>
                 <Button asChild variant="secondary" size="sm" className="rounded-full">
                   <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
@@ -200,12 +218,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 </Button>
               </CardContent>
             </Card>
-            <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
-            <MarketplaceReportDialog targetId={aggregateId} />
+            <div className="flex flex-wrap gap-2">
+              <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
+              <MarketplaceReportDialog targetId={aggregateId} />
+              <MarketplaceListingShare title={record.title} />
+            </div>
 
             <Typography as="p" className="text-base leading-7 text-muted-foreground">
               {record.description}
             </Typography>
+            <Typography as="p" className="text-sm text-muted-foreground">
+              {selectedVariant ? `${selectedVariant.quantity} available` : 'Unavailable'}
+            </Typography>
+            <MarketplaceSellerPolicies shop={shop?.record} listingReturn={record.returnPolicy} />
 
             <div className="flex flex-wrap gap-2">
               {record.tags.map((tag) => (

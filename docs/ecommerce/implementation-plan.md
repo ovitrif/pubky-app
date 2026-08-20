@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-20  
-Stopped at: **T8 — Hardening and parity audit** (visible bid history, vacation PDP, recently viewed, offer auto-accept, adversarial/E2E expansion landed; live Paykit/videos remain)
+Stopped at: **T8 — Hardening and parity audit** (auction standing/min next bid/end time, seeded public bid history, buying policies, live Paykit/videos remain)
 
 Legend:
 
@@ -27,7 +27,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks; live Bitkit/Paykit Server E2E unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — marketplace unit/hook tests, catalog VRT, Cypress browse/auth/auction/watcher/vacation; live Bitkit and signed-in videos remain
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — auction status + seeded bid history, buying policies, marketplace unit/hook tests, catalog VRT, Cypress browse/auth/auction/watcher/vacation; live Bitkit and signed-in videos remain
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in/Bitkit feature videos not recorded
 
 ### Delivery slices
@@ -44,7 +44,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 
 ### Where we stopped
 
-Last shipped feature work: public **visible** bid history (no proxy maximums), vacation banners on listing PDPs, sessionStorage recently viewed, seller auto-accept thresholds, Soft Fork Studio vacation + ceramic vase auto-accept catalog, adversarial command guards, and expanded Cypress.
+Last shipped feature work: auction PDP **minimum next bid**, **end time**, and **standing**; sandbox-seeded public bid history; listing/shop buying policies and share; auto-accept re-register on the transaction service.
 
 Next required work, in order:
 

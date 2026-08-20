@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceBid } from '@/hooks/useMarketplaceBid/useMarketplaceBid';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
-import { formatCommerceMoney } from '@/libs/commerce/format';
+import { formatCommerceDateTime, formatCommerceMoney } from '@/libs/commerce/format';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import type { MarketplaceListingProjection } from '@/services/marketplace/marketplace';
 
@@ -63,6 +63,19 @@ export function MarketplaceBidDialog({
             <Typography as="p" className="mt-1 text-sm text-muted-foreground">
               {projection.auction.bidCount} {projection.auction.bidCount === 1 ? 'bid' : 'bids'} ·{' '}
               {projection.auction.reserveMet ? 'Reserve met' : 'Reserve not met'}
+            </Typography>
+            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+              Minimum next bid{' '}
+              {formatCommerceMoney(
+                projection.auction.minimumNextBid ?? {
+                  ...projection.auction.currentPrice,
+                  amountMinor: projection.auction.currentPrice.amountMinor + 1,
+                },
+              )}{' '}
+              · increment {formatCommerceMoney(projection.auction.minimumIncrement)}
+            </Typography>
+            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+              Ends {formatCommerceDateTime(projection.auction.endsAt)}
             </Typography>
           </div>
         )}

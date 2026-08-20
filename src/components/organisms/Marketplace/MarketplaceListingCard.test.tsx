@@ -44,6 +44,15 @@ describe('MarketplaceListingCard', () => {
     expect(screen.getByText('Ends Aug 29')).toBeInTheDocument();
   });
 
+  it('renders script characters in titles as text', () => {
+    const listing = listingModel();
+    listing.record = { ...listing.record, title: '<script>alert(1)</script>' };
+    render(<MarketplaceListingCard listing={listing} />);
+
+    expect(screen.getByRole('heading', { name: '<script>alert(1)</script>' })).toBeInTheDocument();
+    expect(document.querySelector('script')).toBeNull();
+  });
+
   it('renders the horizontal card variant for list layout', () => {
     render(<MarketplaceListingCard listing={listingModel()} layout="list" />);
 

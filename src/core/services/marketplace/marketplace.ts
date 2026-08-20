@@ -25,12 +25,20 @@ const listingProjectionSchema = z
     reservedQuantity: z.number().int().nonnegative(),
     unitPrice: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
     saleFormat: z.enum(['fixed_price', 'auction', 'offer']),
+    listingRevision: z.number().int().positive().optional(),
+    autoAcceptAmount: z
+      .object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() })
+      .nullable()
+      .optional(),
     auction: z
       .object({
         startsAt: z.string(),
         endsAt: z.string(),
         minimumIncrement: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
         currentPrice: z.object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() }),
+        minimumNextBid: z
+          .object({ amountMinor: z.number().int(), currency: z.string(), exponent: z.number().int() })
+          .optional(),
         leaderPubky: commercePubkySchema.nullable(),
         bidCount: z.number().int().nonnegative(),
         reserveMet: z.boolean(),

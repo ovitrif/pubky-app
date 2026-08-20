@@ -4,6 +4,11 @@ import {
   commerceListingSalePrice,
   type CommerceShopRecord,
 } from '@/libs/commerce/marketplace-records';
+import {
+  sandboxAuctionSeedPlan,
+  sandboxListingAutoAcceptAmount,
+  sandboxListingNeedsReregister,
+} from '@/libs/commerce/sandbox-bootstrap';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import { buildMarketplaceListingAggregateId, type MarketplaceCommand } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue } from '@/libs/commerce/transaction-contracts';
@@ -15,6 +20,8 @@ import { LocksGatewayService } from '@/services/locks/locks';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 
 export class CommerceApplication {
+  private static sandboxCatalogInit: Promise<boolean> | null = null;
+
   private constructor() {}
 
   static async getShop(ownerPubky: string) {
@@ -74,6 +81,13 @@ export class CommerceApplication {
 
   static async initializeSandboxCatalog(): Promise<boolean> {
     if (getCommerceAdapterMode() !== 'sandbox') return false;
+    this.sandboxCatalogInit ??= this.initializeSandboxCatalogOnce().finally(() => {
+      this.sandboxCatalogInit = null;
+    });
+    return this.sandboxCatalogInit;
+  }
+
+  private static async initializeSandboxCatalogOnce(): Promise<boolean> {
     const catalog = createCommerceSandboxCatalog();
     const seeded = await LocalCommerceService.seedSandboxCatalog(catalog);
     await Promise.allSettled(catalog.listings.map((listing) => this.registerSandboxListing(listing)));
@@ -355,47 +369,73 @@ export class CommerceApplication {
   private static async registerSandboxListing(listing: CommerceListingRecord): Promise<void> {
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     const existing = await MarketplaceGatewayService.getListing(aggregateId);
-    if (existing?.serverRevision) return;
-    const unitPrice = commerceListingSalePrice(listing.sale);
-    const command = CommerceRecordNormalizer.marketplaceCommand({
-      version: 1,
-      commandId: crypto.randomUUID(),
-      aggregateId,
-      expectedRevision: 0,
-      issuedAt: new Date().toISOString(),
-      kind: 'listing.register',
-      payload: {
-        sellerPubky: listing.ownerPubky,
-        listingId: listing.listingId,
-        title: listing.title,
-        listingRevision: listing.revision,
-        contentHash: listing.media[0].contentHash,
-        quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
-        unitPrice,
-        saleFormat: listing.sale.format,
-        offersOpenTo: listing.sale.format === 'offer' ? listing.sale.offersOpenTo : undefined,
-        autoAcceptAmount: listing.sale.format === 'auction' ? undefined : listing.sale.autoAcceptAmount,
-        fulfillment: listing.fulfillmentMethods.includes('digital')
-          ? 'digital'
-          : listing.fulfillmentMethods.includes('physical')
-            ? 'physical'
-            : 'pickup',
-        digitalLock: listing.digitalLock,
-        auctionTerms:
-          listing.sale.format === 'auction'
-            ? {
-                startsAt: listing.sale.startsAt,
-                endsAt: listing.sale.endsAt,
-                minimumIncrement: listing.sale.minimumIncrement,
-                reservePrice: listing.sale.reservePrice,
-                buyNowPrice: listing.sale.buyNowPrice,
-                antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
-                antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
-              }
-            : undefined,
-      },
-    });
-    await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    if (sandboxListingNeedsReregister(existing, listing)) {
+      const unitPrice = commerceListingSalePrice(listing.sale);
+      const command = CommerceRecordNormalizer.marketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId,
+        expectedRevision: existing?.serverRevision ?? 0,
+        issuedAt: new Date().toISOString(),
+        kind: 'listing.register',
+        payload: {
+          sellerPubky: listing.ownerPubky,
+          listingId: listing.listingId,
+          title: listing.title,
+          listingRevision: existing?.listingRevision ? existing.listingRevision + 1 : listing.revision,
+          contentHash: listing.media[0].contentHash,
+          quantity: listing.variants.reduce((total, variant) => total + variant.quantity, 0),
+          unitPrice,
+          saleFormat: listing.sale.format,
+          offersOpenTo: listing.sale.format === 'offer' ? listing.sale.offersOpenTo : undefined,
+          autoAcceptAmount: sandboxListingAutoAcceptAmount(listing) ?? undefined,
+          fulfillment: listing.fulfillmentMethods.includes('digital')
+            ? 'digital'
+            : listing.fulfillmentMethods.includes('physical')
+              ? 'physical'
+              : 'pickup',
+          digitalLock: listing.digitalLock,
+          auctionTerms:
+            listing.sale.format === 'auction'
+              ? {
+                  startsAt: listing.sale.startsAt,
+                  endsAt: listing.sale.endsAt,
+                  minimumIncrement: listing.sale.minimumIncrement,
+                  reservePrice: listing.sale.reservePrice,
+                  buyNowPrice: listing.sale.buyNowPrice,
+                  antiSnipingWindowSeconds: listing.sale.antiSnipingWindowSeconds,
+                  antiSnipingExtensionSeconds: listing.sale.antiSnipingExtensionSeconds,
+                }
+              : undefined,
+        },
+      });
+      await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    }
+    await this.seedSandboxAuctionBids(listing, aggregateId);
+  }
+
+  private static async seedSandboxAuctionBids(listing: CommerceListingRecord, aggregateId: string): Promise<void> {
+    if (listing.sale.format !== 'auction') return;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const projection = await MarketplaceGatewayService.getListing(aggregateId);
+      const plan = sandboxAuctionSeedPlan(listing, projection);
+      if (!plan) return;
+      const response = await MarketplaceGatewayService.execute(
+        plan.bidderPubky,
+        CommerceRecordNormalizer.marketplaceCommand({
+          version: 1,
+          commandId: crypto.randomUUID(),
+          aggregateId,
+          expectedRevision: plan.expectedRevision,
+          issuedAt: new Date().toISOString(),
+          kind: 'auction.place_bid',
+          payload: { maximumAmount: plan.maximumAmount },
+        }),
+      );
+      if (!response.ok && response.error.code !== 'REVISION_CONFLICT' && response.error.code !== 'IDEMPOTENCY_CONFLICT') {
+        return;
+      }
+    }
   }
 
   private static createSyncJob({

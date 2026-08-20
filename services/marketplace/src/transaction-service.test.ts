@@ -1670,6 +1670,7 @@ describe('MarketplaceTransactionService', () => {
     ]);
     expect(JSON.stringify(projection)).not.toContain('maximumAmount');
     expect(JSON.stringify(projection?.visibleBidHistory)).not.toContain('20000');
+    expect(projection?.auction?.minimumNextBid).toEqual({ amountMinor: 6_001, currency: 'USD', exponent: 2 });
   });
 
   it('auto-accepts buyer offers at or above the seller threshold', async () => {

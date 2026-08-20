@@ -15,6 +15,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
+import { MarketplaceSellerPolicies } from '@/organisms/Marketplace/MarketplaceSellerPolicies';
 import type { MarketplaceSellerReputation } from '@/services/marketplace/marketplace';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
@@ -125,6 +126,8 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                 </div>
               </CardContent>
             </Card>
+
+            <MarketplaceSellerPolicies shop={shop.record} />
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
               {listings.map((listing) => (

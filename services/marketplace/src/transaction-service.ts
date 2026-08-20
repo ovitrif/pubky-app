@@ -101,6 +101,7 @@ export interface MarketplaceListingAggregate {
     antiSnipingWindowSeconds: number;
     antiSnipingExtensionSeconds: number;
     currentPrice: MarketplaceListingAggregate['unitPrice'];
+    minimumNextBid?: MarketplaceListingAggregate['unitPrice'];
     leaderPubky: string | null;
     bidCount: number;
     reserveMet: boolean;
@@ -1091,6 +1092,15 @@ export class MarketplaceTransactionService {
     if (!listing) return undefined;
     return {
       ...listing,
+      auction: listing.auction
+        ? {
+            ...listing.auction,
+            minimumNextBid: {
+              ...listing.auction.currentPrice,
+              amountMinor: listing.auction.currentPrice.amountMinor + 1,
+            },
+          }
+        : null,
       visibleBidHistory: listing.auction
         ? reconstructVisibleBidHistory(
             listing.unitPrice,
