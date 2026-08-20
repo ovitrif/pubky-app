@@ -36,8 +36,12 @@ Sign-out clears account-scoped Dexie commerce tables and the commerce Zustand st
 
 ## Health
 
-The transaction service exposes `/health/live` and `/health/ready`. `/health/ready` reports `storage: postgres` when `DATABASE_URL` is set. Schema is applied from `services/marketplace/schema.sql` on connect. Authenticated sellers can read `/v1/analytics` for views, favorites, conversion, sell-through, and fulfillment health.
+The transaction service exposes `/health/live` and `/health/ready`. `/health/ready` reports `storage: postgres` when `DATABASE_URL` is set. Schema is applied from `services/marketplace/schema.sql` on connect. Authenticated sellers can read `/v1/analytics` for views, favorites, conversion, sell-through, and fulfillment health. `/v1/metrics` is a redacted public counter (listings, orders, events, confirmed payments, open reports, reserved-on-paid leftovers).
+
+JSON responses set `Content-Security-Policy: default-src 'none'`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY`. Sandbox POST `/v1/commands` and `/v1/attachments` require `x-marketplace-csrf: 1`. When `MARKETPLACE_ALLOWED_ORIGIN` is set to a concrete origin, the `Origin`/`Referer` must match.
 
 The Locks / Paykit stub exposes `/health/live` and `/health/ready` on both ports and labels every response `sandbox`.
 
-Operator routes (sandbox moderator only): `/v1/invariants` and `/v1/admin/search?q=`. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.
+Operator routes (sandbox moderator only): `/v1/invariants` (includes `reservedOnPaidOrders`) and `/v1/admin/search?q=`. `inventory.reconcile_paid` converts leftover reserved units on already-paid orders to sold and appends `inventory.reconciled` events. Account export is `/v1/account/export`. Risk signals are `/v1/risk-signals` and `trust.flag_risk`; they are append-only and never rewrite orders.
+
+Checkout tax/shipping uses `sandbox-us-8pct-v1` and `sandbox-flat-1200-v1`. Digital-only seller groups have $0 shipping. Pickup still uses the flat sandbox shipping quote.

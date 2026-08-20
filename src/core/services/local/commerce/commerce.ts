@@ -375,7 +375,11 @@ export class LocalCommerceService {
               }) ||
               shopModels.some((next) => {
                 const current = existingShopsById.get(next.id);
-                return !current || current.record.vacationMode !== next.record.vacationMode;
+                return (
+                  !current ||
+                  current.record.vacationMode !== next.record.vacationMode ||
+                  JSON.stringify(current.record.collections ?? []) !== JSON.stringify(next.record.collections ?? [])
+                );
               });
             if (!needsRefresh) return false;
           }

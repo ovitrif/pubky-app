@@ -175,14 +175,14 @@ Assumptions:
 
 ### Browser and PWA
 
-| ID     | Threat                                               | Impact                         | Required mitigation and evidence                                                 |
-| ------ | ---------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------- |
-| WEB-01 | CSRF on cookie-backed proxy                          | Unauthorized command           | SameSite cookies, origin check, CSRF token where needed                          |
-| WEB-02 | XSS steals local bearer/session data                 | Account/entitlement compromise | CSP, output encoding, no unsafe HTML, minimize bearer persistence                |
-| WEB-03 | Service worker serves stale transaction action/state | False finality                 | Network-only transaction commands; versioned projection with freshness           |
-| WEB-04 | Offline UI claims success                            | Buyer/seller deception         | Disable authoritative actions offline and use explicit submitting/pending labels |
-| WEB-05 | Clickjacking on setup/admin                          | Unauthorized approval/action   | `frame-ancestors` policy with exact documented setup exceptions                  |
-| WEB-06 | Open redirect/deep-link injection                    | Phishing/app abuse             | Exact schemes/hosts/origins and opaque state verification                        |
+| ID     | Threat                                               | Impact                         | Required mitigation and evidence                                                   |
+| ------ | ---------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| WEB-01 | CSRF on cookie-backed proxy                          | Unauthorized command           | Custom `x-marketplace-csrf` header on POST; optional `MARKETPLACE_ALLOWED_ORIGIN`  |
+| WEB-02 | XSS steals local bearer/session data                 | Account/entitlement compromise | Marketplace JSON CSP `default-src 'none'`; Next.js CSP-Report-Only; no unsafe HTML |
+| WEB-03 | Service worker serves stale transaction action/state | False finality                 | Network-only transaction commands; versioned projection with freshness             |
+| WEB-04 | Offline UI claims success                            | Buyer/seller deception         | Disable authoritative actions offline and use explicit submitting/pending labels   |
+| WEB-05 | Clickjacking on setup/admin                          | Unauthorized approval/action   | `frame-ancestors` policy with exact documented setup exceptions                    |
+| WEB-06 | Open redirect/deep-link injection                    | Phishing/app abuse             | Exact schemes/hosts/origins and opaque state verification                          |
 
 ## Data-flow rules
 

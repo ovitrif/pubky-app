@@ -40,12 +40,29 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: (action: () => void) => action() }),
 }));
 
+vi.mock('@/hooks/useRecentlyViewedListings/useRecentlyViewedListings', () => ({
+  useRecentlyViewedListings: () => [],
+}));
+
+vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () => ({
+  useMarketplaceSavedSearches: () => ({
+    searches: [],
+    save: vi.fn(),
+    apply: vi.fn(),
+    remove: vi.fn(),
+    canSave: false,
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
   const catalog = await fixtures;
+  const { buildMarketplaceFeedSections } = await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
   return {
     useMarketplaceCatalog: () => ({
       listings: catalog.listings,
       shopsBySeller: catalog.shopsBySeller,
+      sections: buildMarketplaceFeedSections(catalog.listings, []),
+      showFeedSections: true,
       isLoading: false,
       initializationError: null,
       adapterMode: 'sandbox',

@@ -43,6 +43,7 @@ describe('LocalCommerceService', () => {
     await expect(LocalCommerceService.seedSandboxCatalog(catalog)).resolves.toBe(false);
 
     expect(await LocalCommerceService.getAllShops()).toHaveLength(10);
+    expect((await LocalCommerceService.getAllShops())[0]?.record.collections.length).toBeGreaterThan(0);
     expect(await LocalCommerceService.getAllListings()).toHaveLength(10);
     expect(await CommerceListingProjectionModel.table.count()).toBe(10);
   });
@@ -343,10 +344,7 @@ describe('LocalCommerceService', () => {
     await LocalCommerceService.seedSandboxCatalog(catalog);
     const boots = catalog.listings.find((listing) => listing.listingId === 'leather_boots');
     if (!boots) throw new Error('Expected leather boots catalog listing');
-    await LocalCommerceService.upsertListing(
-      { ...boots, variants: [{ ...boots.variants[0], quantity: 1 }] },
-      'synced',
-    );
+    await LocalCommerceService.upsertListing({ ...boots, variants: [{ ...boots.variants[0], quantity: 1 }] }, 'synced');
     const extra = createCommerceListingFixture();
     await LocalCommerceService.upsertListing(extra, 'synced');
 

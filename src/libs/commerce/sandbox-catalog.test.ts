@@ -20,6 +20,13 @@ describe('createCommerceSandboxCatalog', () => {
     ).toBe(true);
     expect(first.shops.some((shop) => shop.vacationMode && shop.name === 'Soft Fork Studio')).toBe(true);
     expect(
+      first.shops.some(
+        (shop) =>
+          shop.name === 'Satoshi Vintage' &&
+          shop.collections.some((collection) => collection.listingIds.includes('leather_boots')),
+      ),
+    ).toBe(true);
+    expect(
       first.listings.some(
         (listing) =>
           listing.listingId === 'ceramic_vase' &&

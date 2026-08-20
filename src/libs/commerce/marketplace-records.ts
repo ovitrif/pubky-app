@@ -14,6 +14,9 @@ import {
   COMMERCE_MEDIA_ALT_TEXT_MAX_CHARS,
   COMMERCE_REVIEW_TEXT_MAX_CHARS,
   COMMERCE_SHOP_BIO_MAX_CHARS,
+  COMMERCE_SHOP_COLLECTION_MAX_LISTINGS,
+  COMMERCE_SHOP_COLLECTION_NAME_MAX_CHARS,
+  COMMERCE_SHOP_MAX_COLLECTIONS,
   COMMERCE_SHOP_NAME_MAX_CHARS,
   COMMERCE_SHOP_POLICY_MAX_CHARS,
   COMMERCE_TAXONOMY_VERSION,
@@ -274,6 +277,14 @@ export const commerceDigitalLockSchema = z
   })
   .strict();
 
+export const commerceShopCollectionSchema = z
+  .object({
+    id: commerceEntityIdSchema,
+    name: z.string().trim().min(1).max(COMMERCE_SHOP_COLLECTION_NAME_MAX_CHARS),
+    listingIds: z.array(commerceEntityIdSchema).max(COMMERCE_SHOP_COLLECTION_MAX_LISTINGS),
+  })
+  .strict();
+
 export const commerceShopRecordSchema = commercePublicRecordBaseSchema
   .extend({
     recordType: z.literal('shop'),
@@ -285,6 +296,7 @@ export const commerceShopRecordSchema = commercePublicRecordBaseSchema
     shippingPolicy: z.string().trim().max(COMMERCE_SHOP_POLICY_MAX_CHARS),
     returnPolicy: z.string().trim().max(COMMERCE_SHOP_POLICY_MAX_CHARS),
     vacationMode: z.boolean(),
+    collections: z.array(commerceShopCollectionSchema).max(COMMERCE_SHOP_MAX_COLLECTIONS).default([]),
     createdAt: commerceTimestampSchema,
     updatedAt: commerceTimestampSchema,
   })

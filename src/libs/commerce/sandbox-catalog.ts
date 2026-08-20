@@ -173,6 +173,14 @@ const CATALOG_ENTRIES: CatalogEntry[] = [
   },
 ];
 
+function sandboxShopCollectionName(entry: CatalogEntry): string {
+  if (entry.saleFormat === 'auction') return 'Live auctions';
+  if (entry.fulfillment === 'digital') return 'Digital downloads';
+  if (entry.vacationMode) return 'Studio pieces';
+  if (entry.saleFormat === 'offer') return 'Watcher samples';
+  return 'Featured';
+}
+
 export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
   const shops = CATALOG_ENTRIES.map((entry, index) =>
     commerceShopRecordSchema.parse({
@@ -188,6 +196,13 @@ export function createCommerceSandboxCatalog(): CommerceSandboxCatalog {
       shippingPolicy: 'Ships within three business days.',
       returnPolicy: 'Returns accepted within 30 days.',
       vacationMode: entry.vacationMode ?? false,
+      collections: [
+        {
+          id: `${entry.listingId}_featured`,
+          name: sandboxShopCollectionName(entry),
+          listingIds: [entry.listingId],
+        },
+      ],
     }),
   );
 

@@ -227,7 +227,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Tax, shipping, ledger, and guarantees
 
-- [~] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — fixed 8% quote
+- [x] A versioned sandbox tax adapter quotes line and shipping tax and blocks checkout when a final quote is unavailable. — `sandbox-us-8pct-v1` + `sandbox-flat-1200-v1` frozen on the order
 - [~] Shipping supports free, flat, and sandbox-calculated rates, idempotent labels, manual fulfillment, normalized tracking, delivery exceptions, pickup, and reverse labels. — flat sandbox shipping + tracking + printable sandbox label
 - [x] Every order posts balanced integer-minor-unit ledger entries for items, shipping, tax, discounts, fees, seller receivable, refunds, and adjustments.
 - [x] Any unbalanced posting blocks order finalization and creates an operator finding.
@@ -249,21 +249,21 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 - [x] Restricted listings disappear from discovery but remain visible to authorized parties for disputes.
 - [x] Enforcement separates warning, visibility limit, delisting, message limit, transaction hold, suspension, and ban.
 - [x] Auction manipulation, account takeover, payment/refund abuse, off-platform scams, and suspicious payout changes create review signals but never silently rewrite transaction history. — increment-only non-leading bids auto-flag `auction_manipulation`
-- [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards + outbound URL SSRF suite; live DNS-rebinding still open
+- [~] Rate limits, size limits, URL safety, file validation, and unsafe-state guards have failure tests. — attachment validation + command guards + outbound URL SSRF + CSRF/origin suite; live DNS-rebinding still open
 
 ### Privacy, security, observability, and operations
 
-- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF guard; CSP/CSRF suite incomplete
+- [~] Object-level authorization, CSRF/CSP/XSS/SSRF defenses, signed callbacks, replay windows, step-up authorization, least privilege, and upload isolation have adversarial tests. — actor ACL + attachment isolation + commerce URL SSRF + marketplace CSRF/origin + JSON CSP; Next.js CSP is report-only because of the inline runtime-config script
 - [x] Recovery phrases, payment secrets, raw delivery details, message bodies, evidence, access credentials, and private Pubky identifiers never enter analytics, logs, Sentry, or public records.
 - [x] Export and deletion flows isolate each account while preserving pseudonymized transaction/audit records required for prototype consistency.
-- [~] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live` and `/health/ready` only
+- [~] Health, metrics, redacted traces, dead-letter inspection, idempotent replay, backups, restore drills, migration failure, and rollback have documented verification addresses. — `/health/live`, `/health/ready`, `/v1/metrics`; restore drills pending
 - [x] Invariant alerts cover oversell, double winner, duplicate payment/refund, unbalanced ledger, stuck fulfillment, and authorization failures.
 - [x] Admin searches and manual actions are role-scoped, redacted, reasoned, previewed, and append-only audited.
 
 ### Accessibility, responsiveness, and local-first behavior
 
 - [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form and catalog filter axe suites; contrast/manual review remain
-- [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + one catalog VRT
+- [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT with feed sections
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
 - [x] Retry queues preserve idempotency and never silently drop a transaction action.
@@ -427,7 +427,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 
 ### T8 — Hardening and parity audit `[~]` `[!]` stopped here
 
-- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, catalog VRT, thin Cypress browse/auth-gate
+- [~] Run unit, integration, component, VRT, E2E, accessibility, responsive, security, concurrency, migration, offline, retry, restore, reconciliation, and adapter contract suites. — marketplace unit/hook tests, CSRF/origin/JSON CSP, catalog VRT mock, thin Cypress browse/auth-gate
 - [ ] Compare every acceptance item with authoritative runtime evidence.
 - [ ] Fix findings and repeat the complete affected verification scope.
 

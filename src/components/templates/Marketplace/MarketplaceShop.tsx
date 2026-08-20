@@ -129,11 +129,37 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
 
             <MarketplaceSellerPolicies shop={shop.record} />
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
-              {listings.map((listing) => (
-                <MarketplaceListingCard key={listing.id} listing={listing} shopName={shop.record.name} />
-              ))}
-            </div>
+            {(shop.record.collections ?? []).map((collection) => {
+              const collected = listings.filter((listing) => collection.listingIds.includes(listing.listing_id));
+              if (collected.length === 0) return null;
+              return (
+                <section key={collection.id} className="flex flex-col gap-4">
+                  <Heading level={2} size="md">
+                    {collection.name}
+                  </Heading>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+                    {collected.map((listing) => (
+                      <MarketplaceListingCard
+                        key={`${collection.id}-${listing.id}`}
+                        listing={listing}
+                        shopName={shop.record.name}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+
+            <section className="flex flex-col gap-4">
+              <Heading level={2} size="md">
+                All listings
+              </Heading>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+                {listings.map((listing) => (
+                  <MarketplaceListingCard key={listing.id} listing={listing} shopName={shop.record.name} />
+                ))}
+              </div>
+            </section>
           </>
         ) : (
           <div className="flex min-h-96 flex-col items-center justify-center rounded-xl border border-dashed text-center">

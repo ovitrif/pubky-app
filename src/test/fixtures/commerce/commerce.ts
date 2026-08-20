@@ -24,6 +24,7 @@ export function createCommerceShopFixture(overrides: Partial<CommerceShopRecord>
     shippingPolicy: 'Ships within three business days.',
     returnPolicy: 'Returns accepted within 30 days.',
     vacationMode: false,
+    collections: [],
     ...overrides,
   };
 }

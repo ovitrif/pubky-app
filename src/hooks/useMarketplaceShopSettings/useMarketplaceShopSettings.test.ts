@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceShopSettings } from './useMarketplaceShopSettings';
@@ -36,6 +36,41 @@ describe('useMarketplaceShopSettings', () => {
       eventIds: [],
       result: { kind: 'blocked_buyer' },
     });
+  });
+
+  it('preserves shop collections when publishing policies', async () => {
+    vi.mocked(CommerceController.getShop).mockResolvedValue({
+      id: OWNER,
+      owner_id: OWNER,
+      revision: 2,
+      sync_status: 'synced',
+      updated_at: 1,
+      record: {
+        schemaVersion: 1,
+        recordType: 'shop',
+        ownerPubky: OWNER,
+        revision: 2,
+        createdAt: '2026-08-19T20:00:00.000Z',
+        updatedAt: '2026-08-19T21:00:00.000Z',
+        name: 'Satoshi Vintage',
+        bio: 'Independent circular fashion.',
+        location: { countryCode: 'US' },
+        shippingPolicy: 'Ships within three business days.',
+        returnPolicy: 'Returns accepted within 30 days unless marked final sale.',
+        vacationMode: false,
+        collections: [{ id: 'leather_boots_featured', name: 'Featured', listingIds: ['leather_boots'] }],
+      },
+    });
+
+    const { result } = renderHook(() => useMarketplaceShopSettings());
+    await waitFor(() => expect(result.current.revision).toBe(2));
+    await act(() => result.current.submit());
+
+    expect(CommerceController.commitUpsertShop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collections: [{ id: 'leather_boots_featured', name: 'Featured', listingIds: ['leather_boots'] }],
+      }),
+    );
   });
 
   it('publishes versioned owner-signed shop policies', async () => {

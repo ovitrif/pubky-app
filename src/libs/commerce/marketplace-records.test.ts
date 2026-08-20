@@ -357,6 +357,7 @@ describe('other public marketplace records', () => {
         shippingPolicy: 'Ships within three business days.',
         returnPolicy: 'Returns accepted within 30 days.',
         vacationMode: false,
+        collections: [{ id: 'featured_boots', name: 'Featured', listingIds: ['boots_01'] }],
       }).success,
     ).toBe(true);
   });

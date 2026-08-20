@@ -19,6 +19,7 @@ export function useMarketplaceShopSettings() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const [revision, setRevision] = useState(0);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [collections, setCollections] = useState<Array<{ id: string; name: string; listingIds: string[] }>>([]);
   const form = useForm<MarketplaceShopSettingsData>({
     resolver: zodResolver(marketplaceShopSettingsSchema),
     defaultValues: marketplaceShopSettingsDefaults,
@@ -32,6 +33,7 @@ export function useMarketplaceShopSettings() {
         if (shop) {
           setRevision(shop.record.revision);
           setCreatedAt(shop.record.createdAt);
+          setCollections(shop.record.collections ?? []);
           form.reset({
             name: shop.record.name,
             bio: shop.record.bio,
@@ -68,6 +70,7 @@ export function useMarketplaceShopSettings() {
           shippingPolicy: data.shippingPolicy,
           returnPolicy: data.returnPolicy,
           vacationMode: data.vacationMode,
+          collections,
         });
         const requested = [
           ...new Set(
