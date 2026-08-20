@@ -2,13 +2,14 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl } from '@/config/commerce';
+import { isSafeCommerceServiceUrl } from '@/libs/commerce/safe-outbound-url';
 import {
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
   marketplaceCommandResponseSchema,
 } from '@/libs/commerce/transaction-commands';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
-import { ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -411,6 +412,20 @@ const statementSchema = z.object({
   entries: z.array(ledgerEntrySchema),
 });
 
+const analyticsSchema = z.object({
+  sellerPubky: commercePubkySchema,
+  views: z.number().int().nonnegative(),
+  favorites: z.number().int().nonnegative(),
+  soldQuantity: z.number().int().nonnegative(),
+  totalQuantity: z.number().int().nonnegative(),
+  sellThroughPercent: z.number().nonnegative(),
+  conversionPercent: z.number().nonnegative(),
+  paidOrders: z.number().int().nonnegative(),
+  toShip: z.number().int().nonnegative(),
+  returnsOpen: z.number().int().nonnegative(),
+  disputesOpen: z.number().int().nonnegative(),
+});
+
 const riskSignalSchema = z.object({
   id: z.uuid(),
   revision: z.number().int().positive(),
@@ -453,6 +468,7 @@ export type MarketplaceReport = z.infer<typeof reportSchema>;
 export type MarketplaceLedgerEntry = z.infer<typeof ledgerEntrySchema>;
 export type MarketplacePromotion = z.infer<typeof promotionSchema>;
 export type MarketplaceSellerStatement = z.infer<typeof statementSchema>;
+export type MarketplaceSellerAnalytics = z.infer<typeof analyticsSchema>;
 export type MarketplaceSellerReputation = z.infer<typeof reputationSchema>;
 export type MarketplaceRiskSignal = z.infer<typeof riskSignalSchema>;
 
@@ -774,6 +790,27 @@ export class MarketplaceGatewayService {
     return parsed.data;
   }
 
+  static async getAnalytics(actor: string): Promise<MarketplaceSellerAnalytics> {
+    this.assertSandbox();
+    const url = `${getMarketplaceUrl()}/v1/analytics`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { 'x-pubky-actor': actor } },
+      ErrorService.Marketplace,
+      'getAnalytics',
+    );
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getAnalytics', url);
+    const parsed = analyticsSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid seller analytics.', {
+        service: ErrorService.Marketplace,
+        operation: 'getAnalytics',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
   static async getStatement(actor: string): Promise<MarketplaceSellerStatement> {
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/statements`;
@@ -952,6 +989,13 @@ export class MarketplaceGatewayService {
       throw Err.client(ClientErrorCode.BAD_REQUEST, 'Sandbox marketplace commands are disabled.', {
         service: ErrorService.Marketplace,
         operation: 'assertSandbox',
+      });
+    }
+    if (!isSafeCommerceServiceUrl(getMarketplaceUrl())) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Marketplace URL is not allowed.', {
+        service: ErrorService.Marketplace,
+        operation: 'assertSandbox',
+        context: { scheme: 'blocked' },
       });
     }
   }

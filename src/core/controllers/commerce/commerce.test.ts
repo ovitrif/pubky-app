@@ -3,7 +3,10 @@ import { CommerceApplication } from '@/application/commerce/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MARKETPLACE_GUEST_CART_OWNER } from '@/libs/commerce/guest-cart';
-import { MARKETPLACE_SANDBOX_MODERATOR, MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY } from '@/libs/commerce/sandbox-actors';
+import {
+  MARKETPLACE_SANDBOX_MODERATOR,
+  MARKETPLACE_SANDBOX_OPERATOR_STORAGE_KEY,
+} from '@/libs/commerce/sandbox-actors';
 import {
   COMMERCE_FIXTURE_BUYER,
   COMMERCE_FIXTURE_SELLER,
@@ -218,5 +221,14 @@ describe('CommerceController', () => {
         new File(['<svg/>'], 'unsafe.svg', { type: 'image/svg+xml' }),
       ),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  it('records listing views as the cart owner without requiring a session', async () => {
+    useAuthStore.setState({ currentUserPubky: null });
+    const record = vi.spyOn(CommerceApplication, 'recordMarketplaceListingView').mockResolvedValue(undefined);
+
+    await CommerceController.recordMarketplaceListingView(COMMERCE_FIXTURE_SELLER, 'boots_01');
+
+    expect(record).toHaveBeenCalledWith(MARKETPLACE_GUEST_CART_OWNER, COMMERCE_FIXTURE_SELLER, 'boots_01');
   });
 });

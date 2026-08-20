@@ -60,6 +60,7 @@ import {
   type UnblockBuyerCommand,
   type UnwatchListingCommand,
   type UpdateMarketplaceNotificationPreferencesCommand,
+  type ViewListingCommand,
   type WatchListingCommand,
   type WithdrawOfferCommand,
 } from './contracts';
@@ -167,6 +168,8 @@ export interface MarketplaceVisibleBid {
 
 export type MarketplacePublicListingProjection = MarketplaceListingAggregate & {
   visibleBidHistory: MarketplaceVisibleBid[];
+  viewCount: number;
+  watcherCount: number;
 };
 
 export interface MarketplaceAttachmentMetadata {
@@ -454,6 +457,7 @@ export interface MarketplaceOrder {
   reviews: MarketplaceReview[];
   fulfillment: 'physical' | 'digital' | 'pickup';
   digitalDelivery: MarketplaceDigitalDelivery | null;
+  inventoryState: 'reserved' | 'sold' | 'released';
   createdAt: string;
   updatedAt: string;
 }
@@ -505,6 +509,7 @@ export interface MarketplaceEvent {
     | 'listing.registered'
     | 'listing.watched'
     | 'listing.unwatched'
+    | 'listing.viewed'
     | 'inventory.reserved'
     | 'offer.created'
     | 'offer.created_private'
@@ -569,6 +574,7 @@ export type MarketplaceCommandSuccess = {
   result:
     | { kind: 'listing'; listing: MarketplaceListingAggregate }
     | { kind: 'watch'; listingAggregateId: string; watcherPubky: string; watching: boolean }
+    | { kind: 'view'; listingAggregateId: string; viewCount: number; counted: boolean }
     | { kind: 'reservation'; listing: MarketplaceListingAggregate; reservation: MarketplaceReservation }
     | { kind: 'offer'; offer: MarketplaceOffer }
     | {
@@ -673,6 +679,7 @@ export type MarketplaceRepositorySnapshot = {
   blockedBuyers: Array<{ sellerPubky: string; buyerPubkys: string[] }>;
   riskSignals: MarketplaceRiskSignal[];
   watches: Array<{ listingAggregateId: string; watcherPubkys: string[] }>;
+  views: Array<{ listingAggregateId: string; viewerPubkys: string[] }>;
   ledger: MarketplaceLedgerEntry[];
   commands: Array<{ key: string; stored: StoredCommand }>;
   events: MarketplaceEvent[];
@@ -696,6 +703,7 @@ export class InMemoryMarketplaceRepository {
   private blockedBuyers = new Map<string, Set<string>>();
   private riskSignals = new Map<string, MarketplaceRiskSignal>();
   private watches = new Map<string, Set<string>>();
+  private views = new Map<string, string[]>();
   private enforcements = new Map<string, MarketplaceEnforcement>();
   private ledger: MarketplaceLedgerEntry[] = [];
   private commands = new Map<string, StoredCommand>();
@@ -860,6 +868,20 @@ export class InMemoryMarketplaceRepository {
     this.watches.set(listingAggregateId, current);
   }
 
+  getWatcherCount(listingAggregateId: string): number {
+    return this.watches.get(listingAggregateId)?.size ?? 0;
+  }
+
+  recordView(listingAggregateId: string, viewerPubky: string): void {
+    const current = this.views.get(listingAggregateId) ?? [];
+    current.push(viewerPubky);
+    this.views.set(listingAggregateId, current);
+  }
+
+  getViewCount(listingAggregateId: string): number {
+    return this.views.get(listingAggregateId)?.length ?? 0;
+  }
+
   getReport(id: string): MarketplaceReport | undefined {
     return this.reports.get(id);
   }
@@ -980,6 +1002,10 @@ export class InMemoryMarketplaceRepository {
         listingAggregateId,
         watcherPubkys: [...watcherPubkys],
       })),
+      views: [...this.views.entries()].map(([listingAggregateId, viewerPubkys]) => ({
+        listingAggregateId,
+        viewerPubkys,
+      })),
       ledger: [...this.ledger],
       commands: [...this.commands.entries()].map(([key, stored]) => ({ key, stored })),
       events: [...this.events],
@@ -1049,6 +1075,7 @@ export class InMemoryMarketplaceRepository {
           state: normalizeHydratedOrderState(order.state),
           fulfillment: order.fulfillment ?? 'physical',
           digitalDelivery: order.digitalDelivery ?? null,
+          inventoryState: order.inventoryState ?? inferHydratedInventoryState(order.state),
           returnRequest: order.returnRequest
             ? {
                 ...order.returnRequest,
@@ -1072,6 +1099,9 @@ export class InMemoryMarketplaceRepository {
         listingAggregateId,
         new Set(watcherPubkys),
       ]),
+    );
+    this.views = new Map(
+      (snapshot.views ?? []).map(({ listingAggregateId, viewerPubkys }) => [listingAggregateId, [...viewerPubkys]]),
     );
     this.ledger = [...snapshot.ledger];
     this.commands = new Map(snapshot.commands.map(({ key, stored }) => [key, stored]));
@@ -1109,6 +1139,8 @@ export class MarketplaceTransactionService {
             this.repository.getBidsForListing(listing.aggregateId),
           )
         : [],
+      viewCount: this.repository.getViewCount(listing.aggregateId),
+      watcherCount: this.repository.getWatcherCount(listing.aggregateId),
     };
   }
 
@@ -1402,6 +1434,50 @@ export class MarketplaceTransactionService {
     };
   }
 
+  getSellerAnalytics(actorPubky: string): {
+    sellerPubky: string;
+    views: number;
+    favorites: number;
+    soldQuantity: number;
+    totalQuantity: number;
+    sellThroughPercent: number;
+    conversionPercent: number;
+    paidOrders: number;
+    toShip: number;
+    returnsOpen: number;
+    disputesOpen: number;
+  } {
+    const listings = this.repository.listListings().filter((listing) => listing.sellerPubky === actorPubky);
+    const orders = this.getOrders(actorPubky).filter((order) => order.sellerPubky === actorPubky);
+    const views = listings.reduce((total, listing) => total + this.repository.getViewCount(listing.aggregateId), 0);
+    const favorites = listings.reduce(
+      (total, listing) => total + this.repository.getWatcherCount(listing.aggregateId),
+      0,
+    );
+    const soldQuantity = listings.reduce((total, listing) => total + listing.soldQuantity, 0);
+    const totalQuantity = listings.reduce((total, listing) => total + listing.totalQuantity, 0);
+    const paidOrders = orders.filter((order) =>
+      ['paid', 'processing', 'ready_for_pickup', 'shipped', 'delivered', 'completed'].includes(order.state),
+    ).length;
+    const ratio = (numerator: number, denominator: number) =>
+      denominator > 0 ? Math.round((numerator / denominator) * 1000) / 10 : 0;
+    return {
+      sellerPubky: actorPubky,
+      views,
+      favorites,
+      soldQuantity,
+      totalQuantity,
+      sellThroughPercent: ratio(soldQuantity, totalQuantity),
+      conversionPercent: ratio(paidOrders, views),
+      paidOrders,
+      toShip: orders.filter((order) => ['paid', 'processing'].includes(order.state)).length,
+      returnsOpen: orders.filter((order) =>
+        ['return_requested', 'return_in_transit', 'return_inspection'].includes(order.state),
+      ).length,
+      disputesOpen: orders.filter((order) => order.state === 'disputed').length,
+    };
+  }
+
   async execute(actorInput: unknown, commandInput: unknown): Promise<MarketplaceCommandResult> {
     const actorResult = commercePubkySchema.safeParse(actorInput);
     const commandResult = marketplaceCommandSchema.safeParse(commandInput);
@@ -1446,6 +1522,8 @@ export class MarketplaceTransactionService {
         return this.watchListing(actorPubky, command, true);
       case 'listing.unwatch':
         return this.watchListing(actorPubky, command, false);
+      case 'listing.view':
+        return this.viewListing(actorPubky, command);
       case 'inventory.reserve':
         return this.reserveInventory(actorPubky, command);
       case 'offer.create':
@@ -1643,6 +1721,34 @@ export class MarketplaceTransactionService {
       listingAggregateId: listing.aggregateId,
       watcherPubky: actorPubky,
       watching,
+    });
+  }
+
+  private viewListing(actorPubky: string, command: ViewListingCommand): MarketplaceCommandResult {
+    const listing = this.repository.getListing(command.aggregateId);
+    if (!listing) return failure('NOT_FOUND', 'The listing is not registered.');
+    if (command.expectedRevision !== 0) {
+      return failure('INVALID_COMMAND', 'View commands use expected revision 0.');
+    }
+    const viewCount = this.repository.getViewCount(listing.aggregateId);
+    if (listing.sellerPubky === actorPubky) {
+      return success(command, 1, [], {
+        kind: 'view',
+        listingAggregateId: listing.aggregateId,
+        viewCount,
+        counted: false,
+      });
+    }
+
+    const occurredAt = this.now().toISOString();
+    this.repository.recordView(listing.aggregateId, actorPubky);
+    const event = this.createEvent(actorPubky, command, 1, 'listing.viewed', occurredAt);
+    this.repository.appendEvent(event);
+    return success(command, 1, event.id, {
+      kind: 'view',
+      listingAggregateId: listing.aggregateId,
+      viewCount: viewCount + 1,
+      counted: true,
     });
   }
 
@@ -2652,6 +2758,7 @@ export class MarketplaceTransactionService {
         reviews: [],
         fulfillment,
         digitalDelivery: null,
+        inventoryState: 'reserved',
         createdAt: occurredAt,
         updatedAt: occurredAt,
       };
@@ -2739,12 +2846,41 @@ export class MarketplaceTransactionService {
     let updatedOrder = order;
     let receipt: MarketplaceReceipt | null = null;
     const eventIds = [paymentEvent.id];
+    if (updatedPayment.state === 'expired' && order.state === 'pending_payment') {
+      const released = this.releaseOrderInventory(order, occurredAt, 'reserved');
+      if (!released) return failure('INVARIANT_VIOLATION', 'Expired payment could not release reserved inventory.');
+      updatedOrder = {
+        ...order,
+        revision: order.revision + 1,
+        state: 'cancelled',
+        inventoryState: 'released',
+        cancellationReason: order.cancellationReason ?? 'Sandbox payment expired',
+        updatedAt: occurredAt,
+      };
+      const cancelEvent = this.createEvent(
+        actorPubky,
+        command,
+        updatedOrder.revision,
+        'order.cancelled',
+        occurredAt,
+        `order:${order.id}`,
+      );
+      eventIds.push(cancelEvent.id);
+      this.repository.appendEvent(cancelEvent);
+      this.notify(order.sellerPubky, actorPubky, 'order_cancelled', `order:${order.id}`, occurredAt);
+      this.notify(order.buyerPubky, order.sellerPubky, 'order_cancelled', `order:${order.id}`, occurredAt);
+    }
     if (updatedPayment.state === 'confirmed') {
+      const converted = this.convertReservedInventoryToSold(order, occurredAt);
+      if (!converted) {
+        return failure('INVARIANT_VIOLATION', 'Confirmed payment could not convert reserved inventory to sold.');
+      }
       const receiptId = randomUUID();
       updatedOrder = {
         ...order,
         revision: order.revision + 1,
         state: 'paid',
+        inventoryState: 'sold',
         receiptId,
         updatedAt: occurredAt,
       };
@@ -2825,7 +2961,11 @@ export class MarketplaceTransactionService {
       cancellationReason: command.payload.reason,
       updatedAt: occurredAt,
     };
-    if (immediate) this.releaseOrderInventory(order, occurredAt);
+    if (immediate) {
+      const released = this.releaseOrderInventory(order, occurredAt, 'reserved');
+      if (!released) return failure('INVARIANT_VIOLATION', 'Unpaid cancellation could not release reserved inventory.');
+      updated.inventoryState = 'released';
+    }
     return this.persistOrderAction(
       actorPubky,
       command,
@@ -2844,8 +2984,16 @@ export class MarketplaceTransactionService {
     if (order.sellerPubky !== actorPubky) return failure('UNAUTHORIZED', 'Only the seller may approve cancellation.');
     if (order.state !== 'cancel_requested') return failure('INVALID_STATE', 'No cancellation is pending.');
     const occurredAt = this.now().toISOString();
-    const updated = { ...order, revision: order.revision + 1, state: 'cancelled' as const, updatedAt: occurredAt };
-    this.releaseOrderInventory(order, occurredAt);
+    const source = order.inventoryState === 'sold' ? 'sold' : 'reserved';
+    const released = this.releaseOrderInventory(order, occurredAt, source);
+    if (!released) return failure('INVARIANT_VIOLATION', 'Cancellation could not restore listing inventory.');
+    const updated = {
+      ...order,
+      revision: order.revision + 1,
+      state: 'cancelled' as const,
+      inventoryState: 'released' as const,
+      updatedAt: occurredAt,
+    };
     return this.persistOrderAction(
       actorPubky,
       command,
@@ -3199,10 +3347,16 @@ export class MarketplaceTransactionService {
       return failure('INVALID_STATE', 'The external refund cannot be recorded.');
     }
     const occurredAt = this.now().toISOString();
+    if (order.inventoryState !== 'released') {
+      const source = order.inventoryState === 'sold' ? 'sold' : 'reserved';
+      const released = this.releaseOrderInventory(order, occurredAt, source);
+      if (!released) return failure('INVARIANT_VIOLATION', 'External refund could not restore listing inventory.');
+    }
     const updated: MarketplaceOrder = {
       ...order,
       revision: order.revision + 1,
       state: 'refunded_external',
+      inventoryState: 'released',
       externalRefund: {
         amountMinor: command.payload.amountMinor,
         transactionId: command.payload.transactionId,
@@ -3957,19 +4111,36 @@ export class MarketplaceTransactionService {
     return success(command, order.revision, event.id, { kind: 'order', order });
   }
 
-  private releaseOrderInventory(order: MarketplaceOrder, occurredAt: string): void {
+  private convertReservedInventoryToSold(order: MarketplaceOrder, occurredAt: string): boolean {
+    return this.applyOrderInventoryDelta(order, occurredAt, { reserved: -1, sold: 1 });
+  }
+
+  private releaseOrderInventory(order: MarketplaceOrder, occurredAt: string, source: 'reserved' | 'sold'): boolean {
+    if (order.inventoryState === 'released') return true;
+    return source === 'reserved'
+      ? this.applyOrderInventoryDelta(order, occurredAt, { reserved: -1, available: 1 })
+      : this.applyOrderInventoryDelta(order, occurredAt, { sold: -1, available: 1 });
+  }
+
+  private applyOrderInventoryDelta(
+    order: MarketplaceOrder,
+    occurredAt: string,
+    direction: { available?: number; reserved?: number; sold?: number },
+  ): boolean {
+    const updates: MarketplaceListingAggregate[] = [];
     for (const line of order.lines) {
       const listing = this.repository.getListing(line.listingAggregateId);
-      if (!listing) continue;
-      this.repository.putListing({
-        ...listing,
-        serverRevision: listing.serverRevision + 1,
-        state: 'available',
-        availableQuantity: listing.availableQuantity + line.quantity,
-        reservedQuantity: Math.max(0, listing.reservedQuantity - line.quantity),
-        updatedAt: occurredAt,
+      if (!listing) return false;
+      const next = applyListingQuantityDelta(listing, occurredAt, {
+        available: (direction.available ?? 0) * line.quantity,
+        reserved: (direction.reserved ?? 0) * line.quantity,
+        sold: (direction.sold ?? 0) * line.quantity,
       });
+      if (!next) return false;
+      updates.push(next);
     }
+    for (const listing of updates) this.repository.putListing(listing);
+    return true;
   }
 
   private notify(
@@ -4163,6 +4334,42 @@ function normalizeHydratedOrderState(state: MarketplaceOrder['state'] | 'return_
   if (state === 'return_approved') return 'return_in_transit';
   if (state === 'return_received') return 'return_inspection';
   return state;
+}
+
+function inferHydratedInventoryState(
+  state: MarketplaceOrder['state'] | 'return_approved' | 'return_received',
+): MarketplaceOrder['inventoryState'] {
+  const normalized = normalizeHydratedOrderState(state);
+  if (normalized === 'pending_payment') return 'reserved';
+  if (normalized === 'cancelled' || normalized === 'refunded_external' || normalized === 'closed') return 'released';
+  return 'sold';
+}
+
+function applyListingQuantityDelta(
+  listing: MarketplaceListingAggregate,
+  occurredAt: string,
+  delta: { available: number; reserved: number; sold: number },
+): MarketplaceListingAggregate | null {
+  const availableQuantity = listing.availableQuantity + delta.available;
+  const reservedQuantity = listing.reservedQuantity + delta.reserved;
+  const soldQuantity = listing.soldQuantity + delta.sold;
+  if (availableQuantity < 0 || reservedQuantity < 0 || soldQuantity < 0) return null;
+  if (availableQuantity + reservedQuantity + soldQuantity !== listing.totalQuantity) return null;
+  const state =
+    availableQuantity === 0 && reservedQuantity === 0 && soldQuantity > 0
+      ? 'sold'
+      : availableQuantity === 0 && reservedQuantity > 0
+        ? 'reserved'
+        : 'available';
+  return {
+    ...listing,
+    serverRevision: listing.serverRevision + 1,
+    availableQuantity,
+    reservedQuantity,
+    soldQuantity,
+    state,
+    updatedAt: occurredAt,
+  };
 }
 
 function formatSandboxMoney(amount: MarketplaceListingAggregate['unitPrice']): string {

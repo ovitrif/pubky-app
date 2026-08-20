@@ -149,6 +149,8 @@ export const watchListingCommandSchema = createCommerceCommandSchema('listing.wa
 
 export const unwatchListingCommandSchema = createCommerceCommandSchema('listing.unwatch', z.object({}).strict());
 
+export const viewListingCommandSchema = createCommerceCommandSchema('listing.view', z.object({}).strict());
+
 const offerTermsSchema = z
   .object({
     amount: commercePositiveMoneySchema,
@@ -575,6 +577,7 @@ export const marketplaceCommandSchema = z.union([
   reserveInventoryCommandSchema,
   watchListingCommandSchema,
   unwatchListingCommandSchema,
+  viewListingCommandSchema,
   createOfferCommandSchema,
   createPrivateOfferCommandSchema,
   counterOfferCommandSchema,
@@ -636,6 +639,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'listing',
             'reservation',
             'watch',
+            'view',
             'offer',
             'accepted_offer',
             'bid',
@@ -675,6 +679,7 @@ export type RegisterListingCommand = z.infer<typeof registerListingCommandSchema
 export type ReserveInventoryCommand = z.infer<typeof reserveInventoryCommandSchema>;
 export type WatchListingCommand = z.infer<typeof watchListingCommandSchema>;
 export type UnwatchListingCommand = z.infer<typeof unwatchListingCommandSchema>;
+export type ViewListingCommand = z.infer<typeof viewListingCommandSchema>;
 export type CreateOfferCommand = z.infer<typeof createOfferCommandSchema>;
 export type CreatePrivateOfferCommand = z.infer<typeof createPrivateOfferCommandSchema>;
 export type CounterOfferCommand = z.infer<typeof counterOfferCommandSchema>;

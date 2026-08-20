@@ -8,6 +8,7 @@ const SELLER = 'y'.repeat(52);
 const AGGREGATE_ID = buildMarketplaceListingAggregateId(SELLER, 'boots_01');
 const config = vi.hoisted(() => ({
   mode: 'sandbox' as 'sandbox' | 'unavailable',
+  marketplaceUrl: 'http://localhost:3100',
 }));
 
 vi.mock('@/config/commerce', async () => {
@@ -15,7 +16,7 @@ vi.mock('@/config/commerce', async () => {
   return {
     ...actual,
     getCommerceAdapterMode: () => config.mode,
-    getMarketplaceUrl: () => 'http://localhost:3100',
+    getMarketplaceUrl: () => config.marketplaceUrl,
   };
 });
 
@@ -41,6 +42,7 @@ describe('MarketplaceGatewayService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     config.mode = 'sandbox';
+    config.marketplaceUrl = 'http://localhost:3100';
   });
 
   it('executes a closed sandbox command with the Pubky actor header', async () => {
@@ -67,6 +69,16 @@ describe('MarketplaceGatewayService', () => {
         headers: expect.objectContaining({ 'x-pubky-actor': SELLER }),
       }),
     );
+  });
+
+  it('fails closed when the marketplace URL is a private or metadata target', async () => {
+    config.marketplaceUrl = 'http://169.254.169.254/latest/meta-data';
+
+    await expect(MarketplaceGatewayService.execute(SELLER, command())).rejects.toMatchObject({
+      name: 'AppError',
+      code: 'INVALID_INPUT',
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('fails closed when sandbox mode is not explicit', async () => {

@@ -151,6 +151,26 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getStatement(actorPubky);
   }
 
+  static async getMarketplaceAnalytics(actorPubky: string) {
+    return await MarketplaceGatewayService.getAnalytics(actorPubky);
+  }
+
+  static async recordMarketplaceListingView(actorPubky: string, sellerPubky: string, listingId: string) {
+    try {
+      await MarketplaceGatewayService.execute(actorPubky, {
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+        expectedRevision: 0,
+        issuedAt: new Date().toISOString(),
+        kind: 'listing.view',
+        payload: {},
+      });
+    } catch {
+      // Listing views are best-effort telemetry and must not block the PDP.
+    }
+  }
+
   static async getBlockedBuyers(actorPubky: string) {
     return await MarketplaceGatewayService.getBlockedBuyers(actorPubky);
   }
@@ -453,7 +473,11 @@ export class CommerceApplication {
           payload: { maximumAmount: plan.maximumAmount },
         }),
       );
-      if (!response.ok && response.error.code !== 'REVISION_CONFLICT' && response.error.code !== 'IDEMPOTENCY_CONFLICT') {
+      if (
+        !response.ok &&
+        response.error.code !== 'REVISION_CONFLICT' &&
+        response.error.code !== 'IDEMPOTENCY_CONFLICT'
+      ) {
         return;
       }
     }

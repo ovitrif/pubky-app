@@ -314,6 +314,17 @@ export function createMarketplaceHttpServer({
         return;
       }
 
+      if (request.method === 'GET' && request.url === '/v1/analytics') {
+        const actor = request.headers['x-pubky-actor'];
+        const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);
+        if (!actorResult.success) {
+          writeJson(response, 401, { error: { code: 'UNAUTHORIZED', message: 'Analytics actor is required.' } }, mode);
+          return;
+        }
+        writeJson(response, 200, service.getSellerAnalytics(actorResult.data), mode);
+        return;
+      }
+
       if (request.method === 'GET' && request.url === '/v1/statements') {
         const actor = request.headers['x-pubky-actor'];
         const actorResult = commercePubkySchema.safeParse(Array.isArray(actor) ? null : actor);

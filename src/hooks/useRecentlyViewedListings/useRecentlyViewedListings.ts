@@ -29,5 +29,6 @@ export function useRecentlyViewedListings(): CommerceListingModelSchema[] {
 export function useRecordRecentlyViewedListing(sellerPubky: string, listingId: string): void {
   useEffect(() => {
     recordRecentlyViewedListing(window.sessionStorage, { sellerPubky, listingId });
+    void CommerceController.recordMarketplaceListingView(sellerPubky, listingId);
   }, [listingId, sellerPubky]);
 }

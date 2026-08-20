@@ -65,10 +65,7 @@ export class CommerceController {
 
   static async executeMarketplaceCommand(input: unknown) {
     const command = CommerceRecordNormalizer.marketplaceCommand(input);
-    return await CommerceApplication.executeMarketplaceCommand(
-      this.getMarketplaceCommandActor(command.kind),
-      command,
-    );
+    return await CommerceApplication.executeMarketplaceCommand(this.getMarketplaceCommandActor(command.kind), command);
   }
 
   static async getMarketplaceListingProjection(ownerPubky: unknown, listingId: unknown) {
@@ -132,6 +129,16 @@ export class CommerceController {
 
   static async getMarketplaceStatement() {
     return await CommerceApplication.getMarketplaceStatement(this.getCurrentUserPubky());
+  }
+
+  static async getMarketplaceAnalytics() {
+    return await CommerceApplication.getMarketplaceAnalytics(this.getCurrentUserPubky());
+  }
+
+  static async recordMarketplaceListingView(sellerPubky: unknown, listingId: unknown) {
+    const seller = CommerceRecordNormalizer.pubky(sellerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    await CommerceApplication.recordMarketplaceListingView(this.getCartOwnerPubky(), seller, id);
   }
 
   static async getBlockedBuyers() {

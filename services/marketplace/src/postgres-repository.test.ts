@@ -110,9 +110,15 @@ describe.skipIf(!available)('Postgres marketplace repository', () => {
     const second = await PostgresMarketplaceRepository.connect(DATABASE_URL);
     const secondService = new MarketplaceTransactionService(second, () => NOW);
     const listing = secondService.getListingProjection(buildMarketplaceListingAggregateId(SELLER, 'boots_01'));
-    expect(listing).toMatchObject({ availableQuantity: 1, reservedQuantity: 1 });
+    expect(listing).toMatchObject({
+      availableQuantity: 1,
+      reservedQuantity: 0,
+      soldQuantity: 1,
+      viewCount: 0,
+      watcherCount: 0,
+    });
     const orders = secondService.getOrders(BUYER);
-    expect(orders[0]).toMatchObject({ state: 'paid' });
+    expect(orders[0]).toMatchObject({ state: 'paid', inventoryState: 'sold' });
     const ledger = secondService.getLedger(BUYER, orders[0]?.id);
     const debit = ledger
       .filter(({ direction }) => direction === 'debit')

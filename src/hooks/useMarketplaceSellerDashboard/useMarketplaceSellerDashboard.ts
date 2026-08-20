@@ -8,7 +8,11 @@ import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplac
 import { exportMarketplaceInventoryCsv, parseMarketplaceInventoryCsv } from '@/libs/commerce/inventory-csv';
 import { buildMarketplacePromotionAggregateId } from '@/libs/commerce/transaction-commands';
 import { toast } from '@/molecules/Toaster/use-toast';
-import type { MarketplacePromotion, MarketplaceSellerStatement } from '@/services/marketplace/marketplace';
+import type {
+  MarketplacePromotion,
+  MarketplaceSellerAnalytics,
+  MarketplaceSellerStatement,
+} from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function useMarketplaceSellerDashboard() {
@@ -30,22 +34,34 @@ export function useMarketplaceSellerDashboard() {
     .reduce((total, { order }) => total + order.total.amountMinor, 0);
   const [promotions, setPromotions] = useState<MarketplacePromotion[]>([]);
   const [statement, setStatement] = useState<MarketplaceSellerStatement | null>(null);
+  const [analytics, setAnalytics] = useState<MarketplaceSellerAnalytics | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [percentOff, setPercentOff] = useState('10');
+  const toShip = sellerOrders.filter(({ order }) => ['paid', 'processing'].includes(order.state)).length;
+  const returnsOpen = sellerOrders.filter(({ order }) =>
+    ['return_requested', 'return_in_transit', 'return_inspection'].includes(order.state),
+  ).length;
+  const disputesOpen = sellerOrders.filter(({ order }) => order.state === 'disputed').length;
 
   useEffect(() => {
     if (!currentUserPubky) return;
     let active = true;
-    Promise.all([CommerceController.getMarketplacePromotions(), CommerceController.getMarketplaceStatement()])
-      .then(([nextPromotions, nextStatement]) => {
+    Promise.all([
+      CommerceController.getMarketplacePromotions(),
+      CommerceController.getMarketplaceStatement(),
+      CommerceController.getMarketplaceAnalytics(),
+    ])
+      .then(([nextPromotions, nextStatement, nextAnalytics]) => {
         if (!active) return;
         setPromotions(nextPromotions);
         setStatement(nextStatement);
+        setAnalytics(nextAnalytics);
       })
       .catch(() => {
         if (!active) return;
         setPromotions([]);
         setStatement(null);
+        setAnalytics(null);
       });
     return () => {
       active = false;
@@ -55,15 +71,18 @@ export function useMarketplaceSellerDashboard() {
   const refreshFinance = async () => {
     if (!currentUserPubky) return;
     try {
-      const [nextPromotions, nextStatement] = await Promise.all([
+      const [nextPromotions, nextStatement, nextAnalytics] = await Promise.all([
         CommerceController.getMarketplacePromotions(),
         CommerceController.getMarketplaceStatement(),
+        CommerceController.getMarketplaceAnalytics(),
       ]);
       setPromotions(nextPromotions);
       setStatement(nextStatement);
+      setAnalytics(nextAnalytics);
     } catch {
       setPromotions([]);
       setStatement(null);
+      setAnalytics(null);
     }
   };
 
@@ -199,6 +218,7 @@ export function useMarketplaceSellerDashboard() {
     offers: offers.offers.filter(({ sellerPubky }) => sellerPubky === currentUserPubky),
     promotions,
     statement,
+    analytics,
     couponCode,
     percentOff,
     setCouponCode,
@@ -215,6 +235,13 @@ export function useMarketplaceSellerDashboard() {
       openOffers: offers.offers.filter(
         ({ sellerPubky, state }) => sellerPubky === currentUserPubky && (state === 'pending' || state === 'countered'),
       ).length,
+      views: analytics?.views ?? 0,
+      favorites: analytics?.favorites ?? 0,
+      conversionPercent: analytics?.conversionPercent ?? 0,
+      sellThroughPercent: analytics?.sellThroughPercent ?? 0,
+      toShip: analytics?.toShip ?? toShip,
+      returnsOpen: analytics?.returnsOpen ?? returnsOpen,
+      disputesOpen: analytics?.disputesOpen ?? disputesOpen,
     },
     updateListingState,
     duplicateListing,

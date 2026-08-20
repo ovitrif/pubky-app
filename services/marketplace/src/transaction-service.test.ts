@@ -896,6 +896,99 @@ describe('MarketplaceTransactionService', () => {
     expect(service.getReceipt(OTHER_BUYER, confirmed.result.receipt.id)).toBeNull();
     expect(service.getNotifications(SELLER).map(({ type }) => type)).toContain('payment_confirmed');
     expect(service.getNotifications(BUYER).map(({ type }) => type)).toContain('payment_confirmed');
+    expect(service.getListingProjection(AGGREGATE_ID)).toMatchObject({
+      state: 'sold',
+      availableQuantity: 0,
+      reservedQuantity: 0,
+      soldQuantity: 1,
+      serverRevision: 3,
+    });
+  });
+
+  it('expires an unpaid sandbox payment, cancels the order, and releases reserved inventory', async () => {
+    const { repository, service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const checkout = await service.execute(BUYER, checkoutCommand());
+    if (!checkout.ok || checkout.result.kind !== 'checkout') return;
+    const payment = checkout.result.payments[0];
+
+    await expect(service.execute(BUYER, paymentCommand(payment.id, 1, 'expired', 0, 1_003))).resolves.toMatchObject({
+      ok: true,
+      result: {
+        kind: 'payment',
+        payment: { state: 'expired' },
+        order: { state: 'cancelled', inventoryState: 'released' },
+      },
+    });
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      state: 'available',
+      availableQuantity: 1,
+      reservedQuantity: 0,
+      soldQuantity: 0,
+    });
+  });
+
+  it('restocks sold inventory once after a paid cancellation', async () => {
+    const { repository, service } = createService();
+    const order = await createPaidOrder(service);
+
+    await expect(
+      service.execute(BUYER, orderCommand('order.cancel_request', order.id, 2, { reason: 'Need to cancel' }, 1_060)),
+    ).resolves.toMatchObject({ ok: true, result: { order: { state: 'cancel_requested' } } });
+    await expect(
+      service.execute(SELLER, orderCommand('order.cancel_approve', order.id, 3, {}, 1_061)),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { order: { state: 'cancelled', inventoryState: 'released' } },
+    });
+    expect(repository.getListing(AGGREGATE_ID)).toMatchObject({
+      state: 'available',
+      availableQuantity: 1,
+      reservedQuantity: 0,
+      soldQuantity: 0,
+    });
+  });
+
+  it('records listing views without advancing inventory revision and exposes seller analytics', async () => {
+    const { service } = createService();
+    await service.execute(SELLER, registerCommand());
+    const viewed = await service.execute(BUYER, {
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000000110',
+      aggregateId: AGGREGATE_ID,
+      expectedRevision: 0,
+      issuedAt: NOW.toISOString(),
+      kind: 'listing.view',
+      payload: {},
+    });
+
+    expect(viewed).toMatchObject({
+      ok: true,
+      result: { kind: 'view', counted: true, viewCount: 1 },
+    });
+    expect(service.getListingProjection(AGGREGATE_ID)).toMatchObject({
+      serverRevision: 1,
+      viewCount: 1,
+      watcherCount: 0,
+    });
+    expect(service.getSellerAnalytics(SELLER)).toMatchObject({
+      views: 1,
+      favorites: 0,
+      soldQuantity: 0,
+      totalQuantity: 1,
+      sellThroughPercent: 0,
+      conversionPercent: 0,
+      paidOrders: 0,
+    });
+
+    const paid = await createPaidOrder(service);
+    expect(paid.inventoryState).toBe('sold');
+    expect(service.getSellerAnalytics(SELLER)).toMatchObject({
+      soldQuantity: 1,
+      sellThroughPercent: 100,
+      paidOrders: 1,
+      conversionPercent: 100,
+    });
   });
 
   it('rejects duplicate checkout lines, stale stock, self-purchase, and invalid payment transitions', async () => {
