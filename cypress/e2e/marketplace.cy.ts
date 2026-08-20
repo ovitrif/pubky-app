@@ -97,7 +97,7 @@ describe('marketplace', () => {
     cy.visit(`/marketplace/listing/${seller}/leather_boots`);
     cy.contains('h1', 'Vintage leather boots').should('be.visible');
     cy.contains('4 available').should('be.visible');
-    cy.contains('button', 'Increase Vintage leather boots quantity').click();
+    cy.get('button[aria-label="Increase Vintage leather boots quantity"]').click();
     cy.contains('button', 'Add to cart').click();
     cy.contains('Added to cart').should('be.visible');
     cy.visit('/marketplace/cart');
