@@ -437,7 +437,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T9 — Documentation and demonstrations `[ ]`
 
 - [~] Document local sandbox, real Docker topology, runtime configuration, wallet approval, operational limitations, recovery, and threat model. — plan, ADRs, upstream, threat model, service README
-- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, staff consoles, seller dashboard/listing form (not published), trail-runners $80 offer then withdraw, watcher-only coat $65 offer, unique-open-offer reject plus single boots card, incoming jazz $38 accept to a $54 pending-payment order, offer-origin address confirm, and boots $110→$105 counter; live Bitkit missing
+- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, staff consoles, seller dashboard/listing form (not published), trail-runners $80 offer then withdraw, watcher-only coat $65 offer, unique-open-offer reject plus single boots card, incoming jazz $38 accept to a $54 pending-payment order, offer-origin address confirm, boots $110→$105 counter, and keyboard $140 decline; live Bitkit missing
 - [ ] Review every video and retain only successful, minimal demonstrations.
 
 ## Verification loop
