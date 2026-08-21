@@ -39,7 +39,16 @@ PAYKIT_MASTER_KEY=<32-byte-base64url> \
 
 Verified locally: Lock Server `GET /healthz` → `{"status":"ok"}` and `GET /readyz` → persisted worker ready. Paykit Server `GET /health/live` → live and `GET /health/ready` → postgres / electrum adapter / paykit_delivery / outbox ready. `GET /setup` with an exact allowed `return_to` origin renders a Paykit auth URL and does not embed an xpub.
 
-This is not Bitkit companion approval. Mainline DHT bootstrap fails without `pubky-testnet`. There is no live Electrum/Bitcoin chain. The marketplace app still defaults to `npm run locks:sandbox` on `:3101` / `:3102`. Point `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit` at these processes only after Lock Server creator-authority and Bitkit setup succeed.
+A native `pubky-testnet` (homeserver 0.11.0) also boots without Docker:
+
+```bash
+TEST_PUBKY_CONNECTION_STRING='postgres://marketplace:marketplace@127.0.0.1:5432/postgres?pubky-test=true' \
+  pubky-testnet
+```
+
+It owns DHT `:6881`, Pkarr `:15411`, HTTP relay `:15412`, homeserver ICANN `:6286`, and admin `:6288`. Start it before `locks-server` so Mainline can bootstrap. After that order, Lock Server no longer logs routing-table bootstrap failures.
+
+This is not Bitkit companion approval. There is no live Electrum/Bitcoin chain. The marketplace app still defaults to `npm run locks:sandbox` on `:3101` / `:3102`. Point `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit` at these processes only after Lock Server creator-authority and Bitkit setup succeed.
 
 ## Docker / companion topology
 
