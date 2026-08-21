@@ -28,7 +28,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
 - [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, support/finance/risk role split, HMAC-signed Locks payment callbacks with a 5-minute replay window, staff step-up tokens, 100-way checkout/bid/close/payment concurrency, enforced Next nonce CSP, DNS rebinding, restore drill; native companion-auth invoice recorded; live Bitkit remains
-- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in checkout, digital-delivery clicks, and operator-moderation videos recorded without the phrase; support/finance/risk Cypress coverage added; live Bitkit motion remains
+- [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in checkout, digital-delivery, operator-moderation, and seller dashboard/listing-form videos recorded without the phrase; live Bitkit motion remains
 
 ### Delivery slices
 
@@ -437,7 +437,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T9 — Documentation and demonstrations `[ ]`
 
 - [~] Document local sandbox, real Docker topology, runtime configuration, wallet approval, operational limitations, recovery, and threat model. — plan, ADRs, upstream, threat model, service README
-- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, and support/finance/risk consoles; live Bitkit missing
+- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, staff consoles, and seller dashboard/listing form (not published); live Bitkit missing
 - [ ] Review every video and retain only successful, minimal demonstrations.
 
 ## Verification loop
