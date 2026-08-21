@@ -8,7 +8,7 @@ import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
-import { getMarketplaceSandboxStaffRole, isMarketplaceSandboxOperator } from '@/libs/commerce/sandbox-operator';
+import { isMarketplaceSandboxOperator, setMarketplaceSandboxStaffRole } from '@/libs/commerce/sandbox-operator';
 import { printMarketplaceReverseLabel } from '@/libs/commerce/shipping-label';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -33,10 +33,11 @@ export function MarketplaceOrderActions({
   const replyableReview = order.reviews?.find(({ subjectPubky, reply }) => subjectPubky === viewerPubky && !reply);
 
   useEffect(() => {
-    setCanResolveDispute(isMarketplaceSandboxOperator() && getMarketplaceSandboxStaffRole() === 'moderator');
+    setCanResolveDispute(isMarketplaceSandboxOperator());
   }, []);
 
   const begin = (next: MarketplaceOrderActionData['action']) => {
+    if (next === 'dispute_resolve') setMarketplaceSandboxStaffRole('moderator');
     action.setAction(next);
     setOpen(true);
   };
