@@ -9,7 +9,7 @@ import {
 } from './sandbox-actors';
 
 const STAFF_COMMANDS: Record<MarketplaceSandboxStaffRole, readonly string[]> = {
-  moderator: ['trust.assign', 'trust.decide', 'trust.reverse', 'trust.flag_risk'],
+  moderator: ['trust.assign', 'trust.decide', 'trust.reverse', 'trust.flag_risk', 'dispute.resolve'],
   support: ['support.note'],
   risk: ['trust.flag_risk', 'risk.hold', 'risk.release'],
   finance: ['inventory.reconcile_paid', 'refund.record_external'],

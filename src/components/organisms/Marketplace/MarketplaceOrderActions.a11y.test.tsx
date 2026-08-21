@@ -6,6 +6,11 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { MarketplaceOrderActions } from './MarketplaceOrderActions';
 
+vi.mock('@/libs/commerce/sandbox-operator', () => ({
+  isMarketplaceSandboxOperator: () => true,
+  getMarketplaceSandboxStaffRole: () => 'moderator',
+}));
+
 const order = asOpaque<MarketplaceOrder>({
   id: '43a8f872-ce9b-4481-82e2-a7abef0c9ac7',
   buyerPubky: 'b'.repeat(52),
@@ -47,6 +52,32 @@ describe('MarketplaceOrderActions accessibility', () => {
     render(<MarketplaceOrderActions order={pending} isBuyer actOnOrder={vi.fn(async () => true)} />);
     await userEvent.click(screen.getByRole('button', { name: 'Confirm delivery address' }));
     expect(await screen.findByRole('dialog', { name: 'Confirm delivery address' })).toBeTruthy();
+    const results = await axe.run(document.body, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
+    });
+    const blocking = results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''));
+    expect(blocking).toEqual([]);
+  });
+
+  it('has no serious or critical automated violations on the resolve-dispute dialog', async () => {
+    const disputed = asOpaque<MarketplaceOrder>({
+      ...order,
+      state: 'disputed',
+      shipment: undefined,
+      dispute: {
+        state: 'open',
+        openedBy: 'b'.repeat(52),
+        reason: 'Digital file still will not open after return request.',
+        requestedRemedy: 'refund',
+        resolution: null,
+        rationale: null,
+        openedAt: '2026-08-21T02:33:49.162Z',
+        resolvedAt: null,
+      },
+    });
+    render(<MarketplaceOrderActions order={disputed} isBuyer actOnOrder={vi.fn(async () => true)} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Resolve dispute' }));
+    expect(await screen.findByRole('dialog', { name: 'Resolve this dispute' })).toBeTruthy();
     const results = await axe.run(document.body, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
     });

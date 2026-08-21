@@ -8,6 +8,7 @@ import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
+import { getMarketplaceSandboxStaffRole, isMarketplaceSandboxOperator } from '@/libs/commerce/sandbox-operator';
 import { printMarketplaceReverseLabel } from '@/libs/commerce/shipping-label';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -187,6 +188,13 @@ export function MarketplaceOrderActions({
               Open dispute
             </Button>
           )}
+        {isMarketplaceSandboxOperator() &&
+          getMarketplaceSandboxStaffRole() === 'moderator' &&
+          order.dispute?.state === 'open' && (
+            <Button size="sm" className="rounded-full" onClick={() => begin('dispute_resolve')}>
+              Resolve dispute
+            </Button>
+          )}
         {['delivered', 'completed'].includes(order.state) &&
           !order.reviews?.some(({ reviewerPubky }) =>
             isBuyer ? reviewerPubky === order.buyerPubky : reviewerPubky === order.sellerPubky,
@@ -273,6 +281,36 @@ export function MarketplaceOrderActions({
               placeholder="Describe what happened"
             />
           )}
+          {actionType === 'dispute_resolve' && (
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor="disputeResolution">Resolution</Label>
+                <Controller
+                  name="disputeResolution"
+                  control={action.form.control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="disputeResolution">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="buyer_refund">Buyer refund</SelectItem>
+                        <SelectItem value="partial_refund">Partial refund</SelectItem>
+                        <SelectItem value="seller_favor">Seller favor</SelectItem>
+                        <SelectItem value="replacement">Replacement</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              <ControlledTextareaField
+                name="reason"
+                control={action.form.control}
+                label="Rationale"
+                placeholder="Explain the decision"
+              />
+            </>
+          )}
           {['ship', 'return_ship'].includes(actionType) && (
             <>
               <ControlledInputField name="carrier" control={action.form.control} label="Carrier" />
@@ -358,6 +396,8 @@ function actionTitle(action: MarketplaceOrderActionData['action']): string {
       return 'Record external refund';
     case 'dispute':
       return 'Open a dispute';
+    case 'dispute_resolve':
+      return 'Resolve this dispute';
     case 'review':
       return 'Leave a review';
     case 'review_edit':

@@ -118,6 +118,15 @@ export function MarketplaceOrders() {
                             : ''}
                         </Typography>
                       )}
+                      {order.dispute && (
+                        <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                          Dispute {order.dispute.state}: {order.dispute.reason}
+                          {order.dispute.resolution
+                            ? ` · ${order.dispute.resolution.replaceAll('_', ' ')}`
+                            : ` · Remedy ${order.dispute.requestedRemedy.replaceAll('_', ' ')}`}
+                          {order.dispute.rationale ? ` · ${order.dispute.rationale}` : ''}
+                        </Typography>
+                      )}
                       {order.returnRequest && (
                         <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                           Return {order.returnRequest.state}: {order.returnRequest.reason}

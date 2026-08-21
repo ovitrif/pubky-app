@@ -12,6 +12,7 @@ export const marketplaceOrderActionSchema = z
       'partial',
       'refund',
       'dispute',
+      'dispute_resolve',
       'review',
       'review_edit',
       'review_reply',
@@ -40,10 +41,14 @@ export const marketplaceOrderActionSchema = z
     reviewId: z.string().trim(),
     mediaHashes: z.string().trim(),
     requestedRemedy: z.enum(['refund', 'partial_refund', 'replacement', 'other']),
+    disputeResolution: z.enum(['buyer_refund', 'partial_refund', 'seller_favor', 'replacement']),
   })
   .superRefine((data, context) => {
     if (['cancel', 'return', 'dispute', 'exception'].includes(data.action) && !data.reason) {
       context.addIssue({ code: 'custom', path: ['reason'], message: 'Reason is required.' });
+    }
+    if (data.action === 'dispute_resolve' && !data.reason) {
+      context.addIssue({ code: 'custom', path: ['reason'], message: 'Rationale is required.' });
     }
     if (['ship', 'return_ship'].includes(data.action) && (!data.carrier || !data.trackingNumber)) {
       context.addIssue({ code: 'custom', path: ['trackingNumber'], message: 'Carrier and tracking are required.' });
@@ -107,6 +112,7 @@ export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   reviewId: '',
   mediaHashes: '',
   requestedRemedy: 'refund',
+  disputeResolution: 'buyer_refund',
   exceptionCode: 'delayed',
   name: '',
   line1: '',

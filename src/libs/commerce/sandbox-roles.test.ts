@@ -40,6 +40,8 @@ describe('sandbox staff roles', () => {
     expect(actorMayExecuteStaffKind(MARKETPLACE_SANDBOX_RISK, 'trust.decide')).toBe(false);
     expect(actorMayExecuteStaffKind(MARKETPLACE_SANDBOX_RISK, 'risk.hold')).toBe(true);
     expect(actorMayExecuteStaffKind(MARKETPLACE_SANDBOX_MODERATOR, 'trust.decide')).toBe(true);
+    expect(actorMayExecuteStaffKind(MARKETPLACE_SANDBOX_MODERATOR, 'dispute.resolve')).toBe(true);
+    expect(actorMayExecuteStaffKind(MARKETPLACE_SANDBOX_FINANCE, 'dispute.resolve')).toBe(false);
     expect(actorMayExecuteStaffKind(MARKETPLACE_SANDBOX_MODERATOR, 'inventory.reconcile_paid')).toBe(false);
   });
 });

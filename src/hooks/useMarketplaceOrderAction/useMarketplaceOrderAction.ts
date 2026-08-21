@@ -76,6 +76,12 @@ export function useMarketplaceOrderAction(
             requestedRemedy: data.requestedRemedy,
           });
           break;
+        case 'dispute_resolve':
+          succeeded = await actOnOrder(order, 'dispute.resolve', {
+            resolution: data.disputeResolution,
+            rationale: data.reason,
+          });
+          break;
         case 'review':
           succeeded = await actOnOrder(order, 'review.create', {
             rating: Number(data.rating),
