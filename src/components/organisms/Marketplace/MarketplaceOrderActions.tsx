@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/atoms/Dialog/Dialog';
@@ -25,11 +25,16 @@ export function MarketplaceOrderActions({
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
+  const [canResolveDispute, setCanResolveDispute] = useState(false);
   const action = useMarketplaceOrderAction(order, actOnOrder);
   const actionType = useWatch({ control: action.form.control, name: 'action' });
   const viewerPubky = isBuyer ? order.buyerPubky : order.sellerPubky;
   const ownReview = order.reviews?.find(({ reviewerPubky }) => reviewerPubky === viewerPubky);
   const replyableReview = order.reviews?.find(({ subjectPubky, reply }) => subjectPubky === viewerPubky && !reply);
+
+  useEffect(() => {
+    setCanResolveDispute(isMarketplaceSandboxOperator() && getMarketplaceSandboxStaffRole() === 'moderator');
+  }, []);
 
   const begin = (next: MarketplaceOrderActionData['action']) => {
     action.setAction(next);
@@ -188,13 +193,11 @@ export function MarketplaceOrderActions({
               Open dispute
             </Button>
           )}
-        {isMarketplaceSandboxOperator() &&
-          getMarketplaceSandboxStaffRole() === 'moderator' &&
-          order.dispute?.state === 'open' && (
-            <Button size="sm" className="rounded-full" onClick={() => begin('dispute_resolve')}>
-              Resolve dispute
-            </Button>
-          )}
+        {canResolveDispute && order.dispute?.state === 'open' && (
+          <Button size="sm" className="rounded-full" onClick={() => begin('dispute_resolve')}>
+            Resolve dispute
+          </Button>
+        )}
         {['delivered', 'completed'].includes(order.state) &&
           !order.reviews?.some(({ reviewerPubky }) =>
             isBuyer ? reviewerPubky === order.buyerPubky : reviewerPubky === order.sellerPubky,
