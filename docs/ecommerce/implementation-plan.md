@@ -265,7 +265,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 ### Accessibility, responsiveness, and local-first behavior
 
-- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, trust indicators, staff chrome, empty cart, shipped-order actions, and confirm-address dialog axe suites; marketplace muted token AA on cards; signed-in manual review still needed
+- [~] Keyboard navigation, visible focus, semantic labels, dialog focus management, status announcements, and contrast pass automated checks plus manual review. — listing form, catalog filters, guarantee terms, trust indicators, staff chrome, empty cart, shipped-order actions, and confirm-address dialog axe suites; marketplace muted token AA on cards; signed-in trail-runners Tab review of quantity −/+, Add to cart, Make offer, and offer-dialog Escape; catalog/orders still need tighter review
 - [~] Core journeys work at 390×844 and desktop widths without hidden actions or horizontal overflow. — responsive templates + catalog VRT; Add to cart / Make offer sit next to quantity above the fold on a 390×844 listing
 - [x] Public reads, drafts, social actions, and unsent messages work locally first and show pending/synced/failed status.
 - [x] Buy, bid, offer acceptance, payment, refund, release, and payout actions require online server-authoritative confirmation and never claim local-only success.
@@ -437,7 +437,7 @@ Runtime configuration will include service URLs, adapter mode, polling/backoff l
 ### T9 — Documentation and demonstrations `[ ]`
 
 - [~] Document local sandbox, real Docker topology, runtime configuration, wallet approval, operational limitations, recovery, and threat model. — plan, ADRs, upstream, threat model, service README
-- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, staff consoles, seller dashboard/listing form (not published), trail-runners $80 offer then withdraw, watcher-only coat $65 offer, unique-open-offer reject plus single boots card, incoming jazz $38 accept to a $54 pending-payment order, offer-origin address confirm, boots $110→$105 counter, keyboard $140 decline, pattern-pack return → dispute, and jazz $54 pay → ship → confirm → 5/5 review; live Bitkit missing
+- [~] Record buyer, seller, auction, Paykit/Locks, fulfillment, dispute/moderation, and responsive/accessibility videos. — guest catalog plus signed-in checkout/confirm, digital Open/Refresh, operator assign/dismiss, staff consoles, seller dashboard/listing form (not published), trail-runners $80 offer then withdraw, watcher-only coat $65 offer, unique-open-offer reject plus single boots card, incoming jazz $38 accept to a $54 pending-payment order, offer-origin address confirm, boots $110→$105 counter, keyboard $140 decline, pattern-pack return → dispute, jazz $54 pay → ship → confirm → 5/5 review, and trail-runners listing keyboard focus plus offer-dialog Escape; live Bitkit missing
 - [ ] Review every video and retain only successful, minimal demonstrations.
 
 ## Verification loop
