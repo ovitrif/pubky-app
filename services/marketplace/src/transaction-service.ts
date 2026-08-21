@@ -2040,6 +2040,8 @@ export class MarketplaceTransactionService {
     if (listing.offersOpenTo === 'watchers' && !this.repository.isWatching(listing.aggregateId, actorPubky)) {
       return failure('UNAUTHORIZED', 'Only watchers can make an offer on this listing.');
     }
+    const openOffer = this.rejectIfOpenOffer(listing.aggregateId, actorPubky);
+    if (openOffer) return openOffer;
 
     const now = this.now();
     const occurredAt = now.toISOString();
@@ -2115,6 +2117,8 @@ export class MarketplaceTransactionService {
     if (!sameAsset(listing.unitPrice, command.payload.amount)) {
       return failure('INVALID_COMMAND', 'Offer amount must use the listing asset and exponent.');
     }
+    const openOffer = this.rejectIfOpenOffer(listing.aggregateId, command.payload.recipientPubky);
+    if (openOffer) return openOffer;
 
     const now = this.now();
     const occurredAt = now.toISOString();
@@ -2212,6 +2216,8 @@ export class MarketplaceTransactionService {
     if (unpaidWinner) {
       return failure('UNAUTHORIZED', 'The unpaid winner is not eligible for a second-chance offer.');
     }
+    const openOffer = this.rejectIfOpenOffer(listing.aggregateId, command.payload.recipientPubky);
+    if (openOffer) return openOffer;
 
     const now = this.now();
     const occurredAt = now.toISOString();
@@ -4697,6 +4703,19 @@ export class MarketplaceTransactionService {
       return { ok: false, failure: failure('UNAUTHORIZED', 'Only offer participants may share this offer card.') };
     }
     return { ok: true, card: offerCard(listing, offer) };
+  }
+
+  private rejectIfOpenOffer(listingAggregateId: string, buyerPubky: string): MarketplaceCommandFailure | null {
+    const nowMs = this.now().getTime();
+    const open = this.repository
+      .getOffersForListing(listingAggregateId)
+      .some(
+        (offer) =>
+          offer.buyerPubky === buyerPubky &&
+          (offer.state === 'pending' || offer.state === 'countered') &&
+          Date.parse(offer.expiresAt) > nowMs,
+      );
+    return open ? failure('INVALID_STATE', 'An open offer already exists for this listing.') : null;
   }
 
   private recordConversationSystemEvent(

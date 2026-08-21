@@ -2088,6 +2088,78 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 
+  it('rejects a second open offer from the same buyer until it is withdrawn or expired', async () => {
+    let now = new Date(NOW);
+    const service = new MarketplaceTransactionService(new InMemoryMarketplaceRepository(), () => new Date(now));
+    await service.execute(SELLER, registerCommand());
+    await service.execute(BUYER, createOfferCommand());
+
+    await expect(
+      service.execute(BUYER, {
+        ...createOfferCommand(),
+        commandId: '00000000-0000-4000-8000-000000000520',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'An open offer already exists for this listing.' },
+    });
+    await expect(
+      service.execute(SELLER, {
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000000521',
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 1,
+        issuedAt: NOW.toISOString(),
+        kind: 'offer.create_private',
+        payload: {
+          recipientPubky: BUYER,
+          amount: { amountMinor: 9_000, currency: 'USD', exponent: 2 },
+          quantity: 1,
+          expiresInSeconds: 3_600,
+          message: 'Private price for you.',
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'An open offer already exists for this listing.' },
+    });
+    await expect(
+      service.execute(OTHER_BUYER, {
+        ...createOfferCommand(),
+        commandId: '00000000-0000-4000-8000-000000000522',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { buyerPubky: OTHER_BUYER, state: 'pending' } },
+    });
+
+    await service.execute(BUYER, offerAction('offer.withdraw', 1, '00000000-0000-4000-8000-000000000523'));
+    await expect(
+      service.execute(BUYER, {
+        ...createOfferCommand(),
+        commandId: '00000000-0000-4000-8000-000000000524',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { state: 'pending', buyerPubky: BUYER } },
+    });
+
+    now = new Date(NOW.getTime() + 3_601_000);
+    await expect(
+      service.execute(BUYER, {
+        ...createOfferCommand(),
+        commandId: '00000000-0000-4000-8000-000000000525',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { kind: 'offer', offer: { state: 'pending', buyerPubky: BUYER } },
+    });
+    const nowMs = now.getTime();
+    expect(
+      service.getOffers(BUYER).filter((offer) => offer.state === 'pending' && Date.parse(offer.expiresAt) > nowMs),
+    ).toHaveLength(1);
+  });
+
   it('rejects seller self-watches and flags increment-only bids that never take the lead', async () => {
     const { service } = createService();
     await service.execute(SELLER, registerAuctionCommand());

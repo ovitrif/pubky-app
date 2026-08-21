@@ -154,7 +154,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 
 - [x] Buyer and seller can open a listing-scoped conversation.
 - [x] Conversations support text, listing cards, offer cards, system events, unread state, report/block, and retry after send failure. — share listing/offer cards; offer lifecycle and block append system events
-- [x] Buyers can make, withdraw, accept, reject, and counter offers. — acceptance creates a pending-payment order; the buyer confirms delivery address before shipping
+- [x] Buyers can make, withdraw, accept, reject, and counter offers. — acceptance creates a pending-payment order; the buyer confirms delivery address before shipping; one unexpired open offer per listing and buyer
 - [x] Sellers can send private offers to watchers and second-chance offers to unsold-auction bidders at or below each bidder's proxy maximum.
 - [x] Dedicated watcher-only offer listings reject cart/checkout and require `listing.watch` before `offer.create`.
 - [x] Offer expiry, currency, quantity, inventory reservation, and optional seller auto-accept thresholds are enforced.

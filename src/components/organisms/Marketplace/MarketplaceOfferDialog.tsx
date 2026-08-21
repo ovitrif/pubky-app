@@ -93,7 +93,7 @@ export function MarketplaceOfferDialog({
           <Button variant="secondary" className="rounded-full" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button className="rounded-full" onClick={submit}>
+          <Button className="rounded-full" onClick={submit} disabled={offer.submitting}>
             Send offer
           </Button>
         </DialogFooter>

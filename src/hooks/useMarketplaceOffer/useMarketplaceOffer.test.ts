@@ -126,4 +126,49 @@ describe('useMarketplaceOffer', () => {
     await expect(result.current.submit()).resolves.toBe(false);
     expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
   });
+
+  it('ignores a second submit while the first command is in flight', async () => {
+    let resolveCommand:
+      | ((value: Awaited<ReturnType<typeof CommerceController.executeMarketplaceCommand>>) => void)
+      | undefined;
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockReturnValue(
+      new Promise((resolve) => {
+        resolveCommand = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 3));
+    act(() => {
+      result.current.form.setValue('amount', '80.00');
+      result.current.form.setValue('quantity', '1');
+    });
+
+    let firstPromise: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      firstPromise = result.current.submit();
+    });
+    expect(result.current.submitting).toBe(true);
+
+    let second = true;
+    await act(async () => {
+      second = await result.current.submit();
+    });
+
+    await act(async () => {
+      resolveCommand?.({
+        ok: true,
+        version: 1,
+        commandId: '00000000-0000-4000-8000-000000000800',
+        aggregateId: 'listing:seller_item',
+        revision: 1,
+        eventIds: ['00000000-0000-4000-8000-000000000801'],
+        result: { kind: 'offer' },
+      });
+      await firstPromise;
+    });
+
+    expect(await firstPromise).toBe(true);
+    expect(second).toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledTimes(1);
+    expect(result.current.submitting).toBe(false);
+  });
 });
