@@ -154,6 +154,7 @@ export function MarketplaceOrders() {
                             value={`sandbox:paykit:${payment.id}?amount=${order.total.amountMinor}&asset=${order.total.currency}`}
                             size={96}
                             className="text-foreground"
+                            title="Simulated sandbox invoice QR"
                           />
                           <Typography as="p" className="mt-2 text-xs text-amber-200">
                             Simulated invoice QR · not a real Bitcoin payment
