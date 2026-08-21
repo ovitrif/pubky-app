@@ -50,6 +50,13 @@ It owns DHT `:6881`, Pkarr `:15411`, HTTP relay `:15412`, homeserver ICANN `:628
 
 This is not Bitkit companion approval. There is no live Electrum/Bitcoin chain. The marketplace app still defaults to `npm run locks:sandbox` on `:3101` / `:3102`. Point `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit` at these processes only after Lock Server creator-authority and Bitkit setup succeed.
 
+Verified against this topology with `LOCK_SERVER_URL=http://127.0.0.1:3103` and `allowed_return_origins = ["http://localhost:3000"]`:
+
+- `scripts/dev-legacy-connect-testnet.sh auth` — hosted `/connect` shell, Pubky SDK approve-auth, `POST /frontend-sessions` 200
+- `scripts/dev-legacy-connect-testnet.sh locked-content` — create lock, upload `example.txt`, submit proof bundle, **development** `/verification-task-completions` marks the task completed, issue credential, `GET /priv-resources/content/example.txt` returns `guarded bytes`
+
+The completion route is a Lock Server development gate. It is not a Paykit invoice and not Bitkit approval.
+
 ## Docker / companion topology
 
 Use the pins and route contracts in [`upstream-integration.md`](upstream-integration.md) for:

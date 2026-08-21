@@ -37,7 +37,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 3. Durable transaction service + inventory/ledger foundations — PostgreSQL snapshot + events/ledger/outbox tables
 - [x] 4. Messaging + offers + concurrency-safe auctions
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
-- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub + vendored Locks JS/WASM viewer; native `pubky-testnet` + `locks-server` + `paykit-server` health-ready; companion approval not proven
+- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub + vendored Locks JS/WASM; native testnet + Lock Server auth/locked-content E2E (dev completion); Bitkit invoice not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
 - [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; trust labels; guarantee terms; buyer payment status; support/finance/risk consoles; signed callbacks + staff step-up; 100-way concurrency; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
