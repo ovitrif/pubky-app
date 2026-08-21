@@ -37,7 +37,7 @@ PAYKIT_MASTER_KEY=<32-byte-base64url> \
 # listen_addr = "127.0.0.1:3104"
 ```
 
-Verified locally: Lock Server `GET /healthz` → `{"status":"ok"}` and `GET /readyz` → persisted worker ready. Paykit Server `GET /health/live` → live and `GET /health/ready` → postgres / electrum adapter / paykit_delivery / outbox ready. `GET /setup` with an exact allowed `return_to` origin renders a Paykit auth URL and does not embed an xpub.
+Verified locally: Lock Server `GET /healthz` → `{"status":"ok"}` and `GET /readyz` → persisted worker ready. Paykit Server `GET /health/live` → live. With `[electrum].endpoint = "tcp://127.0.0.1:50001"` (closed), `/health/ready` is `postgres=ready`, `electrum=degraded`, `paykit_delivery=degraded`, `outbox=ready`. Pointing Electrum at Bitkit's default testnet URL `ssl://electrum.blockstream.info:60002` (genesis `000000000933ea01…`) makes `electrum=ready`; `paykit_delivery` stays `degraded` because outbox `link_establishment` has no Bitkit peer. `GET /setup` with an exact allowed `return_to` origin renders a Paykit auth URL and does not embed an xpub.
 
 A native `pubky-testnet` (homeserver 0.11.0) also boots without Docker:
 
@@ -48,18 +48,18 @@ TEST_PUBKY_CONNECTION_STRING='postgres://marketplace:marketplace@127.0.0.1:5432/
 
 It owns DHT `:6881`, Pkarr `:15411`, HTTP relay `:15412`, homeserver ICANN `:6286`, and admin `:6288`. Start it before `locks-server` so Mainline can bootstrap. After that order, Lock Server no longer logs routing-table bootstrap failures.
 
-This is not Bitkit companion approval. There is no live Electrum/Bitcoin chain (`tcp://127.0.0.1:50001` is closed). The marketplace app still defaults to `npm run locks:sandbox` on `:3101` / `:3102`. Point `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit` at these processes only after Lock Server creator-authority and Bitkit setup succeed.
+This is not Bitkit companion approval. Local `tcp://127.0.0.1:50001` is still closed (no Docker / bitcoind / electrs). A public Blockstream testnet Electrum session is enough for the adapter to become ready; it is not a payment. The marketplace app still defaults to `npm run locks:sandbox` on `:3101` / `:3102`. Point `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=locks-paykit` at these processes only after Lock Server creator-authority and Bitkit setup succeed.
 
 Verified against this topology with `LOCK_SERVER_URL=http://127.0.0.1:3103` and `allowed_return_origins = ["http://localhost:3000"]`:
 
 - `scripts/dev-legacy-connect-testnet.sh auth` — hosted `/connect` shell, Pubky SDK approve-auth, `POST /frontend-sessions` 200
 - `scripts/dev-legacy-connect-testnet.sh locked-content` — create lock, upload `example.txt`, submit proof bundle, **development** `/verification-task-completions` marks the task completed, issue credential, `GET /priv-resources/content/example.txt` returns `guarded bytes`
 - Official `paykit-companion-auth` against `GET /setup` — HTML-unescape the hosted `pubkyauth` URL, keep Paykit's advertised inbox (`https://httprelay.pubky.app/inbox` on Pubky 0.8 testnet), then `POST /setup/{id}/complete` returns `{"status":"complete"}` and persists one Paykit creator. Repo helper: `scripts/dev-paykit-companion-setup.sh`. This uses a generated BIP84 account tpub. It is not Bitkit.
-- Locks `paykit-payment` proof — `POST /creator/content-locks` plus `POST /proof-bundles` with an empty payment payload created one Paykit invoice (`payment_status=undetected`, `confirmation_count=0`, `amount_matched=false`). Outbox delivery stayed `retryable` with `link_establishment` because no Bitkit peer exists.
+- Locks `paykit-payment` proof — `POST /creator/content-locks` plus `POST /proof-bundles` with an empty payment payload created one Paykit invoice (`payment_status=undetected`, `confirmation_count=0`, `amount_matched=false`). After the Electrum endpoint change the invoice is unchanged and `bitcoin_observations` is empty. Outbox delivery stayed `retryable` with `link_establishment` because no Bitkit peer exists.
 
 Do not rewrite the `/setup` relay to `127.0.0.1:15412`. Companion-auth then prints `approved`, but Paykit keeps polling the public inbox and `POST /complete` returns `422`. Do not pass `pubkyauth://` URLs on argv.
 
-The locked-content completion route is a Lock Server development gate. The companion-auth + invoice path is a real Paykit Server invoice with no chain observation. Neither is Bitkit approval.
+The locked-content completion route is a Lock Server development gate. The companion-auth + invoice path is a real Paykit Server invoice. The Electrum adapter can now poll testnet; it has not observed a payment. Neither path is Bitkit approval.
 
 ## Docker / companion topology
 

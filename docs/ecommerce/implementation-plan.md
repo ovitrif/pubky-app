@@ -6,7 +6,7 @@ Goal: a working, feature-complete eBay/Depop-class prototype integrated with Pay
 ## Progress snapshot
 
 Last reviewed: 2026-08-21  
-Stopped at: **T8 — Hardening and parity audit** (native Paykit companion-auth + undetected invoice; live Bitkit remains)
+Stopped at: **T8 — Hardening and parity audit** (native Paykit companion-auth + undetected invoice; public testnet Electrum ready; live Bitkit remains)
 
 Legend:
 
@@ -24,10 +24,10 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] **T2 — Local-first foundation** — Dexie models, controllers, in-memory tests plus PostgreSQL write-through repository
 - [x] **T3 — Catalog and discovery** — shops, listings, filters, favorites, follows, saved searches, feed sections
 - [x] **T4 — Messaging, offers, and auctions** — proxy bids, visible bid history, anti-sniping, watcher-only offers, auto-accept thresholds, increment-shill auto-flags
-- [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks, labeled HTTP stub, and vendored unpublished Locks JS/WASM; native Paykit companion-auth + Locks invoice (undetected); live Bitkit unverified
+- [x] **T5 — Checkout, Paykit, and Locks** — cart, checkout, sandbox payment advance, Locks client hooks, labeled HTTP stub, and vendored unpublished Locks JS/WASM; native Paykit companion-auth + Locks invoice (undetected); public testnet Electrum adapter ready; live Bitkit unverified
 - [x] **T6 — Fulfillment and post-purchase** — cancel, ship, return, external refund, dispute, review, report; moderator assign/decide/reverse + risk flags
 - [x] **T7 — Seller operations** — dashboard, bulk pause/activate/delete, CSV export/import, promotions, statements, payouts, blocked buyers
-- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, support/finance/risk role split, HMAC-signed Locks payment callbacks with a 5-minute replay window, staff step-up tokens, 100-way checkout/bid/close/payment concurrency, enforced Next nonce CSP, DNS rebinding, restore drill; native companion-auth invoice recorded; live Bitkit remains
+- [~] **T8 — Hardening and parity audit** `[!]` **stopped here** — trust indicators, guarantee terms, buyer payment labels, support/finance/risk role split, HMAC-signed Locks payment callbacks with a 5-minute replay window, staff step-up tokens, 100-way checkout/bid/close/payment concurrency, enforced Next nonce CSP, DNS rebinding, restore drill; native companion-auth invoice recorded; public testnet Electrum adapter ready; live Bitkit remains
 - [~] **T9 — Documentation and demonstrations** — plan, ADRs, upstream, threat model, ops runbook, acceptance ledger; signed-in checkout, digital-delivery, operator-moderation, and seller dashboard/listing-form videos recorded without the phrase; live Bitkit motion remains
 
 ### Delivery slices
@@ -37,7 +37,7 @@ Feature slices T0–T7 have reachable sandbox UI and service commands. The remai
 - [x] 3. Durable transaction service + inventory/ledger foundations — PostgreSQL snapshot + events/ledger/outbox tables
 - [x] 4. Messaging + offers + concurrency-safe auctions
 - [x] 5. Cart + checkout + sandbox order/payment lifecycle
-- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub + vendored Locks JS/WASM; native companion-auth setup + Locks `paykit-payment` invoice (`undetected`); Bitkit and chain observation not proven
+- [~] 6. Real Locks/Paykit adapter + Bitkit/Ring setup — client lifecycle + labeled HTTP stub + vendored Locks JS/WASM; native companion-auth setup + Locks `paykit-payment` invoice (`undetected`); public testnet Electrum makes the adapter ready; Bitkit and an observed payment are not proven
 - [x] 7. Fulfillment + returns/refunds/disputes/reviews
 - [~] 8. Seller analytics + moderation + hardening — views/favorites/conversion/sell-through + fulfillment health; trust labels; guarantee terms; buyer payment status; support/finance/risk consoles; signed callbacks + staff step-up; 100-way concurrency; enforced CSP + DNS rebinding + restore drill; live Bitkit and remaining videos remain
 - [ ] 9. Full parity audit, documentation, and final videos
@@ -48,7 +48,7 @@ Last shipped feature work: auction/offer winning orders with address confirmatio
 
 Next required work, in order:
 
-1. Prove live Bitkit/Paykit companion flows against the pinned Docker topology. Native `paykit-companion-auth` plus an undetected Paykit invoice is not Bitkit approval. The local stub is not that proof.
+1. Prove live Bitkit/Paykit companion flows against the pinned Docker topology. Native `paykit-companion-auth` plus an undetected Paykit invoice is not Bitkit approval. A public testnet Electrum session making `/health/ready` `electrum=ready` is not a payment. The local stub is not that proof.
 2. Close T8: broader VRT/E2E coverage and keep the verification ledger current.
 3. Close T9: record live Bitkit motion and remaining responsive/accessibility videos without capturing the recovery phrase.
 
@@ -181,7 +181,7 @@ Status on each requirement as of 2026-08-20. `[x]` means a reachable sandbox flo
 ### Paykit, Locks, and payment confirmation
 
 - [~] Seller payment setup launches the Paykit Server/Bitkit companion approval flow and reports setup state without exposing wallet secrets. — settings buttons open labeled `/connect` and `/setup` stubs; native `paykit-companion-auth` completed `/setup` with a generated tpub; Bitkit unproven
-- [~] Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice. — client hooks + sandbox stub complete empty proofs; native Locks `paykit-payment` proof created one undetected Paykit invoice
+- [~] Checkout can create a Locks proof lifecycle that causes Locks to request a Paykit invoice. — client hooks + sandbox stub complete empty proofs; native Locks `paykit-payment` proof created one undetected Paykit invoice; Electrum adapter can poll testnet but has not observed a payment
 - [ ] The real browser flow shows Paykit request/entitlement progress while Bitkit privately receives and executes the payment request; it does not expose or reconstruct the invoice.
 - [~] Real buyer-visible status distinguishes awaiting entitlement, confirmed, marketplace-expired, and manual review. — sandbox orders map those four labels; live Bitkit status mapping unproven
 - [x] The sandbox adapter may demonstrate invoice QR/deep-link and detailed settlement states only when visibly labeled as simulated.
@@ -460,7 +460,7 @@ Ledger format:
 | Coupons cannot produce negative totals | checkout + promotion service tests                     | discount <= subtotal, balanced ledger   | Closed  | Integer ledger                                                                                      | Marketplace unit suite | Verified in sandbox |
 | Restricted listings leave discovery    | catalog util + moderation decide                       | restricted id omitted from filter       | Closed  | Filter + trust.decide                                                                               | Unit tests             | Verified in sandbox |
 | Blocked buyers cannot check out        | `buyer.block` service test                             | checkout UNAUTHORIZED                   | Closed  | Transaction service                                                                                 | Marketplace unit suite | Verified in sandbox |
-| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                   | Open    | Native companion-auth + undetected Paykit invoice                                                   | Invoice row created    | Partial             |
+| Live Bitkit/Paykit companion           | Docker + Bitkit                                        | real invoice observed                   | Open    | Companion-auth + undetected invoice; public testnet Electrum ready                                  | Invoice row created    | Partial             |
 | PostgreSQL durability                  | `postgres-repository.test.ts` + restart                | listing/ledger survive reconnect        | Closed  | Write-through snapshot                                                                              | Marketplace unit suite | Verified in sandbox |
 | Snapshot restore drill                 | `restore-drill.test.ts` + `/v1/admin/snapshot`         | JSON hydrate keeps listing/order/ledger | Closed  | export/hydrate + ops.md                                                                             | Marketplace unit suite | Verified in sandbox |
 | Next.js document CSP                   | `src/proxy.ts` + runtime-config nonce                  | enforcing CSP, nonce on raw script      | Closed  | Next 16 proxy + ADR 0017                                                                            | CSP unit + curl        | Verified in sandbox |

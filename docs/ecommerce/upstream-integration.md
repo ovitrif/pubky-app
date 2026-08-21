@@ -283,8 +283,9 @@ What works now without Bitkit, Ring, or Paykit Server:
 
 What still blocks a live Bitkit → Paykit Server → Locks confirmation:
 
-- This Cloud VM has a staging recovery phrase, but Bitkit, Electrum, and a Bitcoin node are not running here.
-- Native Paykit Server + Lock Server + `pubky-testnet` are running. Official `paykit-companion-auth` completed `/setup` with a generated BIP84 tpub (not Bitkit). A Locks `paykit-payment` proof created one invoice that stayed `undetected`.
+- This Cloud VM has a staging recovery phrase, but Bitkit and a local Bitcoin node are not running here.
+- Native Paykit Server + Lock Server + `pubky-testnet` are running. Official `paykit-companion-auth` completed `/setup` with a generated BIP84 tpub (not Bitkit). A Locks `paykit-payment` proof created one invoice that stayed `undetected`. Paykit `/health/ready` is `electrum=ready` against `ssl://electrum.blockstream.info:60002`; `paykit_delivery` stays `degraded` with no Bitkit peer.
+- Local `tcp://127.0.0.1:50001` is still closed. A public testnet Electrum session is not an observed payment.
 - Pubky 0.8 `Pubky::testnet()` still advertises `https://httprelay.pubky.app/inbox` for auth. Do not rewrite that relay when completing Paykit setup.
 - Locks JS/WASM is now vendored from `pubky/locks@ba49a777` (`vendor/locks-sdk-wasm`, `npm run locks:wasm:smoke`). Loading it is not Bitkit companion approval.
 - Paykit has no browser binding. The browser must not call Paykit Server business routes.
@@ -292,7 +293,7 @@ What still blocks a live Bitkit → Paykit Server → Locks confirmation:
 - `pubky-docker` does not include Locks, Paykit Server, Electrum, Bitcoin, Ring, or Bitkit.
 - Pubky Ring Simulator is not evidence for Bitkit approval or payment execution.
 
-Until Bitkit and chain observation run against the pinned topology, treat sandbox payment advance plus the labeled Locks HTTP stub as the browser path, and treat native companion-auth + an undetected invoice as service-level Paykit proof — not as live Bitkit approval.
+Until Bitkit and an observed payment run against the pinned topology, treat sandbox payment advance plus the labeled Locks HTTP stub as the browser path, and treat native companion-auth + an undetected invoice + a ready Electrum adapter as service-level Paykit proof — not as live Bitkit approval.
 
 ## Blockers tracked as work
 
