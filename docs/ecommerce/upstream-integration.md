@@ -283,14 +283,16 @@ What works now without Bitkit, Ring, or Paykit Server:
 
 What still blocks a live Bitkit → Paykit Server → Locks confirmation:
 
-- This Cloud VM has a staging recovery phrase, but Bitkit, Paykit Server, Electrum, and a Bitcoin node are not running here.
+- This Cloud VM has a staging recovery phrase, but Bitkit, Electrum, and a Bitcoin node are not running here.
+- Native Paykit Server + Lock Server + `pubky-testnet` are running. Official `paykit-companion-auth` completed `/setup` with a generated BIP84 tpub (not Bitkit). A Locks `paykit-payment` proof created one invoice that stayed `undetected`.
+- Pubky 0.8 `Pubky::testnet()` still advertises `https://httprelay.pubky.app/inbox` for auth. Do not rewrite that relay when completing Paykit setup.
 - Locks JS/WASM is now vendored from `pubky/locks@ba49a777` (`vendor/locks-sdk-wasm`, `npm run locks:wasm:smoke`). Loading it is not Bitkit companion approval.
 - Paykit has no browser binding. The browser must not call Paykit Server business routes.
 - Paykit Server is BTC-only, single-process, and cannot spend, refund, or issue receipts.
 - `pubky-docker` does not include Locks, Paykit Server, Electrum, Bitcoin, Ring, or Bitkit.
 - Pubky Ring Simulator is not evidence for Bitkit approval or payment execution.
 
-Until those companions are running against the pinned topology, treat sandbox payment advance plus the labeled Locks HTTP stub as the verified local path — not as live companion approval.
+Until Bitkit and chain observation run against the pinned topology, treat sandbox payment advance plus the labeled Locks HTTP stub as the browser path, and treat native companion-auth + an undetected invoice as service-level Paykit proof — not as live Bitkit approval.
 
 ## Blockers tracked as work
 
