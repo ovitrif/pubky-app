@@ -9,6 +9,7 @@ import { MarketplaceOrderActions } from './MarketplaceOrderActions';
 vi.mock('@/libs/commerce/sandbox-operator', () => ({
   isMarketplaceSandboxOperator: () => true,
   getMarketplaceSandboxStaffRole: () => 'moderator',
+  setMarketplaceSandboxStaffRole: () => undefined,
 }));
 
 const order = asOpaque<MarketplaceOrder>({
