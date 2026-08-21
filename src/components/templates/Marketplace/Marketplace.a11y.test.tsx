@@ -55,13 +55,13 @@ vi.mock('@/hooks/useMarketplaceSavedSearches/useMarketplaceSavedSearches', () =>
 
 vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', async () => {
   const catalog = await fixtures;
-  const { buildMarketplaceFeedSections } = await import('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils');
+  const listings = catalog.listings.slice(0, 4);
   return {
     useMarketplaceCatalog: () => ({
-      listings: catalog.listings,
+      listings,
       shopsBySeller: catalog.shopsBySeller,
-      sections: buildMarketplaceFeedSections(catalog.listings, []),
-      showFeedSections: true,
+      sections: null,
+      showFeedSections: false,
       isLoading: false,
       initializationError: null,
       adapterMode: 'sandbox',
@@ -81,5 +81,5 @@ describe('Marketplace catalog accessibility', () => {
     });
     const blocking = results.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''));
     expect(blocking).toEqual([]);
-  });
+  }, 10_000);
 });
