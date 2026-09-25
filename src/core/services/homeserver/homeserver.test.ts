@@ -44,6 +44,7 @@ const mockState = vi.hoisted(() => ({
   getHomeserverOf: vi.fn(),
   restoreSession: vi.fn(),
   startCookieAuthFlow: vi.fn(),
+  resumeCookieAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
   eventStreamForUser: vi.fn(),
   // Auth store session
@@ -91,6 +92,7 @@ vi.mock('@synonymdev/pubky', () => {
     getHomeserverOf: (...args: unknown[]) => mockState.getHomeserverOf(...args),
     restoreSession: (...args: unknown[]) => mockState.restoreSession(...args),
     startCookieAuthFlow: (...args: unknown[]) => mockState.startCookieAuthFlow(...args),
+    resumeCookieAuthFlow: (...args: unknown[]) => mockState.resumeCookieAuthFlow(...args),
     eventStreamForUser: (...args: unknown[]) => mockState.eventStreamForUser(...args),
     client: {
       fetch: (...args: unknown[]) => mockState.clientFetch(...args),
@@ -720,6 +722,44 @@ describe('HomeserverService', () => {
           expect(tryPollOnce).not.toHaveBeenCalled();
           expect(free).toHaveBeenCalledTimes(1);
         } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('resumes the flow on the same relay channel when the page is visible again after the relay poll dropped', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const session = createMockSession();
+          // The SDK gives up on a flow after a few failed relay requests; polling that flow again never recovers it.
+          const transportError = new Error('Request failed: HTTP transport error: error sending request');
+          transportError.name = 'RequestError';
+          const deadFlow = {
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockRejectedValueOnce(transportError).mockResolvedValue(undefined),
+            free: vi.fn(),
+          };
+          const resumedFlow = { tryPollOnce: vi.fn().mockResolvedValue(session), free: vi.fn() };
+          mockState.startCookieAuthFlow.mockReturnValue(deadFlow);
+          mockState.resumeCookieAuthFlow.mockReturnValue(resumedFlow);
+
+          const result = await HomeserverService.generateAuthUrl();
+          await vi.advanceTimersByTimeAsync(0);
+          expect(deadFlow.tryPollOnce).toHaveBeenCalledTimes(1);
+          // Still in the background: nothing resumes yet.
+          await vi.advanceTimersByTimeAsync(5_000);
+          expect(mockState.resumeCookieAuthFlow).not.toHaveBeenCalled();
+
+          // Back from Pubky Ring: the page becomes visible and reconnects to the same channel.
+          visibility.mockReturnValue('visible');
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(0);
+
+          await expect(result.awaitApproval).resolves.toBe(session);
+          expect(mockState.resumeCookieAuthFlow).toHaveBeenCalledWith('https://auth.example.com/authorize');
+          expect(deadFlow.free).toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
           vi.useRealTimers();
         }
       });
