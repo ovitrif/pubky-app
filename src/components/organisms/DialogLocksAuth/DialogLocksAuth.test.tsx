@@ -290,7 +290,7 @@ describe('DialogLocksAuth', () => {
     expect(screen.getByRole('link', { name: 'Google Play' })).toHaveAttribute('href', BITKIT_PLAY_STORE_URL);
   });
 
-  it('retries only the Paykit setup when it fails', () => {
+  it('rechecks the setup status when the Paykit setup fails', () => {
     signIn();
     mocks.flow = {
       status: LocksAuthFlowStatus.ERROR,
@@ -306,7 +306,8 @@ describe('DialogLocksAuth', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
-    expect(mocks.startPaykit).toHaveBeenCalledTimes(1);
+    expect(mocks.checkPaykit).toHaveBeenCalledTimes(1);
+    expect(mocks.startPaykit).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
   });
 

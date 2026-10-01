@@ -89,7 +89,6 @@ export function DialogLocksAuth({ open, onOpenChange, onSuccess }: DialogLocksAu
     error: paykitError,
     iframeRef: paykitIframeRef,
     check: checkPaykit,
-    start: startPaykit,
     reset: resetPaykit,
   } = usePaykitSetupFlow();
   const isLocksAuthenticated = isLocksAuthenticatedState(useLocksAuthStore((state) => state.session));
@@ -330,11 +329,12 @@ export function DialogLocksAuth({ open, onOpenChange, onSuccess }: DialogLocksAu
             <Button variant={ButtonVariant.OUTLINE} size="lg" className="flex-1" onClick={close}>
               {'Cancel'}
             </Button>
+            {/* A failed Paykit setup retries through the check too, so the setup opens only on `setup_required`. */}
             <Button
               variant={ButtonVariant.DEFAULT}
               size="lg"
               className="flex-1"
-              onClick={isPaykitUnavailable ? checkPaykit : isPaykitError ? startPaykit : startLocks}
+              onClick={isPaykitUnavailable || isPaykitError ? checkPaykit : startLocks}
             >
               {'Try again'}
             </Button>
