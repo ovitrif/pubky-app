@@ -764,6 +764,42 @@ describe('HomeserverService', () => {
         }
       });
 
+      it('settles a cancelled approval at once when the relay poll dropped while the page is hidden', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const transportError = new Error('Request failed: HTTP transport error: error sending request');
+          transportError.name = 'RequestError';
+          mockState.startCookieAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          });
+
+          const result = await HomeserverService.generateAuthUrl();
+          let settled = false;
+          const outcome = result.awaitApproval.then(
+            () => 'resolved',
+            (error: Error) => {
+              settled = true;
+              return error.name;
+            },
+          );
+          await vi.advanceTimersByTimeAsync(0);
+
+          // The page stays in the background: cancelling must not wait for it to become visible.
+          result.cancelAuthFlow();
+          await vi.advanceTimersByTimeAsync(0);
+
+          expect(settled).toBe(true);
+          await expect(outcome).resolves.toBe('AuthFlowCanceled');
+          expect(mockState.resumeCookieAuthFlow).not.toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
       it('should reject with SESSION_EXPIRED when tryPollOnce throws (SDK exhausted its retry budget)', async () => {
         vi.useFakeTimers();
         try {

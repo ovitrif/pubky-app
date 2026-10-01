@@ -157,23 +157,34 @@ const AUTH_POLL_MAX_RESUMES = 60;
  */
 const isTransientPollError = (error: unknown): boolean => {
   if (extractStatusCode(error) !== undefined) return false;
-  if (error instanceof Error && error.name === 'RequestError') return true;
-  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-  return /abort|network|failed to fetch|load failed|connection|timed? ?out/i.test(message);
+  return error instanceof Error && error.name === 'RequestError';
 };
 
-/** Resolves at once when the page is visible, else on the next `visibilitychange` to visible. */
-const waitUntilVisible = (): Promise<void> =>
+/**
+ * Resolves at once when the page is visible (after a second), else on the next `visibilitychange` to visible.
+ * Aborting the signal resolves it early and drops the listener.
+ */
+const waitUntilVisible = (signal?: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
-    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
-      setTimeout(resolve, 1000);
+    if (signal?.aborted) {
+      resolve();
       return;
     }
-    const onChange = () => {
-      if (document.visibilityState === 'hidden') return;
-      document.removeEventListener('visibilitychange', onChange);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = () => {
+      clearTimeout(timer);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onChange);
+      signal?.removeEventListener('abort', done);
       resolve();
     };
+    const onChange = () => {
+      if (document.visibilityState !== 'hidden') done();
+    };
+    signal?.addEventListener('abort', done);
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+      timer = setTimeout(done, 1000);
+      return;
+    }
     document.addEventListener('visibilitychange', onChange);
   });
 
@@ -200,9 +211,11 @@ export const createCancelableAuthApproval = (
 
   let canceled = false;
   let freed = false;
+  const waiting = new AbortController();
 
   const cancel = () => {
     canceled = true;
+    waiting.abort();
     if (freed) return;
     freed = true;
     try {
@@ -237,7 +250,7 @@ export const createCancelableAuthApproval = (
         // page is visible again and resume the flow on the same relay channel: an approval made meanwhile is
         // still there, and completes the sign-in.
         if (options?.resume && isTransientPollError(error) && ++resumes <= AUTH_POLL_MAX_RESUMES) {
-          await waitUntilVisible();
+          await waitUntilVisible(waiting.signal);
           if (canceled) throw createCanceledError();
           try {
             flow.free();
