@@ -222,6 +222,20 @@ describe('usePaykitSetupFlow', () => {
       expect(mocks.getPaykitSetupUrl).not.toHaveBeenCalled();
     });
 
+    it('drops the failed setup URL while it checks again', async () => {
+      const { result } = renderHook(() => usePaykitSetupFlow());
+      const state = startFlow(result);
+      attachIframeSource(result);
+      await postCallback({ type: PAYKIT_SETUP_MESSAGE_TYPE, state, error: 'setup-failed' });
+      expect(result.current.setupUrl).not.toBeNull();
+
+      holdAnswer();
+      act(() => void result.current.check());
+
+      expect(result.current.status).toBe(PaykitSetupFlowStatus.CHECKING);
+      expect(result.current.setupUrl).toBeNull();
+    });
+
     it('drops an answer that arrives after reset', async () => {
       const answer = holdAnswer();
       const { result } = renderHook(() => usePaykitSetupFlow());

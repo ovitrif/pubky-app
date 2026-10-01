@@ -73,6 +73,8 @@ export function usePaykitSetupFlow(): UsePaykitSetupFlowReturn {
     const run = (checkRef.current += 1);
     const sessionSecret = useLocksAuthStore.getState().selectLocksSessionSecret();
     setError(null);
+    // A retry after a failed setup still holds that setup's URL, which would keep its iframe on screen.
+    setSetupUrl(null);
     setStatus(PaykitSetupFlowStatus.CHECKING);
 
     let setupStatus: TPaykitSetupStatus | null = null;
