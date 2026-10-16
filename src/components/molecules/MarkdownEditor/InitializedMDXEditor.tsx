@@ -1,7 +1,8 @@
 'use client';
 
 import '@mdxeditor/editor/style.css';
-import { type ForwardedRef, useRef, useState } from 'react';
+import { type ForwardedRef, Fragment, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { languages } from '@codemirror/language-data';
 import { oneDark } from '@codemirror/theme-one-dark';
 import {
@@ -13,7 +14,10 @@ import {
   CodeToggle,
   CreateLink,
   headingsPlugin,
+  imageDialogState$,
+  imagePlugin,
   InsertCodeBlock,
+  InsertImage,
   InsertThematicBreak,
   linkDialogPlugin,
   linkPlugin,
@@ -29,18 +33,33 @@ import {
   toolbarPlugin,
   UndoRedo,
 } from '@mdxeditor/editor';
+import { useCellValues } from '@mdxeditor/gurx';
 import { AlertTriangle, Smile, Type } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
+import { Input } from '@/atoms/Input/Input';
+import { Spinner } from '@/atoms/Spinner/Spinner';
 import { Textarea } from '@/atoms/Textarea/Textarea';
 import { Typography } from '@/atoms/Typography/Typography';
-import { ARTICLE_MAX_CHARACTER_LENGTH } from '@/config/posts';
+import {
+  ARTICLE_INLINE_ACCEPT_STRING_BY_KIND,
+  ARTICLE_INLINE_SUPPORTED_MIME_TYPES,
+  ARTICLE_MAX_CHARACTER_LENGTH,
+} from '@/config/posts';
 import { useEmojiInsert } from '@/hooks/useEmojiInsert/useEmojiInsert';
 import { MarkdownMark } from '@/icons';
+import { getInlineMediaKindFromMime, INLINE_MEDIA_KINDS, type InlineMediaKind } from '@/libs/file/inlineMediaKind';
+import { pubkyUriToCdnUrl } from '@/libs/file/pubkyFileCdnUrl';
 import { cn } from '@/libs/utils/utils';
+import { toast } from '@/molecules/Toaster/toast';
+import { FileVariant } from '@/services/nexus/file/file.types';
 import { EmojiPickerDialog } from '../EmojiPickerDialog/EmojiPickerDialog';
-import { CODE_BLOCK_LANGUAGES } from './InitializedMDXEditor.constants';
+import { CODE_BLOCK_LANGUAGES, INLINE_MEDIA_KIND_UI } from './InitializedMDXEditor.constants';
 import { sanitizeCodeBlockLanguages } from './InitializedMDXEditor.utils';
+import { inlineMediaDialogState$, inlineMediaPlugin } from './inlineMediaPlugin';
+import { InsertInlineMediaButton } from './InsertInlineMediaButton';
+import type { MarkdownEditorInlineMedia } from './MarkdownEditor.types';
+import { MarkdownEditorMediaDialog } from './MarkdownEditorMediaDialog';
 
 /**
  * Preload all CodeMirror language support modules to prevent layout shift
@@ -70,23 +89,68 @@ function preloadLanguages() {
 preloadLanguages();
 type EditorMode = 'richtext' | 'markdown';
 
+/**
+ * Invisible bridge rendered inside the editor toolbar (and therefore inside
+ * the MDXEditor realm) that mirrors the insert dialogs' open state out to the
+ * host component — used to show a single uploading indicator at a time (the
+ * dialog has its own spinner). Images and the other media kinds have separate
+ * dialog cells; either one open hides the pill.
+ */
+function MediaDialogOpenReporter({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+  const [imageDialogState, mediaDialogState] = useCellValues(imageDialogState$, inlineMediaDialogState$);
+  const isOpen = imageDialogState.type !== 'inactive' || mediaDialogState.type !== 'inactive';
+
+  useEffect(() => {
+    onOpenChange(isOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onOpenChange is a stable setState
+  }, [isOpen]);
+
+  return null;
+}
+
 // Only import this to MarkdownEditor.tsx
 export default function InitializedMDXEditor({
   editorRef,
   readOnly,
+  inlineMedia,
   ...props
 }: {
   editorRef: ForwardedRef<MDXEditorMethods> | null;
+  inlineMedia?: MarkdownEditorInlineMedia;
 } & MDXEditorProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isMediaDialogOpen, setIsMediaDialogOpen] = useState(false);
   const [maxLengthWarning, setMaxLengthWarning] = useState<null | 'approaching' | 'reached'>(null);
   const [mode, setMode] = useState<EditorMode>('richtext');
   const [markdownText, setMarkdownText] = useState('');
+  // Host element for MDXEditor's popups (link dialog, tooltips). Without it, MDXEditor
+  // portals popups to document.body — outside the Radix Dialog hosting the article
+  // composer, whose focus trap then pulls focus straight back to the contentEditable,
+  // so the link dialog's URL input never receives the autofocus and typing overwrites
+  // the selected text. Mounting the popups in-tree keeps them inside the focus trap.
+  const [overlayContainer, setOverlayContainer] = useState<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // One hidden file input per media kind, so each toolbar button opens a picker filtered to its kind
+  const markdownMediaInputRefs = useRef<Partial<Record<InlineMediaKind, HTMLInputElement | null>>>({});
+
+  // Browsers can't load pubky:// URIs: prefer the session's local object URL (also covers the CDN
+  // variant-readiness window right after upload), then the Nexus CDN URL, then pass an external
+  // URL through untouched. Shared by the image previews and the video/audio/PDF nodes.
+  const resolvePreview = (source: string) =>
+    inlineMedia?.getPreviewUrl(source) ?? pubkyUriToCdnUrl(source, FileVariant.MAIN) ?? source;
+  // Synchronous mirror of markdownText: the async image-upload flows read and
+  // splice the freshest text through this ref, so back-to-back placeholder
+  // swaps never operate on a stale value while a render is still pending.
+  const markdownTextRef = useRef('');
+
   const switchToMarkdownMode = () => {
     if (editorRef && 'current' in editorRef) {
       const markdown = editorRef.current?.getMarkdown() ?? '';
+      markdownTextRef.current = markdown;
       setMarkdownText(markdown);
+      // Serialized markdown can be longer than the rich-text character count
+      // (image URIs count ~0 there) — surface the cap state on import
+      updateMaxLengthWarning(markdown);
       setMode('markdown');
     }
   };
@@ -104,7 +168,9 @@ export default function InitializedMDXEditor({
   const updateMaxLengthWarning = (text: string) => {
     const remaining = ARTICLE_MAX_CHARACTER_LENGTH - text.length;
     switch (true) {
-      case remaining === 0:
+      // <= 0: a body can arrive over the cap (deserialized refs expand to
+      // longer URIs; rich-text counts Lexical text, markdown counts source)
+      case remaining <= 0:
         setMaxLengthWarning('reached');
         break;
       case remaining < 100:
@@ -115,7 +181,11 @@ export default function InitializedMDXEditor({
     }
   };
   const handleMarkdownTextChange = (newText: string) => {
-    if (newText.length > ARTICLE_MAX_CHARACTER_LENGTH) return;
+    // Refuse growth past the cap, but always accept edits that shrink the
+    // text — otherwise an over-cap body (see updateMaxLengthWarning) rejects
+    // every keystroke including the deletions needed to get back under
+    if (newText.length > ARTICLE_MAX_CHARACTER_LENGTH && newText.length >= markdownTextRef.current.length) return;
+    markdownTextRef.current = newText;
     setMarkdownText(newText);
     updateMaxLengthWarning(newText);
     props.onChange?.(newText, false);
@@ -136,13 +206,161 @@ export default function InitializedMDXEditor({
       }
     }
   };
+
+  /** A unique `![Uploading name…]()` marker for the file, GitHub-style. */
+  const makeUploadingPlaceholder = (fileName: string, existingText: string): string => {
+    const base = `![Uploading ${fileName}…]()`;
+    if (!existingText.includes(base)) return base;
+    let counter = 2;
+    while (existingText.includes(`![Uploading ${fileName} (${counter})…]()`)) counter += 1;
+    return `![Uploading ${fileName} (${counter})…]()`;
+  };
+
+  /**
+   * Swaps an uploading placeholder in place, preserving the user's caret. A
+   * missing placeholder means the user deleted it — that cancels the
+   * insertion (the uploaded file is swept as an unreferenced session upload
+   * on publish/discard).
+   */
+  const replaceMarkdownPlaceholder = (placeholder: string, replacement: string) => {
+    const textarea = textareaRef.current;
+    const current = markdownTextRef.current;
+    const index = current.indexOf(placeholder);
+    if (index === -1) return;
+
+    const next = current.slice(0, index) + replacement + current.slice(index + placeholder.length);
+    if (replacement && next.length > ARTICLE_MAX_CHARACTER_LENGTH) {
+      // No room for the real markdown — drop the placeholder instead of
+      // leaving it stuck (handleMarkdownTextChange refuses over-cap text)
+      replaceMarkdownPlaceholder(placeholder, '');
+      toast({ variant: 'error', description: 'Not enough space left in the article for the file.' });
+      return;
+    }
+
+    const selectionStart = textarea?.selectionStart ?? next.length;
+    const selectionEnd = textarea?.selectionEnd ?? next.length;
+    handleMarkdownTextChange(next);
+
+    // Controlled updates park the caret at the end; restore it after render,
+    // shifted by the swap delta when it sat behind the placeholder
+    const delta = replacement.length - placeholder.length;
+    const adjust = (position: number) => (position > index ? Math.max(index, position + delta) : position);
+    requestAnimationFrame(() => {
+      textareaRef.current?.setSelectionRange(adjust(selectionStart), adjust(selectionEnd));
+    });
+  };
+
+  /**
+   * Markdown-mode media insertion with a visible loading state: an
+   * `![Uploading name…]()` placeholder lands at the caret immediately, then
+   * each finished upload swaps its placeholder for the file-URI markdown in
+   * place — or removes it on failure (the upload handler toasts the error).
+   * Every media kind shares the image syntax, so one flow covers them all.
+   * The insert-after-success invariant holds: a placeholder never contains a
+   * URI, and a failed upload leaves no markdown behind.
+   */
+  const uploadAndInsertInMarkdownMode = async (files: File[]) => {
+    if (!inlineMedia || files.length === 0) return;
+
+    const current = markdownTextRef.current;
+    const offset = Math.min(textareaRef.current?.selectionStart ?? current.length, current.length);
+
+    const placeholders: string[] = [];
+    let accumulated = current;
+    for (const file of files) {
+      const placeholder = makeUploadingPlaceholder(file.name, accumulated);
+      placeholders.push(placeholder);
+      accumulated += placeholder;
+    }
+
+    const snippet = placeholders.join('\n');
+    const next = current.slice(0, offset) + snippet + current.slice(offset);
+    if (next.length > ARTICLE_MAX_CHARACTER_LENGTH) {
+      // Checked before uploading anything, so blocking here leaves no orphans
+      toast({ variant: 'error', description: 'Not enough space left in the article for the file.' });
+      return;
+    }
+
+    handleMarkdownTextChange(next);
+    const caretAfterSnippet = offset + snippet.length;
+    requestAnimationFrame(() => {
+      const textareaElement = textareaRef.current;
+      if (!textareaElement) return;
+      // Restore focus (the toolbar button's native file chooser steals it)
+      // and park the caret after the inserted placeholders. Later placeholder
+      // swaps deliberately do NOT focus — the user may be typing elsewhere.
+      textareaElement.focus();
+      textareaElement.setSelectionRange(caretAfterSnippet, caretAfterSnippet);
+    });
+
+    // Sequential uploads keep each placeholder swap operating on the freshest
+    // textarea content
+    for (const [index, file] of files.entries()) {
+      try {
+        const uri = await inlineMedia.upload(file);
+        replaceMarkdownPlaceholder(placeholders[index], `![](${uri})`);
+      } catch {
+        // The upload handler already surfaced the failure to the user
+        replaceMarkdownPlaceholder(placeholders[index], '');
+      }
+    }
+  };
+
+  const handleMarkdownMediaInputChange = (event: React.ChangeEvent<HTMLInputElement>, kind: InlineMediaKind) => {
+    const chosen = Array.from(event.target.files ?? []);
+    // Allow re-selecting the same file later
+    event.target.value = '';
+    // The accept attribute only suggests; a picker set to "All files" hands over anything, and each
+    // button inserts its own kind, as the rich-text dialog does
+    const files = chosen.filter((file) => getInlineMediaKindFromMime(file.type) === kind);
+    if (files.length < chosen.length) {
+      toast({ variant: 'error', description: INLINE_MEDIA_KIND_UI[kind].wrongFile });
+    }
+    void uploadAndInsertInMarkdownMode(files);
+  };
+
+  const handleMarkdownTextareaPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!inlineMedia || readOnly) return;
+
+    // File-first, like GitHub: real clipboards bundle image files with
+    // text/html flavors (screenshots, images copied from apps), so any media
+    // file wins over the accompanying text. Text-only payloads paste normally.
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null && ARTICLE_INLINE_SUPPORTED_MIME_TYPES.includes(file.type));
+    if (files.length === 0) return;
+
+    // preventDefault stops the textarea's own paste of the clipboard text; nothing above the
+    // editor handles paste
+    event.preventDefault();
+    void uploadAndInsertInMarkdownMode(files);
+  };
+
+  const handleMarkdownTextareaDrop = (event: React.DragEvent<HTMLTextAreaElement>) => {
+    if (!inlineMedia || readOnly) return;
+
+    // Supported media types only (not image/* — e.g. HEIC would flash a
+    // placeholder the upload then rejects); anything else bubbles to the
+    // composer container, whose handler shows the unsupported-type toast
+    const files = Array.from(event.dataTransfer?.files ?? []).filter((file) =>
+      ARTICLE_INLINE_SUPPORTED_MIME_TYPES.includes(file.type),
+    );
+    if (files.length === 0) return;
+
+    // preventDefault only: the event still bubbles so the composer container
+    // resets its drag state, but its defaultPrevented guard skips the files.
+    event.preventDefault();
+    void uploadAndInsertInMarkdownMode(files);
+  };
   return (
     <Container className="gap-4">
       {/* Markdown mode: custom toolbar + textarea — hidden via CSS in rich text mode */}
       <Container overrideDefaults className={cn(mode === 'richtext' && 'hidden')}>
+        {/* Same gap and padding as the rich-text toolbar, so the mode toggle keeps the buttons in step */}
         <Container
           overrideDefaults
-          className="flex min-h-10.75 cursor-auto flex-wrap items-center gap-2 rounded-md border bg-background px-2.5 py-1.5"
+          className="flex min-h-10.75 cursor-auto flex-wrap items-center gap-0.5 rounded-md border bg-background px-1 py-1.5"
           role="toolbar"
           aria-label={'Markdown editing toolbar'}
           data-testid="markdown-toolbar"
@@ -153,19 +371,53 @@ export default function InitializedMDXEditor({
             title={'Emoji'}
             onClick={() => setShowEmojiPicker(true)}
             disabled={readOnly}
-            className="size-7 cursor-default rounded"
+            className="size-7 cursor-default rounded disabled:pointer-events-auto disabled:opacity-100"
             data-testid="markdown-emoji-button"
           >
             <Smile className="size-6" />
           </Button>
+
+          {/* One insert button per media kind, each with its own hidden picker */}
+          {inlineMedia &&
+            INLINE_MEDIA_KINDS.map((kind) => {
+              const { label, Icon } = INLINE_MEDIA_KIND_UI[kind];
+              return (
+                <Fragment key={kind}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={label}
+                    onClick={() => markdownMediaInputRefs.current[kind]?.click()}
+                    disabled={readOnly}
+                    className="size-7 cursor-default rounded disabled:pointer-events-auto disabled:opacity-100"
+                    data-testid={`markdown-${kind}-button`}
+                  >
+                    <Icon className="size-6" />
+                  </Button>
+                  <Input
+                    ref={(element) => {
+                      markdownMediaInputRefs.current[kind] = element;
+                    }}
+                    type="file"
+                    accept={ARTICLE_INLINE_ACCEPT_STRING_BY_KIND[kind]}
+                    multiple
+                    className="hidden"
+                    onChange={(event) => handleMarkdownMediaInputChange(event, kind)}
+                    data-testid={`markdown-${kind}-input`}
+                  />
+                </Fragment>
+              );
+            })}
 
           <Button
             variant="ghost"
             size="icon"
             title={'Rich Text'}
             onClick={switchToRichTextMode}
-            disabled={readOnly}
-            className="size-7 cursor-default rounded"
+            // Mode switches while an upload is in flight would strand the
+            // async placeholder swap in the hidden editor pane
+            disabled={readOnly || (inlineMedia?.uploadingCount ?? 0) > 0}
+            className="size-7 cursor-default rounded disabled:pointer-events-auto disabled:opacity-100"
             data-testid="markdown-richtext-button"
           >
             <Type className="size-6" />
@@ -176,6 +428,8 @@ export default function InitializedMDXEditor({
           ref={textareaRef}
           value={markdownText}
           onChange={(e) => handleMarkdownTextChange(e.target.value)}
+          onPaste={handleMarkdownTextareaPaste}
+          onDrop={handleMarkdownTextareaDrop}
           readOnly={readOnly}
           placeholder={'Start writing your masterpiece'}
           maxLength={ARTICLE_MAX_CHARACTER_LENGTH}
@@ -187,59 +441,133 @@ export default function InitializedMDXEditor({
         />
       </Container>
 
-      {/* Rich text mode: MDXEditor (includes its own toolbar) — hidden via CSS in markdown mode */}
-      <MDXEditor
-        readOnly={readOnly}
-        placeholder={'Start writing your masterpiece'}
-        className={cn('dark-theme cursor-auto', mode === 'markdown' && 'hidden')}
-        contentEditableClassName="prose prose-neutral prose-invert prose-code:before:content-none prose-code:after:content-none max-w-none px-0! pb-0! pt-4! max-h-[60dvh] overflow-y-auto"
-        plugins={[
-          toolbarPlugin({
-            toolbarClassName: 'bg-background! border rounded-md! flex-wrap',
-            toolbarContents: () => (
-              <>
-                <UndoRedo />
-                <BlockTypeSelect />
-                <BoldItalicUnderlineToggles options={['Bold', 'Italic']} />
-                <StrikeThroughSupSubToggles options={['Strikethrough']} />
-                <ListsToggle options={['bullet', 'number']} />
-                <InsertThematicBreak />
-                <CreateLink />
-                <CodeToggle />
-                <InsertCodeBlock />
-                <ButtonWithTooltip title={'Emoji'} onClick={() => setShowEmojiPicker(true)}>
-                  <Smile className="size-6" />
-                </ButtonWithTooltip>
-                <ButtonWithTooltip title={'Markdown'} onClick={switchToMarkdownMode}>
-                  <MarkdownMark className="size-6" />
-                </ButtonWithTooltip>
-              </>
-            ),
-          }),
-          headingsPlugin(),
-          quotePlugin(),
-          listsPlugin(),
-          thematicBreakPlugin(),
-          linkPlugin(),
-          linkDialogPlugin({
-            showLinkTitleField: false,
-          }),
-          codeBlockPlugin({
-            defaultCodeBlockLanguage: 'plaintext',
-          }),
-          codeMirrorPlugin({
-            codeBlockLanguages: CODE_BLOCK_LANGUAGES,
-            codeMirrorExtensions: [oneDark],
-          }),
-          maxLengthPlugin(ARTICLE_MAX_CHARACTER_LENGTH),
-        ]}
-        {...props}
-        onChange={(markdown, initialMarkdownNormalize) => {
-          updateMaxLengthWarning(markdown);
-          props.onChange?.(markdown, initialMarkdownNormalize);
-        }}
-        ref={editorRef}
-      />
+      {/* Out-of-flow (absolute, zero-size) so it adds no flex gap; popup contents position themselves fixed */}
+      <div ref={setOverlayContainer} data-testid="mdx-editor-overlay-container" className="absolute" />
+
+      {/* Rich text mode: MDXEditor (includes its own toolbar) — hidden via CSS in markdown mode. The
+          wrapper carries the toggle, not MDXEditor's own className: MDXEditor rebuilds its popup
+          container (the tooltips' portal target) whenever that prop changes, and a toolbar button
+          that did not re-render since would keep portaling into the detached one. */}
+      <Container overrideDefaults className={cn(mode === 'markdown' && 'hidden')}>
+        <MDXEditor
+          readOnly={readOnly}
+          overlayContainer={overlayContainer}
+          placeholder={'Start writing your masterpiece'}
+          className="dark-theme cursor-auto"
+          // leading-6, font-medium and text-secondary-foreground mirror PostText's
+          // article body text so the editor previews the published spacing (WYSIWYG).
+          contentEditableClassName="prose prose-neutral prose-invert prose-code:before:content-none prose-code:after:content-none max-w-none leading-6 font-medium text-secondary-foreground px-0! pb-0! pt-4! max-h-[60dvh] overflow-y-auto"
+          plugins={[
+            toolbarPlugin({
+              // Tight gap and padding: the whole row has to fit the feed composer's width (globals.css
+              // trims MDXEditor's own margins for the same reason)
+              toolbarClassName: 'bg-background! border rounded-md! flex-wrap gap-0.5! px-1!',
+              toolbarContents: () => (
+                <>
+                  <UndoRedo />
+                  <BlockTypeSelect />
+                  <BoldItalicUnderlineToggles options={['Bold', 'Italic']} />
+                  <StrikeThroughSupSubToggles options={['Strikethrough']} />
+                  <ListsToggle options={['bullet', 'number']} />
+                  <InsertThematicBreak />
+                  <CreateLink />
+                  {inlineMedia && (
+                    <>
+                      <InsertImage />
+                      <InsertInlineMediaButton mediaKind="video" />
+                      <InsertInlineMediaButton mediaKind="audio" />
+                      <InsertInlineMediaButton mediaKind="pdf" />
+                      <MediaDialogOpenReporter onOpenChange={setIsMediaDialogOpen} />
+                    </>
+                  )}
+                  <CodeToggle />
+                  <InsertCodeBlock />
+                  <ButtonWithTooltip title={'Emoji'} onClick={() => setShowEmojiPicker(true)}>
+                    <Smile className="size-6" />
+                  </ButtonWithTooltip>
+                  <ButtonWithTooltip
+                    title={'Markdown'}
+                    onClick={switchToMarkdownMode}
+                    // Mode switches while an upload is in flight would insert the
+                    // async result into the hidden editor pane
+                    disabled={(inlineMedia?.uploadingCount ?? 0) > 0}
+                  >
+                    <MarkdownMark className="size-6" />
+                  </ButtonWithTooltip>
+                </>
+              ),
+            }),
+            headingsPlugin(),
+            quotePlugin(),
+            listsPlugin(),
+            thematicBreakPlugin(),
+            linkPlugin(),
+            linkDialogPlugin({
+              showLinkTitleField: false,
+            }),
+            codeBlockPlugin({
+              defaultCodeBlockLanguage: 'plaintext',
+            }),
+            codeMirrorPlugin({
+              codeBlockLanguages: CODE_BLOCK_LANGUAGES,
+              codeMirrorExtensions: [oneDark],
+            }),
+            maxLengthPlugin(ARTICLE_MAX_CHARACTER_LENGTH),
+            ...(inlineMedia
+              ? [
+                  imagePlugin({
+                    imageUploadHandler: inlineMedia.upload,
+                    imagePreviewHandler: async (imageSource) => resolvePreview(imageSource),
+                    // CRITICAL: resized images serialize as raw HTML <img> mdast
+                    // nodes, escaping the AST-based attachment rewrite on publish.
+                    disableImageResize: true,
+                    // App-styled responsive dialog with an upload loading state,
+                    // shared with the video/audio/PDF insert flows
+                    ImageDialog: MarkdownEditorMediaDialog,
+                  }),
+                  // Video, audio and PDF nodes: claims the image-syntax nodes whose
+                  // file type the composer knows is not an image (see the plugin)
+                  inlineMediaPlugin({
+                    getMediaType: inlineMedia.getMediaType,
+                    getMediaName: inlineMedia.getMediaName,
+                    getPreviewUrl: resolvePreview,
+                  }),
+                ]
+              : []),
+          ]}
+          {...props}
+          onChange={(markdown, initialMarkdownNormalize) => {
+            updateMaxLengthWarning(markdown);
+            props.onChange?.(markdown, initialMarkdownNormalize);
+          }}
+          ref={editorRef}
+        />
+      </Container>
+
+      {/* Rich-text paste/drop uploads have no dialog or placeholder, so this
+          pill is the only feedback while they're in flight. Portaled to the
+          body and fixed to the viewport (like a toast): every in-dialog anchor
+          can scroll out of view when a long article makes the dialog scroll.
+          Hidden while an insert dialog is open — its Save button already
+          shows the uploading state, and two indicators at once is confusing. */}
+      {mode === 'richtext' &&
+        !isMediaDialogOpen &&
+        (inlineMedia?.uploadingCount ?? 0) > 0 &&
+        createPortal(
+          <Container
+            overrideDefaults
+            className="fixed bottom-6 left-1/2 z-60 flex -translate-x-1/2 cursor-auto flex-row items-center gap-x-2 rounded-full border bg-background px-3 py-1.5 shadow-md"
+            data-testid="richtext-uploading-indicator"
+          >
+            <Spinner size="sm" />
+            <Typography overrideDefaults className="text-sm text-muted-foreground">
+              {(inlineMedia?.uploadingCount ?? 0) > 1
+                ? `Uploading ${inlineMedia?.uploadingCount} files…`
+                : 'Uploading file…'}
+            </Typography>
+          </Container>,
+          document.body,
+        )}
 
       <EmojiPickerDialog open={showEmojiPicker} onOpenChange={setShowEmojiPicker} onEmojiSelect={handleEmojiSelect} />
 

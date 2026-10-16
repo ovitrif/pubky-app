@@ -5,9 +5,11 @@ import { BookmarkController } from '@/controllers/bookmark/bookmark';
 import { PostController } from '@/controllers/post/post';
 import type { Pubky } from '@/models/models.types';
 import { PostStreamTypes } from '@/models/stream/post/postStream.types';
+import { toast } from '@/molecules/Toaster/toast';
 import type { TimelineFeedContextValue } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeed.types';
 import { useTimelineFeedContext } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { mockSession } from '@/test-utils/pubky';
 import { mockAuthStore } from '@/test-utils/stores';
 import { useRemoveDeletedPost } from './useRemoveDeletedPost';
 
@@ -26,17 +28,14 @@ vi.mock('@/controllers/post/post', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: vi.fn(),
+  useAuthStore: Object.assign(vi.fn(), { getState: vi.fn() }),
 }));
 
 vi.mock('@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext', () => ({
   useTimelineFeedContext: vi.fn(),
 }));
 
-const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  toast: mockToast,
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 describe('useRemoveDeletedPost', () => {
   const currentUserPubky = 'current-user' as Pubky;
@@ -67,14 +66,33 @@ describe('useRemoveDeletedPost', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useAuthStore).mockImplementation((selector) =>
-      selector(mockAuthStore({ currentUserPubky: currentUserPubky })),
-    );
+    const auth = mockAuthStore({ hasHydrated: true, currentUserPubky, session: mockSession(), restoreStatus: 'ready' });
+    vi.mocked(useAuthStore).mockImplementation((selector) => selector(auth));
+    vi.mocked(useAuthStore.getState).mockReturnValue(auth);
     vi.mocked(useTimelineFeedContext).mockReturnValue(bookmarksFeed);
     vi.mocked(BookmarkController.exists).mockResolvedValue(true);
     vi.mocked(PostController.getDetails).mockResolvedValue({
       content: JSON.stringify({ name: 'Collection', description: '', items: [postUri] }),
     } as never);
+  });
+
+  it('blocks optimistic removal without sign-in on a temporary restore failure', async () => {
+    const showRecovery = vi.fn();
+    vi.mocked(useAuthStore.getState).mockReturnValue(
+      mockAuthStore({
+        hasHydrated: true,
+        currentUserPubky,
+        restoreStatus: 'temporary-error',
+        session: null,
+        setShowSignInDialog: showRecovery,
+      }),
+    );
+    vi.mocked(useTimelineFeedContext).mockReturnValue(collectionFeed);
+    const { result } = renderHook(() => useRemoveDeletedPost(postId));
+    await act(async () => expect(await result.current.remove()).toBe(false));
+    expect(showRecovery).not.toHaveBeenCalled();
+    expect(removePostsOptimistically).not.toHaveBeenCalled();
+    expect(PostController.commitUpdateCollectionItem).not.toHaveBeenCalled();
   });
 
   it('allows removal from the signed-in user bookmarks', () => {
@@ -98,7 +116,7 @@ describe('useRemoveDeletedPost', () => {
       removePromise = result.current.remove();
     });
 
-    expect(removePostsOptimistically).toHaveBeenCalledWith(postId);
+    await waitFor(() => expect(removePostsOptimistically).toHaveBeenCalledWith(postId));
     expect(removePostsOptimistically.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(BookmarkController.commitDelete).mock.invocationCallOrder[0],
     );
@@ -112,7 +130,7 @@ describe('useRemoveDeletedPost', () => {
 
     expect(rollbackRemoval).not.toHaveBeenCalled();
     expect(commitRemoval).toHaveBeenCalledTimes(1);
-    expect(mockToast).toHaveBeenCalledWith({ title: 'Post removed from bookmarks' });
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({ title: 'Post removed from bookmarks' });
   });
 
   it('removes a deleted post from an owned collection', async () => {
@@ -132,7 +150,7 @@ describe('useRemoveDeletedPost', () => {
       postId,
       shouldAdd: false,
     });
-    expect(mockToast).toHaveBeenCalledWith({ title: 'Post removed from collection.' });
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({ title: 'Post removed from collection.' });
   });
 
   it('restores the bookmark card when persistence fails', async () => {
@@ -146,7 +164,7 @@ describe('useRemoveDeletedPost', () => {
 
     expect(removePostsOptimistically).toHaveBeenCalledWith(postId);
     expect(rollbackRemoval).toHaveBeenCalledTimes(1);
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Could not remove bookmark',
     });
@@ -167,7 +185,7 @@ describe('useRemoveDeletedPost', () => {
     expect(commitRemoval).toHaveBeenCalledTimes(1);
     // The card stays removed (local delete committed), so the toast must not
     // claim the removal failed outright — only that the sync did.
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'warning',
       description: 'Removed from bookmarks on this device, but syncing failed.',
     });
@@ -184,7 +202,7 @@ describe('useRemoveDeletedPost', () => {
     });
 
     expect(rollbackRemoval).toHaveBeenCalledWith();
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Failed to update collection.',
     });
@@ -206,7 +224,7 @@ describe('useRemoveDeletedPost', () => {
     expect(PostController.getDetails).toHaveBeenCalledWith({ compositeId: collectionId });
     expect(rollbackRemoval).not.toHaveBeenCalled();
     expect(commitRemoval).toHaveBeenCalledTimes(1);
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'warning',
       description: 'Removed from the collection on this device, but syncing failed.',
     });
@@ -228,7 +246,7 @@ describe('useRemoveDeletedPost', () => {
 
     expect(rollbackRemoval).toHaveBeenCalledTimes(1);
     expect(commitRemoval).not.toHaveBeenCalled();
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Failed to update collection.',
     });
@@ -247,7 +265,7 @@ describe('useRemoveDeletedPost', () => {
 
     expect(rollbackRemoval).toHaveBeenCalledTimes(1);
     expect(commitRemoval).not.toHaveBeenCalled();
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Failed to update collection.',
     });
@@ -267,7 +285,7 @@ describe('useRemoveDeletedPost', () => {
       void result.current.remove();
     });
 
-    expect(removePostsOptimistically).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(removePostsOptimistically).toHaveBeenCalledTimes(1));
     expect(BookmarkController.commitDelete).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -304,7 +322,9 @@ describe('useRemoveDeletedPost', () => {
   });
 
   it('does not allow removal without an authenticated user', () => {
-    vi.mocked(useAuthStore).mockImplementation((selector) => selector(mockAuthStore({ currentUserPubky: null })));
+    vi.mocked(useAuthStore).mockImplementation((selector) =>
+      selector(mockAuthStore({ hasHydrated: true, currentUserPubky: null })),
+    );
 
     const { result } = renderHook(() => useRemoveDeletedPost(postId));
 

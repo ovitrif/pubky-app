@@ -21,6 +21,7 @@ Then adapt to project structure. Don't recreate from scratch.
 - Use exact sizes, colors, spacing from Figma
 - Verify using screenshots or MCP Figma tools
 - Test all states (hover, focus, disabled, active)
+- For icon and circular nav buttons, read active vs inactive styling (background, border, shadow) from the Shadcn `Button` variants (`Selected` vs `Default`), not from the parent frame or another surface's pattern
 
 Main Figma project: [shadcn_ui-PUBKY](https://www.figma.com/design/01ZvjSPZnKTNmaEWz0yJsq/shadcn_ui-PUBKY)
 
@@ -38,7 +39,7 @@ templates/ → Page layouts
 ```
 src/components/atoms/Button/
 ├── Button.tsx           # Main component
-├── Button.test.tsx      # Unit + snapshot tests
+├── Button.test.tsx      # Unit tests
 └── Button.types.ts      # Type definitions
 ```
 
@@ -47,7 +48,17 @@ Do not add `index.ts` / `index.tsx` under `src/components` whose sole job is re-
 ### Config and app routes
 
 - **Config:** import from `@/config/<topic>` (concrete modules under `src/config/`, such as `@/config/nexus`, `@/config/posts`). Do not introduce an aggregate `src/config/index.ts` that re-exports the whole tree.
-- **Routes:** import route constants and helpers from `@/app/routes` (implemented in `src/app/routes.ts`). Use named imports; use `import type` when you only need types from a colocated `*.types.ts` file.
+- **Routes:** import route constants and helpers from `@/app/routes` (implemented in `src/app/routes.ts`). Use named imports; use `import type` when you only need types from a colocated `*.types.ts` file. Never hardcode a path string in a component; add or use a builder (`getProfileRoute`, `getCollectionRoute`, …).
+- **Active nav state:** a nav item that links to a default child route (footer Settings → `SETTINGS_ROUTES.ACCOUNT`) but must stay active on sibling routes (`/settings/notifications`) needs active detection on the parent prefix (`activePrefix: APP_ROUTES.SETTINGS`, see `MobileFooter`), not only `href` or `pathname.startsWith(href + '/')`.
+
+`MobileFooter` always disables prefetch for Search. With Next.js 16.3.6, any `/search` prefetch from the footer after a
+search with query params has rendered can loop on metadata requests, including after navigating to Home or opening a
+post modal. Optimistic route prediction omits the parallel `@post/[...catchAll]` parameter from the cache key
+([#2755](https://github.com/pubky/pubky-app/issues/2755), [reproduction and upgrade checks](search-prefetch-loop.md)).
+Already-active Home also skips prefetch because its click only scrolls to the top via `handleFeedNavClick`; active
+Search keeps that behavior and preserves its query. Other destinations retain Next's default prefetch behavior,
+including Settings and Collections when their parent prefix is active on a different child route. Verify with a
+production build; automatic prefetching is disabled in development.
 
 #### Explore mode (unauthenticated browsing)
 
@@ -61,6 +72,7 @@ Guests can open routes that do not require a session:
 
 - **Route guard:** `EXPLORE_ROUTES` is included in `UNAUTHENTICATED_ROUTES`; dynamic public paths are allowed via `isDynamicPublicRoute()` in `RouteGuardProvider`.
 - **UI chrome:** use `usePublicRoute()` for layout (e.g. explore header, mobile footer on `/home`). `isPublicRoute` on the hook result is a **legacy alias** for `isDynamicPublicRoute` only—it is `false` on `/home` even though the page is browsable.
+- **Account identity in the UI:** Header, mobile footer and composers use `selectDisplayUserPubky` from `@/stores/auth/auth.selectors`. Keep the saved identity visible while restoring; show guest chrome after `reauth-required` or `temporary-error`, preserving the stored identity and draft. This selector only controls display; action guards still require a ready session.
 - **Auth-gated actions:** use `useRequireAuth().requireAuth()` for post, reply, follow, filters, etc. Streams for guests should use `REACH.ALL` (see `useStreamIdFromFilters`, `useHotStreamId`).
 
 ## Component Template
@@ -144,7 +156,7 @@ export { Home as default } from '@/templates/Feed/Home/Home';
 
 ## Icons (Lucide and custom)
 
-Icons are split on purpose: **stock Lucide** ships from the `lucide-react` package; **app-owned SVGs** (brands, bespoke marks, non-Lucide shapes) live in a single module behind the **`@/icons`** path alias (`src/libs/icons/icons.tsx`).
+Icons are split on purpose: **stock Lucide** ships from the `lucide-react` package; **app-owned SVGs** (brands, bespoke marks, non-Lucide shapes) live in a single module behind the **`@/icons`** path alias (`src/libs/icons/icons.tsx`); **data-driven Lucide icons** (an icon _name_ stored on a record, e.g. a custom feed's icon) render through the `DynamicLucideIcon` atom.
 
 ### Stock Lucide icons
 
@@ -153,6 +165,26 @@ import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 ```
 
 Use named imports from `lucide-react` only.
+
+### Data-driven Lucide icons (`DynamicLucideIcon`)
+
+When the icon is chosen at runtime from data (a kebab-case Lucide name like `"folder-heart"` stored on a feed), a static named import is impossible. Render it with the **`DynamicLucideIcon`** atom (`@/atoms/DynamicLucideIcon/DynamicLucideIcon`):
+
+```tsx
+<DynamicLucideIcon name={feed.icon} className="size-5" />
+```
+
+Icon state lives in a module-level store in **`@/libs/lucide/lucideIcons`** (`subscribeToLucideIcons`, `getLucideIconState`, `requestLucideIcon`, `preloadLucideIcons`), read through `useSyncExternalStore`. The full Lucide catalog (`lucide-react/dynamic.js`, ~116KB raw) and the picker's alias/tag metadata are lazily-loaded chunks — nothing icon-related ships in the initial bundle; sync callers can only normalize a name's shape (`toLucideIconName`, which lowercases so an icon another client stored as `Activity` still resolves), and the store answers unknown names once the catalog is resident. Once an icon has resolved anywhere in the session it renders synchronously everywhere, a loaded icon carries the same `lucide-<name>` class as a static import, and a failed chunk heals every mounted instance when any retry succeeds. While a valid name is still loading, the atom renders an empty size-preserving svg — never a wrong icon; the `fallback` prop (default `Activity`) covers missing, unknown, and failed names. Call `preloadLucideIcons(names)` when the icon names become known (e.g. when feed data lands) so mounts hit the cache. Never use this path for static UI icons — those stay named imports.
+
+The icon picker takes a different route on purpose: it loads **all** canonical icon nodes in a single lazy chunk (`lucideIcons.nodes.ts`) instead of one chunk per cell, because it renders ~1700 of them and the per-icon path would cost ~1700 requests. Feed tabs keep the per-icon path — they render a handful of icons and must not pull the whole set.
+
+Three files under `@/libs/lucide` are generated from the installed `lucide-react` and must be regenerated after a lucide upgrade:
+
+| File                     | Contents                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `lucideIcons.nodes.ts`   | every canonical icon's node, for the picker's single-chunk load                                              |
+| `lucideIcons.aliases.ts` | deprecated alias → canonical name, so the grid hides duplicate glyphs and search still finds old names       |
+| `lucideIcons.tags.ts`    | search synonyms pruned from `lucide-static`'s `tags.json`, hyphenated to match the picker's normalized query |
 
 ### Custom / brand icons
 
@@ -170,9 +202,33 @@ Helpers such as **`getIconFromUrl`** and **`getLabelFromUrl`** live in **`@/libs
 
 Component tests must use **real** `lucide-react` and `@/icons` implementations (no `vi.mock('lucide-react')` / `vi.mock('@/icons')` for icons). See `docs/component-testing.md` — _Icon components: Always Real_.
 
+## Article composer
+
+Article mode in `PostInput` is tabbed. The `Tabs` atom (Radix, underline style) hosts the row rendered by the
+`ArticleComposerTabs` molecule: **Content** (the rich-text editor), **Header** (the cover slot in
+`PostInputAttachments`) and **Preview**; below `lg` the title gets a **Title** tab of its own, and the tabs are
+icon-only. Content, Title and Header panels stay mounted while another tab shows (`forceMount` +
+`data-[state=inactive]:hidden`): the editor imports its markdown once and the title field is uncontrolled, so
+unmounting either would lose what the user typed since the last debounce. Tags and the action bar sit under every
+tab; the author's avatar and a browser fullscreen toggle (`useFullscreen`, document-level because Radix portals
+render on `body`) live in the action bar.
+
+**Preview** is `ArticleComposerPreview`, which renders the draft through the published path (`PostText` with
+`articleMedia`): the body goes through `serializeArticleBody`, and the resulting `attachment:{n}` slots are fed
+`[cover?, ...inline]` local entries built from the composer session (object URLs for this session's uploads, CDN
+URLs for files kept from the published article). It is never a second renderer, and its links are inert.
+
+## Article inline media
+
+`PostText` renders an article body's `![alt](src)` nodes through `ArticleInlineMedia` whenever the surface passes `articleMedia` (the article detail page and unlocked content; feed previews pass nothing and strip them). `ArticleInlineMedia` routes by the resolved kind: images to `ArticleInlineImage`, videos and audio to the `Video` / `Audio` atoms, PDFs to a file card. The kind comes from file metadata, not the markdown (`docs/data-patterns.md`, _Article Inline Media_).
+
+Everything these render sits inside a markdown `<p>`, so it is phrasing content only: `span`, `img`, `video`, `audio`, `a` — never `div`, `Container` or `Typography`'s default `<p>`. External sources use `preload="none"`; media elements have no referrer policy.
+
 ## Toasts
 
-Stack: atom [`Toast`](src/components/atoms/Toast/Toast.tsx) + [`Toast.variants.ts`](src/components/atoms/Toast/Toast.variants.ts) + [`Toast.icons.tsx`](src/components/atoms/Toast/Toast.icons.tsx), molecule [`Toaster`](src/components/molecules/Toaster/Toaster.tsx), API [`toast()`](src/components/molecules/Toaster/use-toast.ts) / `useToast()`. `<Toaster />` is mounted in the app layout.
+Stack: atom [`Toast`](src/components/atoms/Toast/Toast.tsx) + [`Toast.variants.ts`](src/components/atoms/Toast/Toast.variants.ts) + [`Toast.icons.tsx`](src/components/atoms/Toast/Toast.icons.tsx), molecule [`Toaster`](src/components/molecules/Toaster/Toaster.tsx), public API [`toast()`](src/components/molecules/Toaster/toast.ts). `<Toaster />` is mounted in the app layout.
+
+`toast()` from `@/molecules/Toaster/toast` is the **only** public producer API. The state store (`toast.store.ts`), the state hook (`useToastState.ts`), and the Radix renderer atoms in `@/atoms/Toast/*` are private to the Toaster module — an ESLint `no-restricted-imports` rule blocks application code from importing them.
 
 ### Variants (`ToastVariant`)
 
@@ -185,36 +241,72 @@ Icons are **not** stock Lucide — they are bespoke filled shapes with knocked-o
 | `warning` | Caution, rate limits, recoverable problems      | `ToastWarningIcon`   |
 | `info`    | Informational feedback (e.g. copy-to-clipboard) | `ToastInfoIcon`      |
 
-Colors and per-variant styling live in `Toast.variants.ts` (`toastVariants`, `toastIconVariants`, `toastActionVariants`). Update tokens there — do not ad-hoc style toasts with `className` unless intentionally overriding.
+Colors and per-variant styling live in `Toast.variants.ts` (`toastVariants`, `toastIconVariants`, `toastActionVariants`). Update tokens there — toasts cannot be styled ad hoc; the public API exposes no styling props.
 
 ### Calling `toast()`
 
 ```tsx
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 
 // Success / default (brand styling)
-toast({ title: t('saved'), description: t('savedDesc') });
+toast({ title: 'Saved', description: 'Your changes were saved.' });
 
-// Error — omit title to use toast.genericErrorTitle (filled in by Toaster)
-toast({ variant: 'error', description: t('failed') });
+// Error — omit title and the Toaster renders the generic literal `Error` title
+toast({ variant: 'error', description: 'Could not publish post.' });
 
 // Custom error title when domain copy is specific
-toast({ variant: 'error', title: t('uploadFailed'), description: t('uploadFailedDesc') });
+toast({ variant: 'error', title: 'Upload failed', description: 'The file exceeds the size limit.' });
 
 // Warning / info
-toast({ variant: 'warning', title: t('headsUp'), description: t('...') });
-toast({ variant: 'info', title: t('copied'), description: text, dismissButton: true });
+toast({ variant: 'warning', title: 'Heads up', description: 'You are posting quickly.' });
+toast({ variant: 'info', title: 'Copied to clipboard', dismissButton: true });
+
+// Custom action (e.g. repost Undo) — the Toaster renders the button and
+// dismisses the toast when it is clicked
+toast({ title: 'Reposted', action: { label: 'Undo', altText: 'Undo', onClick: () => undoRepost() } });
 ```
 
-- Import `toast` from `@/molecules/Toaster/use-toast` (module-level; works in hooks and providers). Use `useToast()` in components when you only need the hook-bound `toast`.
-- **`variant: 'error'`** for errors — not `title: tToast('error')`, not `className: 'destructive …'`, and **no** `showErrorToast` / `showSuccessToast` wrapper helpers.
-- **`dismissButton: true`** when the toast should show an OK action (styled via `toastActionVariants` for the toast variant).
-- **`action`** for a custom `<ToastAction>` (e.g. repost Undo). Pass `variant` on `ToastAction` when it is not rendered by `Toaster`.
-- **`toast()` return value** supports `dismiss()` / `update()` (e.g. Undo flow).
+- `ToastOptions` requires at least one of `title` / `description` (both `string`), and exposes only app concepts: `variant`, `dismissButton`, `action`, `persistent`. Radix lifecycle, duration, open-state, and styling props are not part of the public API.
+- **`variant: 'error'`** for errors — not `className: 'destructive …'`, and **no** `showErrorToast` / `showSuccessToast` wrapper helpers.
+- **`dismissButton: true`** when the toast should show an OK action (brand-styled on default toasts, muted otherwise, via `toastActionVariants`).
+- **`action`** is a plain descriptor `{ label, altText, onClick }` — never a component. The Toaster owns action rendering and styling, and dismisses the toast before invoking `onClick`. The producing dialog or menu has usually unmounted by then, so an `onClick` that mutates waits with `useRequireAuth`'s `outlivesOwner` (ADR-0024), as the repost Undo does.
+- **`toast()` returns a `ToastHandle`** with `dismiss()` for dismissing that toast programmatically.
+- **`persistent: true`** keeps a toast open until its action, the dismiss button, or a swipe removes it (no auto-dismiss), and it does not count toward the toast limit, so later transient toasts stack next to it instead of evicting it. Reserve it for state the user must resolve, such as the "Update available" toast in `useServiceWorkerUpdate`; normal feedback stays transient.
+
+### Copy is static
+
+Toast `title` / `description` strings are fixed product copy. Never interpolate user-entered text into them — feed names, tag labels, display names, file names, or anything else a user typed. Toasts are narrow and user text is unbounded: a long feed name turns a one-line confirmation into a wrapped block (and, before the title learned to break long words, was clipped at the edge — see [#2419](https://github.com/pubky/pubky-app/issues/2419)). Say what happened generically instead:
+
+```tsx
+// ❌ user-defined value — overflows the toast
+toast({ title: `Feed created: ${feed.name}` });
+toast({ title: `Tag added: ${label}` });
+toast({ description: `${file.name} exceeds the 20MB limit.` });
+
+// ✅ static, still informative
+toast({ title: 'Feed created' });
+toast({ title: 'Tag added' });
+toast({ variant: 'error', description: 'Image exceeds the 20MB limit.' });
+```
+
+Short bounded values are fine to interpolate: build-time config constants (for example `ARTICLE_ATTACHMENT_MAX_FILES` or a size label derived from `IMAGE_MAX_RAW_SIZE`), small numbers such as counts or retry-after seconds, and authored `AppError` messages from the `Err.*` factories. Choosing between two literals with a ternary is also fine.
 
 ### Tests
 
-Mock `@/molecules/Toaster/use-toast` in unit tests; assert `variant: 'error'` (or other variant) instead of `title: 'Error'`.
+Mock `@/molecules/Toaster/toast` in unit tests (`vi.mock('@/molecules/Toaster/toast', () => ({ toast: ... }))`); assert `variant: 'error'` (or other variant) instead of `title: 'Error'`. The Toaster module's own tests render the real `<Toaster />` and trigger notifications through the real `toast()`.
+
+## Forms
+
+Build forms with `react-hook-form` + `zod` (via `@hookform/resolvers/zod`). Canonical example: `src/hooks/useCreateCollection/useCreateCollection.ts` with its sibling `useCreateCollection.types.ts`.
+
+- **The hook owns the form.** Form components never call `commit*` controllers directly: wrap the mutation in a hook named `use{Action}Form` or `use{Verb}{Entity}` that returns `{ form, submit, reset, ... }`.
+- **`submit()` returns `Promise<boolean>`** so the caller decides what to do on success. A form hook may instead return the created entity id as `Promise<string | null>` when the caller needs to navigate to it (`useCreateCollection`).
+- **Schema, types and defaults live in the sibling `*.types.ts`**: the zod schema, a `*_FORM_FIELDS` map, the inferred type and the default values.
+- **Fields render `Controller`**, using the `ControlledInputField` / `ControlledTextareaField` molecules where applicable.
+- **Non-text inputs** (file pickers, rich text, cover images) live in their own dedicated hooks (for example `useCoverImagePicker`) that the form hook composes.
+- **Validation messages** are literal US-English strings in the schema.
+- **Zod v4**: use `z.url()`, not the deprecated `z.string().url()`.
+- **On failure**, map the `AppError` to `toast({ variant: 'error', ... })`. Do not add a `Logger.error` of your own: `Err.*` factories already log and capture the failure (ADR-0015).
 
 ## Design System Integration
 
@@ -239,9 +331,22 @@ Mock `@/molecules/Toaster/use-toast` in unit tests; assert `variant: 'error'` (o
 
 // No arbitrary sizes
 <Avatar className="h-[37px] w-[37px]" />
+
+// Allowed: a viewport fraction or a calc() with no named utility
+<div className="max-h-[75dvh]" />
+<div className="max-h-[calc(100dvh-2rem)]" />
 ```
 
+An arbitrary value is fine only when the scale cannot express it: a viewport fraction with no named utility (`max-h-[75dvh]`; the full viewport is `h-dvh`, `max-h-screen`, `max-w-screen`), a `calc()` over the viewport or a CSS variable (`max-h-[calc(100dvh-2rem)]` in the `Dialog` atom), or a CSS variable set by a library (`translate-x-[var(--radix-toast-swipe-move-x)]`). Fixed lengths and colours always come from the scale and the tokens.
+
 ### Spacing
+
+Page-level headers and content share the 1200px container token and `CONTENT_GUTTER_CLASS`
+from `@/config/layoutClasses`: 16px side padding below `lg`, 24px from `lg`, and no
+internal side padding from `xl` (1280px), where the centered container supplies the
+outer space. Apply the gutter once to the width-constrained shell, including auth,
+onboarding, edit profile, and landing sections. Header spacing does not depend on
+the route or authentication state. Full-width section backgrounds stay outside this shell.
 
 ```tsx
 // Use Tailwind spacing scale
@@ -266,7 +371,7 @@ const Button = (props: ButtonProps) => <button {...props} />;
 ### Available MCP Tools
 
 - `get_metadata` — Component structure and metadata
-- `get_code` — Generate UI code from Figma nodes
+- `get_design_context` — Generate UI code from Figma nodes
 - `get_screenshot` — Visual comparison screenshots
 - `get_variable_defs` — Design tokens and variables
 
@@ -289,7 +394,7 @@ When migrating/creating a component:
 - [ ] Component imports point at concrete files (e.g. `@/atoms/Button/Button`), not aggregate folder indexes or re-export-only paths
 - [ ] All Figma variants implemented
 - [ ] CVA used for variant management
-- [ ] Tests created (unit + snapshot) — see `docs/component-testing.md`
+- [ ] Unit tests created — see `docs/component-testing.md`; VRT updated when a visual surface changed
 - [ ] Build passes (`npm run build`)
 - [ ] Visual verification in browser
 
@@ -302,6 +407,6 @@ When creating/modifying components:
 - [ ] Using concrete `@/atoms/*`, `@/molecules/*`, `@/organisms/*`, or `@/templates/*` imports?
 - [ ] Design tokens (not hardcoded colors)?
 - [ ] Figma sizing/spacing matched?
-- [ ] Tests created (unit + snapshot)?
+- [ ] Unit tests created, and VRT updated if a visual surface changed?
 - [ ] No re-export-only `index.ts` / `index.tsx` added under `src/components`?
 - [ ] Build passes?

@@ -1,6 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ClipboardEvent } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from '@/molecules/Toaster/toast';
+import type { AuthStore } from '@/stores/auth/auth.types';
+import { mockSession } from '@/test-utils/pubky';
+import { mockAuthStore } from '@/test-utils/stores';
 import { asInvalid } from '@/test-utils/type-assertions';
 import { useAddContentForm } from './useAddContentForm';
 import { ADD_CONTENT_FORM_FIELDS } from './useAddContentForm.types';
@@ -15,6 +19,8 @@ const COLLECTION_ID = `${VIEWER}:collection-1`;
 
 const mocks = vi.hoisted(() => ({
   currentUserPubky: 'v'.repeat(52) as string | null,
+  restoreStatus: 'ready' as 'ready' | 'reauth-required',
+  showSignIn: vi.fn(),
   bookmarkExists: vi.fn(),
   commitCreateBookmark: vi.fn(),
   getOrFetchPost: vi.fn(),
@@ -37,10 +43,21 @@ vi.mock('@/controllers/post/post', () => ({
   },
 }));
 
-vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string | null }) => unknown) =>
-    selector({ currentUserPubky: mocks.currentUserPubky }),
-}));
+vi.mock('@/stores/auth/auth.store', () => {
+  const getState = () =>
+    mockAuthStore({
+      hasHydrated: true,
+      currentUserPubky: mocks.currentUserPubky,
+      session: mocks.restoreStatus === 'ready' ? mockSession() : null,
+      restoreStatus: mocks.restoreStatus,
+      setShowSignInDialog: mocks.showSignIn,
+    });
+  return {
+    useAuthStore: Object.assign((selector: (state: AuthStore) => unknown) => selector(getState()), { getState }),
+  };
+});
+
+vi.mock('@/molecules/Toaster/toast');
 
 function livePost() {
   return {
@@ -80,12 +97,33 @@ describe('useAddContentForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.currentUserPubky = VIEWER;
+    mocks.restoreStatus = 'ready';
     mocks.bookmarkExists.mockResolvedValue(false);
     mocks.commitCreateBookmark.mockResolvedValue(undefined);
     mocks.getOrFetchPost.mockResolvedValue(livePost());
     mocks.getCollectionDetails.mockResolvedValue(collectionDetails([]));
     mocks.commitUpdateCollectionItem.mockResolvedValue(undefined);
     mocks.onSuccess.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'clipboard');
+    Reflect.deleteProperty(navigator, 'permissions');
+  });
+
+  it('does not save collection content after authorization is lost during lookup', async () => {
+    mocks.getOrFetchPost.mockImplementationOnce(async () => {
+      mocks.restoreStatus = 'reauth-required';
+      return livePost();
+    });
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'collection', collectionId: COLLECTION_ID } }),
+    );
+    await act(async () => {
+      expect(await result.current.submit(POST_URL)).toBe(false);
+    });
+    expect(mocks.commitUpdateCollectionItem).not.toHaveBeenCalled();
+    expect(mocks.showSignIn).toHaveBeenCalledWith(true);
   });
 
   it('rejects invalid post references', async () => {
@@ -296,5 +334,161 @@ describe('useAddContentForm', () => {
 
     await waitFor(() => expect(mocks.commitCreateBookmark).toHaveBeenCalled());
     expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('submits clipboard text from pasteFromClipboard', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn().mockResolvedValue(POST_URL) },
+    });
+
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    await act(async () => {
+      await result.current.pasteFromClipboard();
+    });
+
+    await waitFor(() => expect(mocks.commitCreateBookmark).toHaveBeenCalled());
+    expect(vi.mocked(toast)).not.toHaveBeenCalled();
+  });
+
+  it('toasts when pasteFromClipboard cannot read the clipboard', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    await act(async () => {
+      await result.current.pasteFromClipboard();
+    });
+
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Could not read clipboard.',
+    });
+  });
+
+  it('explains how to unblock a denied clipboard permission', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+    Object.defineProperty(navigator, 'permissions', {
+      configurable: true,
+      value: { query: vi.fn().mockResolvedValue({ state: 'denied' }) },
+    });
+
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    await act(async () => {
+      await result.current.pasteFromClipboard();
+    });
+
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: "Clipboard access is blocked. Allow it in your browser's site settings, or paste manually.",
+    });
+  });
+
+  it('ignores a second paste click while the first is still reading', async () => {
+    let resolveRead!: (value: string) => void;
+    const readText = vi.fn(() => new Promise<string>((resolve) => (resolveRead = resolve)));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText } });
+
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    await act(async () => {
+      first = result.current.pasteFromClipboard();
+      second = result.current.pasteFromClipboard();
+      resolveRead(POST_URL);
+      await Promise.all([first, second]);
+    });
+
+    expect(readText).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.commitCreateBookmark).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not clobber text typed while the clipboard read is pending', async () => {
+    let resolveRead!: (value: string) => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn(() => new Promise<string>((resolve) => (resolveRead = resolve))) },
+    });
+
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    let pastePromise!: Promise<void>;
+    await act(async () => {
+      pastePromise = result.current.pasteFromClipboard();
+      result.current.form.setValue(ADD_CONTENT_FORM_FIELDS.POST_URL, 'typed-while-waiting');
+      resolveRead(POST_URL);
+      await pastePromise;
+    });
+
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(result.current.form.getValues(ADD_CONTENT_FORM_FIELDS.POST_URL)).toBe('typed-while-waiting');
+  });
+
+  it('does not submit a clipboard read that resolves after unmount', async () => {
+    let resolveRead!: (value: string) => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn(() => new Promise<string>((resolve) => (resolveRead = resolve))) },
+    });
+
+    const { result, unmount } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    let pastePromise!: Promise<void>;
+    act(() => {
+      pastePromise = result.current.pasteFromClipboard();
+    });
+    unmount();
+
+    await act(async () => {
+      resolveRead(POST_URL);
+      await pastePromise;
+    });
+
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(mocks.onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized pasted values without writing them into the form', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn().mockResolvedValue('x'.repeat(5000)) },
+    });
+
+    const { result } = renderHook(() =>
+      useAddContentForm({ target: { type: 'bookmarks' }, onSuccess: mocks.onSuccess }),
+    );
+
+    await act(async () => {
+      await result.current.pasteFromClipboard();
+    });
+
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(result.current.form.getValues(ADD_CONTENT_FORM_FIELDS.POST_URL)).toBe('');
+    expect(result.current.form.getFieldState(ADD_CONTENT_FORM_FIELDS.POST_URL).error?.message).toBe(
+      'Enter a valid post URL.',
+    );
   });
 });

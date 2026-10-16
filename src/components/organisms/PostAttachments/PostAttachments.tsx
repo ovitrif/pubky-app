@@ -1,69 +1,72 @@
 'use client';
-import { useEffect, useState } from 'react';
 import { Container } from '@/atoms/Container/Container';
-import { FileController } from '@/controllers/file/file';
+import { useAttachmentsMetadata } from '@/hooks/useAttachmentsMetadata/useAttachmentsMetadata';
+import { POST_CONTENT_PENDING_PROPS } from '@/hooks/useCardsLayout/useCardsLayout.utils';
 import { usePauseMediaOutsideViewport } from '@/hooks/usePauseMediaOutsideViewport/usePauseMediaOutsideViewport';
+import { cn } from '@/libs/utils/utils';
 import { PostAttachmentsAudios } from '@/molecules/PostAttachmentsAudios/PostAttachmentsAudios';
 import { PostAttachmentsGenericFiles } from '@/molecules/PostAttachmentsGenericFiles/PostAttachmentsGenericFiles';
 import { PostAttachmentsImagesAndVideos } from '@/molecules/PostAttachmentsImagesAndVideos/PostAttachmentsImagesAndVideos';
-import { useToast } from '@/molecules/Toaster/use-toast';
+import { PostMediaCarousel } from '@/molecules/PostMediaCarousel/PostMediaCarousel';
+import { toast } from '@/molecules/Toaster/toast';
 import { categorizeAttachments, splitAttachmentsByMediaType } from './PostAttachments.helpers';
-import type { AttachmentConstructed, PostAttachmentsProps } from './PostAttachments.types';
+import { PostAttachmentsSkeleton } from './PostAttachments.skeleton';
+import type { PostAttachmentsProps } from './PostAttachments.types';
 
-export const PostAttachments = ({ attachments, localAttachments, mediaVariant = 'default' }: PostAttachmentsProps) => {
+export const PostAttachments = ({
+  attachments,
+  localAttachments,
+  mediaVariant = 'default',
+  className,
+  children,
+  pendingAttachments = [],
+}: PostAttachmentsProps) => {
   const mediaContainerRef = usePauseMediaOutsideViewport();
-  const [imagesAndVideos, setImagesAndVideos] = useState<AttachmentConstructed[]>([]);
-  const [audios, setAudios] = useState<AttachmentConstructed[]>([]);
-  const [genericFiles, setGenericFiles] = useState<AttachmentConstructed[]>([]);
 
-  const { toast } = useToast();
-  useEffect(() => {
-    const constructAttachments = async () => {
-      if (!attachments?.length) return;
+  // Local (unsynced) attachments win over the published ones, and while they
+  // exist there is nothing to resolve from the local file table.
+  const { files, isLoading } = useAttachmentsMetadata({
+    fileUris: attachments ?? [],
+    enabled: !localAttachments?.length,
+    onError: () => toast({ variant: 'error', description: 'Could not load attachments' }),
+  });
 
-      try {
-        const result = await FileController.getMetadata({ fileAttachments: attachments });
-        const { imagesAndVideos, audios, genericFiles } = splitAttachmentsByMediaType(result);
+  const { imagesAndVideos, audios, genericFiles } = localAttachments?.length
+    ? categorizeAttachments(localAttachments)
+    : splitAttachmentsByMediaType(files);
 
-        setImagesAndVideos(imagesAndVideos);
-        setAudios(audios);
-        setGenericFiles(genericFiles);
-      } catch {
-        toast({
-          variant: 'error',
-          description: 'Could not load attachments',
-        });
-      }
-    };
+  if (pendingAttachments.length > 0 && mediaVariant === 'default') {
+    return <PostAttachmentsSkeleton attachments={pendingAttachments} className={className} />;
+  }
 
-    const constructLocalAttachments = () => {
-      if (!localAttachments?.length) return;
-
-      const { imagesAndVideos, audios, genericFiles } = categorizeAttachments(localAttachments);
-
-      setImagesAndVideos(imagesAndVideos);
-      setAudios(audios);
-      setGenericFiles(genericFiles);
-    };
-
-    if (localAttachments) {
-      constructLocalAttachments();
-    } else {
-      constructAttachments();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- toast is an external side-effect, not a dependency
-  }, [attachments, localAttachments]);
-
-  if (!imagesAndVideos.length && !audios.length && !genericFiles.length) return null;
+  const isContentPending = mediaVariant === 'cards' && isLoading;
+  if (!imagesAndVideos.length && !audios.length && !genericFiles.length && !children && !isContentPending) return null;
 
   return (
-    <Container ref={mediaContainerRef} className="gap-3">
+    <Container
+      ref={mediaVariant !== 'cards' || audios.length > 0 ? mediaContainerRef : undefined}
+      className={cn(mediaVariant === 'cards' ? 'gap-6' : 'gap-3', className)}
+    >
+      {isContentPending && <span hidden {...POST_CONTENT_PENDING_PROPS} />}
       {imagesAndVideos.length ? (
         <PostAttachmentsImagesAndVideos
           imagesAndVideos={imagesAndVideos}
-          {...(mediaVariant !== 'default' ? { variant: mediaVariant } : {})}
+          {...(mediaVariant === 'list' ? { variant: mediaVariant } : {})}
+          renderTrigger={
+            mediaVariant === 'cards'
+              ? ({ imagesAndVideos, openPreview, isPreviewOpen }) => (
+                  <PostMediaCarousel
+                    key={imagesAndVideos.map((media) => media.urls.main).join(',')}
+                    media={imagesAndVideos}
+                    onOpenPreview={openPreview}
+                    isPreviewOpen={isPreviewOpen}
+                  />
+                )
+              : undefined
+          }
         />
       ) : null}
+      {children}
       {audios.length ? <PostAttachmentsAudios audios={audios} /> : null}
       {genericFiles.length ? <PostAttachmentsGenericFiles genericFiles={genericFiles} /> : null}
     </Container>

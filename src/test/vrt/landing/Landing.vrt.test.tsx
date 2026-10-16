@@ -2,8 +2,8 @@
 // Vitest `__vi_import_N__` aliases; reordering causes a TDZ crash in
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
-import { preloadImages, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { describe, it, vi } from 'vitest';
+import { matchVrtFrameScreenshot, preloadImages, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { createZustandLikeHook } from '@/test-utils/stores';
 import { Header } from '@/organisms/Header/Header';
@@ -45,7 +45,9 @@ vi.mock('next/navigation', () => {
 });
 
 // Autoplaying `/pubky.mp4` would capture a non-deterministic frame. Keep the
-// desktop layout slot (aspect-video card) as a static stand-in.
+// layout slot (aspect-video card) as a static stand-in, but only from `md` up:
+// the real component returns null below it (`matchMedia` on BREAKPOINTS.md), so
+// a stand-in that always renders would show a video the mobile page never has.
 vi.mock('@/templates/Public/Landing/LandingVideo', async () => {
   const { createElement } = await import('react');
   return {
@@ -53,7 +55,7 @@ vi.mock('@/templates/Public/Landing/LandingVideo', async () => {
       createElement(
         'aside',
         {
-          className: 'relative z-0 w-full max-w-[460px] md:max-w-[560px] lg:max-w-none lg:pt-20',
+          className: 'hidden md:block relative z-0 w-full max-w-[460px] md:max-w-[560px] lg:max-w-none lg:pt-20',
           'aria-label': 'Landing video',
         },
         createElement('div', {
@@ -83,15 +85,15 @@ vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
 describe('Landing — visual regression', () => {
   it('renders the landing hero at desktop viewport', async () => {
     await preloadImages(LANDING_LOGO_URLS);
-    const screen = await renderForVRT(<LandingWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await renderForVRT(<LandingWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP });
     // Viewport-clamped root: first fold only (hero is min-h-svh; lower
     // sections are intentionally cropped — see docs/visual-regression-testing.md).
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('landing-desktop');
+    await matchVrtFrameScreenshot('landing-desktop');
   });
 
   it('renders the landing hero at mobile viewport', async () => {
     await preloadImages(LANDING_LOGO_URLS);
-    const screen = await renderForVRT(<LandingWithHeader />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('landing-mobile');
+    await renderForVRT(<LandingWithHeader />, { viewport: VRT_VIEWPORT_MOBILE });
+    await matchVrtFrameScreenshot('landing-mobile');
   });
 });

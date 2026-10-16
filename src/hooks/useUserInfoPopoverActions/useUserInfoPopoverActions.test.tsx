@@ -14,6 +14,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({
     isAuthenticated: true,
+    waitForAuth: async () => true,
     requireAuth: mockRequireAuth,
   }),
 }));
@@ -39,7 +40,6 @@ describe('useUserInfoPopoverActions', () => {
     const { result } = renderHook(() =>
       useUserInfoPopoverActions({
         userId: 'me',
-        userName: 'Me',
         isCurrentUser: true,
         isFollowing: false,
         isFollowingStatusLoading: false,
@@ -64,7 +64,6 @@ describe('useUserInfoPopoverActions', () => {
     const { result } = renderHook(() =>
       useUserInfoPopoverActions({
         userId: 'other',
-        userName: 'Other User',
         isCurrentUser: false,
         isFollowing: true,
         isFollowingStatusLoading: false,
@@ -76,35 +75,7 @@ describe('useUserInfoPopoverActions', () => {
       await result.current.onFollowClick(event);
     });
 
-    expect(toggleFollow).toHaveBeenCalledWith('other', true, 'Other User');
-    expect(mockRequireAuth).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not call toggleFollow when requireAuth blocks the action', async () => {
-    const toggleFollow = vi.fn().mockResolvedValue(undefined);
-    mockUseFollowUser.mockReturnValue({
-      toggleFollow,
-      isUserLoading: vi.fn(() => false),
-    });
-    mockRequireAuth.mockImplementation(() => undefined);
-
-    const { result } = renderHook(() =>
-      useUserInfoPopoverActions({
-        userId: 'other',
-        userName: 'Other User',
-        isCurrentUser: false,
-        isFollowing: false,
-        isFollowingStatusLoading: false,
-      }),
-    );
-
-    const event = mockMouseEvent({ preventDefault: vi.fn(), stopPropagation: vi.fn() });
-    await act(async () => {
-      await result.current.onFollowClick(event);
-    });
-
-    expect(mockRequireAuth).toHaveBeenCalledTimes(1);
-    expect(toggleFollow).not.toHaveBeenCalled();
+    expect(toggleFollow).toHaveBeenCalledWith('other', true);
   });
 
   it('computes loading state from isUserLoading + following status', () => {
@@ -116,7 +87,6 @@ describe('useUserInfoPopoverActions', () => {
     const { result } = renderHook(() =>
       useUserInfoPopoverActions({
         userId: 'other',
-        userName: 'Other User',
         isCurrentUser: false,
         isFollowing: false,
         isFollowingStatusLoading: false,

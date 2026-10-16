@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { isShopHostNavigationPending } from '@/libs/shop-embed/navigation';
 import { HeaderButtonSignIn } from './HeaderButtonSignIn';
 
 // Mock Next.js navigation
@@ -35,20 +36,29 @@ vi.mock('@/atoms/Button/Button', () => {
   };
 });
 
-// Mock app
-vi.mock('@/app/routes', () => ({
-  AUTH_ROUTES: {
-    SIGN_IN: '/sign-in',
-  },
-  ONBOARDING_ROUTES: {
-    HUMAN: '/onboarding/human',
-  },
+// Join entry: fair-access step unless Pubky Passport is enabled on this page.
+const mockJoinRoute = vi.hoisted(() => ({ value: '/onboarding/human' }));
+vi.mock('@/hooks/useJoinRoute/useJoinRoute', () => ({
+  useJoinRoute: () => mockJoinRoute.value,
 }));
 
 describe('HeaderButtonSignIn', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUsePathname.mockReturnValue('/');
+    mockJoinRoute.value = '/onboarding/human';
+  });
+
+  it('guards the guest sign-in navigation before leaving Shop', async () => {
+    window.history.replaceState(null, '', '/shop');
+    const pendingDuringNavigation: boolean[] = [];
+    mockPush.mockImplementationOnce(() => pendingDuringNavigation.push(isShopHostNavigationPending()));
+    render(<HeaderButtonSignIn />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Sign in/i })));
+    expect(mockPush).toHaveBeenCalledWith('/sign-in');
+    expect(pendingDuringNavigation).toEqual([true]);
+    expect(isShopHostNavigationPending()).toBe(false);
+    window.history.replaceState(null, '', '/');
   });
 
   it('renders sign in button with icon and text', () => {
@@ -86,6 +96,16 @@ describe('HeaderButtonSignIn', () => {
     expect(mockPush).toHaveBeenCalledWith('/onboarding/human');
   });
 
+  it('navigates to the Join step from the sign-in page when Passport is enabled', () => {
+    mockUsePathname.mockReturnValue('/sign-in');
+    mockJoinRoute.value = '/onboarding/join';
+    render(<HeaderButtonSignIn />);
+
+    screen.getByRole('button', { name: /New here\?/i }).click();
+
+    expect(mockPush).toHaveBeenCalledWith('/onboarding/join');
+  });
+
   it('renders sign in button on the onboarding page', () => {
     mockUsePathname.mockReturnValue('/onboarding/human');
     render(<HeaderButtonSignIn />);
@@ -107,17 +127,5 @@ describe('HeaderButtonSignIn', () => {
 
     const button = screen.getByTestId('custom-button');
     expect(button).toHaveClass('custom-class');
-  });
-});
-
-describe('HeaderButtonSignIn - Snapshots', () => {
-  it('matches snapshot for default HeaderButtonSignIn', () => {
-    const { container } = render(<HeaderButtonSignIn />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom className', () => {
-    const { container } = render(<HeaderButtonSignIn className="custom-class" />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

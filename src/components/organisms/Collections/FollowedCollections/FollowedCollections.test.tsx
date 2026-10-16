@@ -9,6 +9,7 @@ import type { TReadPostStreamChunkResponse } from '@/controllers/stream/posts/po
 import { Logger } from '@/libs/logger/logger';
 import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
 import { buildFollowedCollectionsStreamId } from '@/models/stream/post/postStream.types';
+import { toast } from '@/molecules/Toaster/toast';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { FollowedCollections } from './FollowedCollections';
 
@@ -52,10 +53,7 @@ vi.mock('@/libs/logger/logger', () => ({
   Logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-const mockToast = vi.fn();
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  useToast: () => ({ toast: mockToast }),
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/molecules/AvatarStack/AvatarStack', () => ({
   AvatarStack: ({ pubkys }: { pubkys: string[] }) => <div data-testid="avatar-stack" data-pubkys={pubkys.join(',')} />,
@@ -66,21 +64,8 @@ vi.mock('@/molecules/AvatarStack/AvatarStack.skeleton', () => ({
 }));
 
 vi.mock('@/organisms/Collections/CollectionCard/CollectionCard', () => ({
-  CollectionCard: ({
-    authorPubky,
-    postId,
-    initialIsBookmarked,
-  }: {
-    authorPubky: string;
-    postId: string;
-    initialIsBookmarked?: boolean;
-  }) => (
-    <div
-      data-testid="collection-card"
-      data-author-pubky={authorPubky}
-      data-post-id={postId}
-      data-initial-bookmarked={String(!!initialIsBookmarked)}
-    />
+  CollectionCard: ({ authorPubky, postId }: { authorPubky: string; postId: string }) => (
+    <div data-testid="collection-card" data-author-pubky={authorPubky} data-post-id={postId} />
   ),
 }));
 
@@ -169,7 +154,7 @@ describe('FollowedCollections', () => {
     });
   });
 
-  it('renders one CollectionCard per live-query id with initialIsBookmarked=true', async () => {
+  it('renders one CollectionCard per live-query id', async () => {
     mockAuthState = { hasHydrated: true, currentUserPubky: 'me' };
     mockUseLiveQuery.mockReturnValue(['authorA:p1', 'authorA:p2', 'authorB:p3']);
 
@@ -183,9 +168,6 @@ describe('FollowedCollections', () => {
     expect(cards[0]).toHaveAttribute('data-post-id', 'p1');
     expect(cards[2]).toHaveAttribute('data-author-pubky', 'authorB');
     expect(cards[2]).toHaveAttribute('data-post-id', 'p3');
-    for (const card of cards) {
-      expect(card).toHaveAttribute('data-initial-bookmarked', 'true');
-    }
   });
 
   it('passes unique authors from displayed cards to AvatarStack', async () => {
@@ -360,47 +342,10 @@ describe('FollowedCollections', () => {
     });
     // Mirror of the `MyCollections` onError toast — keeps failure UX
     // consistent across the three Collections sections.
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Failed to load collections. Please try again.',
     });
     expect(screen.queryByText('Show more')).not.toBeInTheDocument();
-  });
-
-  describe('FollowedCollections - Snapshots', () => {
-    it('matches the snapshot for the pre-hydration skeleton state', () => {
-      mockAuthState = { hasHydrated: false, currentUserPubky: null };
-
-      const { container } = render(<FollowedCollections />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches the snapshot for the populated state with cards + Show More', async () => {
-      mockAuthState = { hasHydrated: true, currentUserPubky: 'me' };
-      mockUseLiveQuery.mockReturnValue(['authorA:p1', 'authorB:p2']);
-      mockGetOrFetchStreamSlice.mockResolvedValue(
-        makeSlice({ nextPageIds: ['authorA:p1', 'authorB:p2'], reachedEnd: false, nextCursor: 100 }),
-      );
-
-      const { container } = await act(async () => render(<FollowedCollections />));
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
-      });
-
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches the snapshot for the empty state (live query empty, seed resolved)', async () => {
-      mockAuthState = { hasHydrated: true, currentUserPubky: 'me' };
-      mockUseLiveQuery.mockReturnValue([]);
-      mockGetOrFetchStreamSlice.mockResolvedValue(makeSlice({ nextPageIds: [], reachedEnd: true, nextCursor: 0 }));
-
-      const { container } = await act(async () => render(<FollowedCollections />));
-      await waitFor(() => {
-        expect(mockGetOrFetchStreamSlice).toHaveBeenCalled();
-      });
-
-      expect(container.firstChild).toBeNull();
-    });
   });
 });

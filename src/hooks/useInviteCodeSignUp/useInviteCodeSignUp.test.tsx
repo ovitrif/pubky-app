@@ -1,9 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '@/controllers/auth/auth';
+import { createCanceledError } from '@/libs/error/auth-flow-canceled';
 import { NetworkErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { toast } from '@/molecules/Toaster/toast';
 import { useInviteCodeSignUp } from './useInviteCodeSignUp';
 
 const {
@@ -36,12 +38,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: { getState: mockAuthGetState },
 }));
 
-const mockToast = vi.fn();
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    useToast: () => ({ toast: mockToast }),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 vi.mock('@/libs/error/error.utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/error/error.utils')>();
   return {
@@ -69,6 +66,26 @@ describe('useInviteCodeSignUp', () => {
     mockIsAuthError.mockReturnValue(false);
   });
 
+  it('does not mint another grant after adoption when profile bootstrap fails', async () => {
+    mockAuthGetState.mockReturnValue({ sessionReference: { kind: 'grant' } });
+    const failure = Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Profile unavailable', {
+      service: ErrorService.Homeserver,
+      operation: 'bootstrapProfile',
+      context: { retryAfter: 0.001 },
+    });
+    mockIsAppError.mockReturnValue(true);
+    mockSignUp.mockRejectedValue(failure);
+    const { result } = renderHook(() => useInviteCodeSignUp());
+    await expect(result.current.validateAndSignUp(inviteCode)).rejects.toBe(failure);
+    expect(mockSignUp).toHaveBeenCalledOnce();
+  });
+  it('does not toast or retry a superseded signup', async () => {
+    mockSignUp.mockRejectedValue(createCanceledError());
+    const { result } = renderHook(() => useInviteCodeSignUp());
+    await expect(result.current.validateAndSignUp(inviteCode)).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
+    expect(mockSignUp).toHaveBeenCalledOnce();
+    expect(toast).not.toHaveBeenCalled();
+  });
   it('returns validateAndSignUp function', () => {
     const { result } = renderHook(() => useInviteCodeSignUp());
     expect(typeof result.current.validateAndSignUp).toBe('function');
@@ -100,10 +117,10 @@ describe('useInviteCodeSignUp', () => {
 
     expect(mockClearSecrets).not.toHaveBeenCalled();
     expect(mockSetCurrentUserPubky).not.toHaveBeenCalled();
-    expect(mockToast).not.toHaveBeenCalled();
+    expect(vi.mocked(toast)).not.toHaveBeenCalled();
   });
 
-  it('clears onboarding secrets on signUp failure (does not touch auth store)', async () => {
+  it('retains onboarding secrets after signup failure for account recovery', async () => {
     mockSignUp.mockRejectedValue(new Error('Invalid token'));
 
     const { result } = renderHook(() => useInviteCodeSignUp());
@@ -114,7 +131,7 @@ describe('useInviteCodeSignUp', () => {
       }),
     ).rejects.toThrow('Invalid token');
 
-    expect(mockClearSecrets).toHaveBeenCalled();
+    expect(mockClearSecrets).not.toHaveBeenCalled();
     expect(mockSetCurrentUserPubky).not.toHaveBeenCalled();
   });
 
@@ -129,7 +146,7 @@ describe('useInviteCodeSignUp', () => {
       }),
     ).rejects.toThrow();
 
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Could not sign up. Try again.',
     });
@@ -149,7 +166,7 @@ describe('useInviteCodeSignUp', () => {
       }),
     ).rejects.toThrow();
 
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Invite code is invalid or expired.',
     });
@@ -172,7 +189,7 @@ describe('useInviteCodeSignUp', () => {
 
     expect(mockSignUp).toHaveBeenCalledTimes(2);
     expect(mockClearSecrets).not.toHaveBeenCalled();
-    expect(mockToast).not.toHaveBeenCalled();
+    expect(vi.mocked(toast)).not.toHaveBeenCalled();
   });
 
   it('keeps secrets after exhausted retryable failures to allow retrying paid signup', async () => {
@@ -198,7 +215,7 @@ describe('useInviteCodeSignUp', () => {
     expect(caughtError).toEqual(transientError);
     expect(mockSignUp).toHaveBeenCalledTimes(4);
     expect(mockClearSecrets).not.toHaveBeenCalled();
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Network down',
     });

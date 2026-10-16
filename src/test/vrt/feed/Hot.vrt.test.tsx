@@ -2,8 +2,9 @@
 // Vitest `__vi_import_N__` aliases; reordering causes a TDZ crash in
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import type { UseEntityTaggersResult } from '@/hooks/useEntityTaggers/useEntityTaggers';
+import { describe, it, vi } from 'vitest';
+import { matchVrtFrameScreenshot, renderForVRT } from '@/test-utils/vrt';
 import { formatStableRelative } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { createZustandLikeHook } from '@/test-utils/stores';
@@ -139,8 +140,8 @@ vi.mock('@/stores/localFiles/localFiles.store', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useKeyboardOffset/useKeyboardOffset', () => ({
-  useKeyboardOffset: () => ({ isKeyboardVisible: false, keyboardOffset: 0 }),
+vi.mock('@/hooks/useKeyboardVisible/useKeyboardVisible', () => ({
+  useKeyboardVisible: () => false,
 }));
 
 vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
@@ -313,7 +314,10 @@ vi.mock('@/hooks/useTtlSubscription/useTtlSubscription', () => {
 
 vi.mock('@/hooks/usePostHeaderVisibility/usePostHeaderVisibility', async () => {
   const f = await fixtures;
-  const cache = new Map<string, { showRepostHeader: boolean; shouldShowPostHeader: boolean }>();
+  const cache = new Map<
+    string,
+    { showRepostHeader: boolean; shouldShowPostHeader: boolean; originalPostId: string | null }
+  >();
   return {
     usePostHeaderVisibility: (compositeId: string) => {
       const cached = cache.get(compositeId);
@@ -321,6 +325,7 @@ vi.mock('@/hooks/usePostHeaderVisibility/usePostHeaderVisibility', async () => {
       const result = {
         showRepostHeader: !!f.postsByCompositeId.get(compositeId)?.relationships.reposted,
         shouldShowPostHeader: true,
+        originalPostId: null,
       };
       cache.set(compositeId, result);
       return result;
@@ -354,13 +359,14 @@ vi.mock('@/hooks/useEntityTags/useEntityTags', async () => {
   };
 });
 
-vi.mock('@/hooks/usePostTaggers/usePostTaggers', () => {
-  const result = {
-    taggersByLabel: new Map<string, string[]>(),
-    taggerStates: new Map<string, { isLoading: boolean; error: string | null }>(),
-    fetchAllTaggers: async () => {},
+vi.mock('@/hooks/useEntityTaggers/useEntityTaggers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useEntityTaggers/useEntityTaggers')>();
+  const result: UseEntityTaggersResult = {
+    taggerStates: new Map(),
+    loadTaggers: async () => {},
+    loadMoreTaggers: async () => {},
   };
-  return { usePostTaggers: () => result };
+  return { ...actual, useEntityTaggers: () => result };
 });
 
 vi.mock('@/hooks/useThreadReplies/useThreadReplies', () => {
@@ -438,6 +444,7 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({
     requireAuth: (action: () => void) => action(),
     isAuthenticated: true,
+    waitForAuth: async () => true,
   }),
 }));
 
@@ -466,16 +473,16 @@ function HotWithHeader() {
 
 describe('Hot — visual regression', () => {
   it('renders the hot discovery page at desktop viewport', async () => {
-    const screen = await renderForVRT(<HotWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await renderForVRT(<HotWithHeader />, { viewport: VRT_VIEWPORT_DESKTOP });
     // Viewport-clamped root: first fold only (featured tags + overview; active
     // users / trending posts sit below the fold on desktop).
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-desktop');
+    await matchVrtFrameScreenshot('hot-desktop');
   });
 
   it('renders the hot discovery page at mobile viewport', async () => {
-    const screen = await renderForVRT(<HotWithHeader />, { viewport: VRT_VIEWPORT_MOBILE });
+    await renderForVRT(<HotWithHeader />, { viewport: VRT_VIEWPORT_MOBILE });
     // Mobile defaults to the Tags tab (HotMobileMenu); Users/Posts stay mounted
     // but CSS-hidden so the snapshot matches the Tags first fold.
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-mobile');
+    await matchVrtFrameScreenshot('hot-mobile');
   });
 });

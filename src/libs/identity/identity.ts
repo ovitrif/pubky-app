@@ -9,9 +9,6 @@ import type { TOnboardingSecrets } from '@/stores/onboarding/onboarding.types';
 import type { TCreateRecoveryFileParams, TDecryptRecoveryFileParams, TMnemonicWords } from './identity.types';
 
 export class Identity {
-  // Mention pattern: pk: or pubky followed by exactly 52 lowercase alphanumeric characters
-  static readonly PUBKY_IDENTIFIER_WITH_PREFIX_SOURCE = '(?:pk:|pubky)[a-z0-9]{52}';
-
   /**
    * Creates and downloads a recovery file for the keypair
    * @param keypair - The keypair to create the recovery file for
@@ -110,6 +107,16 @@ export class Identity {
     const secretKeyUint8Array = this.secretKeyFromHex(secretKey);
     const keypair = Keypair.fromSecret(secretKeyUint8Array);
     return keypair.publicKey.z32();
+  }
+
+  /** Inspect optional recovery material without reporting an expected validation failure. */
+  static tryZ32FromSecret(secretKey: string): Pubky | null {
+    if (!/^[0-9a-f]{64}$/i.test(secretKey)) return null;
+    try {
+      return Keypair.fromSecret(new Uint8Array(Buffer.from(secretKey, 'hex'))).publicKey.z32();
+    } catch {
+      return null;
+    }
   }
 
   /**

@@ -2,13 +2,24 @@ import type { SpanJSON, TransactionEvent } from '@sentry/core';
 import * as Sentry from '@sentry/nextjs';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  DatabaseErrorCode,
+  NetworkErrorCode,
+  RateLimitErrorCode,
+  ServerErrorCode,
+  TimeoutErrorCode,
+} from '@/libs/error/error.codes';
+import type { Err } from '@/libs/error/error.factories';
+import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { RUNTIME_CONFIG_WINDOW_KEY } from '@/libs/runtime-config/runtime-config';
 import { NETWORK_RUNTIME_DEFAULTS } from '@/libs/runtime-config/runtime-config.schema';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { getSentryInitBase } from './sentry';
+import { OBSERVABILITY_IGNORE_ERRORS } from './sentry.constants';
 import { shouldDropAppErrorFromSentry } from './sentry.utils';
 
 const TEST_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
@@ -64,7 +75,12 @@ function runBeforeSendSpan(span: SpanJSON): SpanJSON {
 }
 
 async function withEnabledSentryCapture(
-  run: (params: { captureAppError: (error: AppError) => void; captureException: ReturnType<typeof vi.fn> }) => void,
+  run: (params: {
+    captureAppError: (error: AppError) => void;
+    captureException: ReturnType<typeof vi.fn>;
+    /** `Err` factories bound to the same mocked Sentry module as `captureAppError`. */
+    Err: typeof Err;
+  }) => void | Promise<void>,
 ) {
   vi.resetModules();
 
@@ -94,8 +110,15 @@ async function withEnabledSentryCapture(
   const removeRuntimeConfig = injectRuntimeConfig();
 
   try {
-    const { captureAppError } = await import('./sentry');
-    run({ captureAppError, captureException });
+    // Import sequentially: `sentry` ⇄ `error.factories` ⇄ `env` form an import
+    // cycle, and evaluating it from two concurrent dynamic imports can hand the
+    // capture funnel a half-initialised graph (seen as a CI-only flake where
+    // `captureException` was never called).
+    const { captureAppError, shouldEnableSentry } = await import('./sentry');
+    const { Err: freshErr } = await import('@/libs/error/error.factories');
+    // Fail loudly on the gate itself rather than as a silent "0 calls" downstream.
+    expect(shouldEnableSentry()).toBe(true);
+    await run({ captureAppError, captureException, Err: freshErr });
   } finally {
     removeRuntimeConfig();
     vi.doUnmock('@sentry/nextjs');
@@ -308,6 +331,412 @@ describe('captureAppError filtering', () => {
   });
 });
 
+/**
+ * Drop rules are asserted against errors produced by the real pipeline (`safeFetch`,
+ * homeserver `handleError` via `HomeserverService.subscribeUserEventStreamForPath` in
+ * homeserver.test.ts), not hand-built `new AppError(...)` shapes: a rule that matches a
+ * shape the pipeline never emits is dead code that looks green.
+ */
+describe('expected-error drop rules (pipeline-verified)', () => {
+  async function runSafeFetchRejectingWith(rejection: unknown, options: RequestInit = {}): Promise<AppError> {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(rejection);
+    try {
+      await safeFetch('https://homegate.pubky.app/v0/verify', options, ErrorService.Homegate, 'awaitLnVerification');
+      throw new Error('safeFetch should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      return error as AppError;
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  }
+
+  const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
+
+  it("drops REQUEST_ABORTED when the caller's own AbortSignal fired", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const error = await runSafeFetchRejectingWith(abortError(), { signal: controller.signal });
+
+    expect(error.code).toBe(TimeoutErrorCode.REQUEST_ABORTED);
+    expect(error.context?.signalAborted).toBe(true);
+    expect(shouldDropAppErrorFromSentry(error)).toBe(true);
+  });
+
+  it('keeps REQUEST_ABORTED reportable when no caller signal was aborted (browser-driven abort)', async () => {
+    const error = await runSafeFetchRejectingWith(abortError());
+
+    expect(error.code).toBe(TimeoutErrorCode.REQUEST_ABORTED);
+    expect(error.context?.signalAborted).toBe(false);
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+
+  it('keeps REQUEST_ABORTED reportable when a signal was passed but never fired', async () => {
+    const error = await runSafeFetchRejectingWith(abortError(), { signal: new AbortController().signal });
+
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+
+  it('keeps AbortSignal.timeout() TimeoutError rejections reportable', async () => {
+    const error = await runSafeFetchRejectingWith(new DOMException('The operation timed out.', 'TimeoutError'));
+
+    expect(error.category).toBe(ErrorCategory.Network);
+    expect(error.code).toBe(NetworkErrorCode.CONNECTION_FAILED);
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+
+  it('keeps generic network failures from safeFetch reportable', async () => {
+    const error = await runSafeFetchRejectingWith(new TypeError('Failed to fetch'));
+
+    expect(error.code).toBe(NetworkErrorCode.CONNECTION_FAILED);
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+
+  it('keeps Homeserver server errors from other operations reportable', () => {
+    const error = new AppError({
+      category: ErrorCategory.Server,
+      code: ServerErrorCode.INTERNAL_ERROR,
+      message: 'HTTP transport error: error sending request',
+      service: ErrorService.Homeserver,
+      operation: 'putFile',
+      context: { statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR },
+    });
+
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+
+  const nexusHotUrl = 'https://nexus.pubky.app/v0/hot';
+  const rateLimitedResponse = () =>
+    new Response(null, { status: HttpStatusCode.TOO_MANY_REQUESTS, statusText: 'Too Many Requests' });
+
+  it('drops repeat 429 reports for the same operation and keeps the first one', () => {
+    const first = httpResponseToError(rateLimitedResponse(), ErrorService.Nexus, 'fetchHotFeed', nexusHotUrl);
+    const repeat = httpResponseToError(rateLimitedResponse(), ErrorService.Nexus, 'fetchHotFeed', nexusHotUrl);
+
+    expect(first.code).toBe(RateLimitErrorCode.RATE_LIMITED);
+    expect(first.context?.statusCode).toBe(HttpStatusCode.TOO_MANY_REQUESTS);
+    expect(shouldDropAppErrorFromSentry(first)).toBe(false);
+
+    expect(repeat.context?.reportSuppressed).toBe(true);
+    expect(shouldDropAppErrorFromSentry(repeat)).toBe(true);
+  });
+
+  it('keeps a 429 from another operation reportable', () => {
+    const error = httpResponseToError(rateLimitedResponse(), ErrorService.Nexus, 'fetchOtherFeed', nexusHotUrl);
+
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+
+  it('keeps a 5xx for the same operation reportable', () => {
+    const error = httpResponseToError(
+      new Response(null, { status: HttpStatusCode.SERVICE_UNAVAILABLE }),
+      ErrorService.Nexus,
+      'fetchHotFeed',
+      nexusHotUrl,
+    );
+
+    expect(error.context?.reportSuppressed).toBeUndefined();
+    expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+  });
+});
+
+describe('Shop listing metadata expected-error policy', () => {
+  const route = {
+    hostPath: '/shop/marketplace/listing/seller/listing',
+    embedPath: '/shop-embed/marketplace/listing/seller/listing',
+  };
+
+  it.each([
+    { name: 'connection failure', rejection: () => new TypeError('Failed to fetch') },
+    { name: 'DNS failure', rejection: () => new TypeError('getaddrinfo ENOTFOUND') },
+    { name: 'connection refusal', rejection: () => new TypeError('connect ECONNREFUSED') },
+    { name: 'connection reset', rejection: () => new TypeError('read ECONNRESET') },
+    { name: 'transport timeout', rejection: () => new DOMException('Timed out', 'TimeoutError') },
+    { name: 'transport abort', rejection: () => new DOMException('Aborted', 'AbortError') },
+  ])('returns fallback without capturing a $name', async ({ rejection }) => {
+    await withEnabledSentryCapture(async ({ captureException }) => {
+      const { ShopMetadataService } = await import('@/services/nextjs/shop-metadata/shop-metadata');
+      const { safeFetch: fetchWithErrors } = await import('@/libs/error/error.http');
+      const { AppError: PipelineAppError } = await import('@/libs/error/error');
+      const { getSentryInitBase: initBase } = await import('./sentry');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(rejection());
+      try {
+        // Real service → safeFetch → Err → captureAppError, with the production capture gate enabled.
+        await expect(ShopMetadataService.fetch(route)).resolves.toBeNull();
+        expect(fetchSpy).toHaveBeenCalledOnce();
+        expect(captureException).not.toHaveBeenCalled();
+
+        // Obtain the same real pipeline error to verify the SDK/global-handler policy too.
+        const error: unknown = await fetchWithErrors(
+          `https://pubky.app${route.embedPath}`,
+          {},
+          ErrorService.Shop,
+          'fetchListingMetadata',
+        ).catch((error: unknown) => error);
+        expect(error).toBeInstanceOf(PipelineAppError);
+        if (!(error instanceof PipelineAppError)) return;
+        expect(shouldDropAppErrorFromSentry(error)).toBe(true);
+        expect(initBase().beforeSend!({ type: undefined }, { originalException: error })).toBeNull();
+        expect(captureException).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  it('keeps the six-second metadata deadline quiet through the actual aborted fetch path', async () => {
+    await withEnabledSentryCapture(async ({ captureException }) => {
+      const { ShopMetadataService } = await import('@/services/nextjs/shop-metadata/shop-metadata');
+      vi.useFakeTimers();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+        (_url, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          }),
+      );
+      try {
+        const result = ShopMetadataService.fetch(route);
+        await vi.advanceTimersByTimeAsync(6000);
+        await expect(result).resolves.toBeNull();
+        expect(fetchSpy.mock.calls[0][1]?.signal?.aborted).toBe(true);
+        expect(captureException).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        fetchSpy.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it.each([
+    { service: ErrorService.Shop, operation: 'fetchAvailability' },
+    { service: ErrorService.Shop, operation: 'cleanupSignedOut' },
+    { service: ErrorService.Homegate, operation: 'awaitLnVerification' },
+    { service: ErrorService.Homeserver, operation: 'fetchListingMetadata' },
+  ])('keeps $service/$operation connection failures reportable', async ({ service, operation }) => {
+    await withEnabledSentryCapture(async ({ captureException }) => {
+      const { safeFetch: fetchWithErrors } = await import('@/libs/error/error.http');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+      try {
+        const error: unknown = await fetchWithErrors('https://pubky.app/endpoint', {}, service, operation).catch(
+          (error: unknown) => error,
+        );
+        expect(error).toMatchObject({ category: ErrorCategory.Network, service, operation });
+        expect(captureException).toHaveBeenCalledExactlyOnceWith(error);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  it.each([HttpStatusCode.UNAUTHORIZED, HttpStatusCode.INTERNAL_SERVER_ERROR])(
+    'keeps a constructed HTTP %s error on the metadata operation reportable',
+    async (status) => {
+      await withEnabledSentryCapture(async ({ captureException }) => {
+        const { httpResponseToError: responseError } = await import('@/libs/error/error.http');
+        const { getSentryInitBase: initBase } = await import('./sentry');
+        const error = responseError(
+          new Response(null, { status }),
+          ErrorService.Shop,
+          'fetchListingMetadata',
+          `https://pubky.app${route.embedPath}`,
+        );
+
+        expect(shouldDropAppErrorFromSentry(error)).toBe(false);
+        expect(initBase().beforeSend!({ type: undefined }, { originalException: error })).not.toBeNull();
+        expect(captureException).toHaveBeenCalledExactlyOnceWith(error);
+      });
+    },
+  );
+});
+
+describe('once-per-error-chain capture', () => {
+  const localParams = { service: ErrorService.Local, operation: 'findById' } as const;
+  const wrapperParams = { service: ErrorService.Local, operation: 'unblurModeration' } as const;
+
+  it('captures a root AppError exactly once', async () => {
+    await withEnabledSentryCapture(({ Err, captureException }) => {
+      const root = Err.database(DatabaseErrorCode.QUERY_FAILED, 'query failed', localParams);
+
+      expect(captureException).toHaveBeenCalledTimes(1);
+      expect(captureException).toHaveBeenCalledWith(root);
+    });
+  });
+
+  it('does not capture a wrapper whose cause is an already-captured AppError', async () => {
+    await withEnabledSentryCapture(({ Err, captureException }) => {
+      const root = Err.database(DatabaseErrorCode.QUERY_FAILED, 'query failed', localParams);
+      const wrapper = Err.database(DatabaseErrorCode.WRITE_FAILED, 'unblur failed', { ...wrapperParams, cause: root });
+
+      expect(wrapper.cause).toBe(root);
+      expect(captureException).toHaveBeenCalledTimes(1);
+      expect(captureException).toHaveBeenCalledWith(root);
+    });
+  });
+
+  it('walks Error.cause to find an AppError nested inside a native error', async () => {
+    await withEnabledSentryCapture(({ Err, captureException }) => {
+      const root = Err.network(NetworkErrorCode.CONNECTION_REFUSED, 'refused', {
+        service: ErrorService.Nexus,
+        operation: 'fetchNexus',
+      });
+      const native = new TypeError('fetch failed', { cause: root });
+      Err.network(NetworkErrorCode.CONNECTION_FAILED, 'outer', {
+        service: ErrorService.Nexus,
+        operation: 'queryNexus',
+        cause: native,
+      });
+
+      expect(captureException).toHaveBeenCalledTimes(1);
+      expect(captureException).toHaveBeenCalledWith(root);
+    });
+  });
+
+  it('still captures a wrapper whose cause is a plain native error', async () => {
+    await withEnabledSentryCapture(({ Err, captureException }) => {
+      const wrapper = Err.database(DatabaseErrorCode.WRITE_FAILED, 'bulkPut failed', {
+        ...wrapperParams,
+        cause: new DOMException('quota', 'QuotaExceededError'),
+      });
+
+      expect(captureException).toHaveBeenCalledTimes(1);
+      expect(captureException).toHaveBeenCalledWith(wrapper);
+    });
+  });
+
+  it('does not resurrect a dropped root by wrapping it', async () => {
+    await withEnabledSentryCapture(({ Err, captureException }) => {
+      const dropped = Err.timeout(TimeoutErrorCode.REQUEST_ABORTED, 'Request was aborted', {
+        service: ErrorService.Homegate,
+        operation: 'awaitLnVerification',
+        context: { signalAborted: true },
+      });
+      Err.server(ServerErrorCode.UNKNOWN_ERROR, 'verification failed', {
+        service: ErrorService.Homegate,
+        operation: 'listenPaymentConfirmed',
+        cause: dropped,
+      });
+
+      expect(captureException).not.toHaveBeenCalled();
+    });
+  });
+});
+
+/**
+ * Capture paths that bypass `captureAppError`: the SDK's globalHandlers (an AppError rejected without a
+ * handler), `app/error.tsx`, or any direct `captureException`. The factory's decision must hold there too.
+ */
+describe('once-per-chain and drop rules enforced in beforeSend', () => {
+  const rootParams = { service: ErrorService.Local, operation: 'findById' } as const;
+  const wrapperParams = { service: ErrorService.Local, operation: 'unblurModeration' } as const;
+
+  function rootAndWrapper(): { root: AppError; wrapper: AppError } {
+    const root = new AppError({
+      category: ErrorCategory.Database,
+      code: DatabaseErrorCode.QUERY_FAILED,
+      message: 'query failed',
+      ...rootParams,
+    });
+    const wrapper = new AppError({
+      category: ErrorCategory.Database,
+      code: DatabaseErrorCode.WRITE_FAILED,
+      message: 'unblur failed',
+      ...wrapperParams,
+      cause: root,
+    });
+    return { root, wrapper };
+  }
+
+  function ruleDroppedError(): AppError {
+    return new AppError({
+      category: ErrorCategory.Timeout,
+      code: TimeoutErrorCode.REQUEST_ABORTED,
+      message: 'Request was aborted',
+      service: ErrorService.Homegate,
+      operation: 'awaitLnVerification',
+      context: { signalAborted: true },
+    });
+  }
+
+  function runBeforeSendWithException(originalException: unknown): Sentry.ErrorEvent | null {
+    const beforeSend = getSentryInitBase().beforeSend;
+    expect(beforeSend).toBeTypeOf('function');
+    const event = asOpaque<Sentry.ErrorEvent>({ message: 'event' });
+    return beforeSend!(event, { originalException }) as Sentry.ErrorEvent | null;
+  }
+
+  it('drops an AppError wrapper whose cause chain holds an AppError', () => {
+    const { wrapper } = rootAndWrapper();
+
+    expect(runBeforeSendWithException(wrapper)).toBeNull();
+  });
+
+  it('drops an AppError matched by a drop rule', () => {
+    expect(runBeforeSendWithException(ruleDroppedError())).toBeNull();
+  });
+
+  it('keeps a root AppError and non-AppError exceptions', () => {
+    const { root } = rootAndWrapper();
+
+    expect(runBeforeSendWithException(root)).not.toBeNull();
+    expect(runBeforeSendWithException(new TypeError('native'))).not.toBeNull();
+    expect(runBeforeSendWithException(undefined)).not.toBeNull();
+  });
+
+  /**
+   * Same scenario through the real SDK pipeline (scope capture → client → dedupe → beforeSend → transport).
+   * `Scope.captureException` attaches `hint.originalException` the same way the browser globalHandlers
+   * integration does for an unhandled rejection (`captureEvent(event, { originalException: error, ... })`),
+   * so this exercises the hint shape `beforeSend` sees in production. Only the transport is stubbed.
+   */
+  async function captureThroughRealSdk(exceptions: unknown[]): Promise<string[]> {
+    const exceptionValues: string[] = [];
+    const transport = Sentry.createTransport({ recordDroppedEvent: () => {} }, async (request) => {
+      // Envelope: header line, item header line, item payload line.
+      const [, , payload] = String(request.body).split('\n');
+      const event = JSON.parse(payload) as Sentry.ErrorEvent;
+      exceptionValues.push(...(event.exception?.values ?? []).map((exception) => exception.value ?? ''));
+      return { statusCode: 200 };
+    });
+    const client = new Sentry.NodeClient({
+      ...getSentryInitBase(),
+      dsn: TEST_DSN,
+      transport: () => transport,
+      stackParser: Sentry.defaultStackParser,
+      integrations: [Sentry.dedupeIntegration(), Sentry.linkedErrorsIntegration()],
+      sendClientReports: false,
+    });
+    client.init();
+    const scope = new Sentry.Scope();
+    scope.setClient(client);
+
+    for (const exception of exceptions) {
+      scope.captureException(exception);
+    }
+    await client.flush(2000);
+    await client.close(0);
+
+    return exceptionValues;
+  }
+
+  it('delivers exactly one event for a chain when the root is captured twice and the wrapper escapes unhandled', async () => {
+    const { root, wrapper } = rootAndWrapper();
+
+    // Factory capture of the root, then the global handler sees the wrapper AND the root again.
+    const delivered = await captureThroughRealSdk([root, wrapper, root]);
+
+    expect(delivered).toEqual(['query failed']);
+  });
+
+  it('delivers nothing for a rule-dropped AppError that escapes unhandled', async () => {
+    expect(await captureThroughRealSdk([ruleDroppedError()])).toEqual([]);
+  });
+
+  it('still delivers ordinary exceptions through the same pipeline', async () => {
+    expect(await captureThroughRealSdk([new TypeError('native failure')])).toEqual(['native failure']);
+  });
+});
+
 describe('Sentry PII scrubbing', () => {
   it('redacts identifiers from messages, exception values, and breadcrumb messages', () => {
     const event = runBeforeSend(
@@ -441,6 +870,10 @@ describe('Sentry tracing hooks wired into init base', () => {
 
   it('exposes beforeSendSpan as a function on getSentryInitBase()', () => {
     expect(getSentryInitBase().beforeSendSpan).toBeTypeOf('function');
+  });
+
+  it('takes its ignore policy from the constant the optional Pulse sink also spreads', () => {
+    expect(getSentryInitBase().ignoreErrors).toEqual([...OBSERVABILITY_IGNORE_ERRORS]);
   });
 });
 

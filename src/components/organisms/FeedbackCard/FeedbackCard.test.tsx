@@ -76,14 +76,7 @@ vi.mock('@/organisms/DialogFeedback/DialogFeedback', () => {
 });
 
 // Mock Molecules
-const mockToast = vi.fn();
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    useToast: vi.fn(() => ({
-      toast: mockToast,
-    })),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 
 // Mock Atoms
 vi.mock('@/atoms/Button/Button', () => {
@@ -330,12 +323,13 @@ describe('FeedbackCard', () => {
         id: mockPubky,
         name: 'Miguel',
         image: 'avatar.jpg',
+        indexed_at: 1704067200000,
       } as never);
 
       render(<FeedbackCard />);
 
       await waitFor(() => {
-        expect(mockGetAvatarUrl).toHaveBeenCalledWith(mockPubky);
+        expect(mockGetAvatarUrl).toHaveBeenCalledWith(mockPubky, 1704067200000);
       });
     });
 
@@ -442,99 +436,5 @@ describe('FeedbackCard', () => {
         expect(screen.getByTestId('feedback-card')).toBeInTheDocument();
       });
     });
-  });
-});
-
-describe('FeedbackCard - Snapshots', () => {
-  const mockPubky = 'user123pubky';
-  const mockUseLiveQuery = vi.mocked(useLiveQuery);
-  const mockUseAuthStore = vi.mocked(useAuthStore);
-  const mockUseCurrentUserProfile = vi.mocked(useCurrentUserProfile);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // Make useCurrentUserProfile delegate to the existing mocks
-    mockUseCurrentUserProfile.mockImplementation((): ReturnType<typeof useCurrentUserProfile> => {
-      const currentUserPubky = mockUseAuthStore(
-        (state: { currentUserPubky: string | null }) => state.currentUserPubky,
-      ) as string | null;
-      const userDetails = mockUseLiveQuery(() => null, [], null) as NexusUserDetails | null | undefined;
-      return { userDetails, currentUserPubky };
-    });
-  });
-
-  it('matches snapshot with authenticated user with avatar', async () => {
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: mockPubky } as never);
-    mockUseLiveQuery.mockReturnValue({
-      id: mockPubky,
-      name: 'Miguel Medeiros',
-      image: 'avatar.jpg',
-    } as never);
-
-    const { container } = render(<FeedbackCard />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('avatar-image')).toBeInTheDocument();
-    });
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with authenticated user without avatar', async () => {
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: mockPubky } as never);
-    mockUseLiveQuery.mockReturnValue({
-      name: 'Miguel',
-      image: null,
-    } as never);
-
-    const { container } = render(<FeedbackCard />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('avatar-fallback')).toBeInTheDocument();
-    });
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with unauthenticated user', async () => {
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: null } as never);
-    mockUseLiveQuery.mockReturnValue(null as never);
-
-    const { container } = render(<FeedbackCard />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('feedback-card')).toBeInTheDocument();
-    });
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with long name (CSS truncation)', async () => {
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: mockPubky } as never);
-    mockUseLiveQuery.mockReturnValue({
-      name: 'VeryLongUserNameThatExceedsTenCharacters',
-      image: null,
-    } as never);
-
-    const { container } = render(<FeedbackCard />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('avatar-fallback')).toBeInTheDocument();
-    });
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when loading', async () => {
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: mockPubky } as never);
-    mockUseLiveQuery.mockReturnValue(undefined as never);
-
-    const { container } = render(<FeedbackCard />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('feedback-card-skeleton')).toBeInTheDocument();
-    });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

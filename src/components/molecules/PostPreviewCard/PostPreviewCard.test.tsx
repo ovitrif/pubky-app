@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscription';
 import { PostPreviewCard } from './PostPreviewCard';
 
 // Mock hooks
@@ -15,10 +16,10 @@ vi.mock('@/hooks/usePostNavigation/usePostNavigation', () => ({
 }));
 
 vi.mock('@/hooks/useTtlSubscription/useTtlSubscription', () => ({
-  useTtlSubscription: () => ({
+  useTtlSubscription: vi.fn(() => ({
     ref: mockTtlRef,
     isVisible: false,
-  }),
+  })),
 }));
 
 vi.mock('@/hooks/usePostDetails/usePostDetails', () => ({
@@ -123,6 +124,7 @@ vi.mock('@/atoms/Card/Card', () => {
 });
 
 const mockUsePostDetails = vi.mocked(usePostDetails);
+const mockUseTtlSubscription = vi.mocked(useTtlSubscription);
 
 // Minimal resolved post — PostHeader / PostContentBase are mocked, so only the
 // non-null `postDetails` (and `isLoading: false`) matters for the missing check.
@@ -144,6 +146,8 @@ describe('PostPreviewCard', () => {
   beforeEach(() => {
     mockNavigateToPost.mockClear();
     mockNavigateToCollection.mockClear();
+    mockTtlRef.mockClear();
+    mockUseTtlSubscription.mockClear();
     mockUsePostDetails.mockReturnValue(resolvedPost);
   });
 
@@ -292,27 +296,32 @@ describe('PostPreviewCard', () => {
 
     expect(screen.getByTestId('collection-card')).toHaveAttribute('data-interactive-actions', 'false');
   });
-});
 
-describe('PostPreviewCard - Snapshots', () => {
-  beforeEach(() => {
-    mockUsePostDetails.mockReturnValue(resolvedPost);
+  it('squares the top corners of collection embeds when flush', () => {
+    mockUsePostDetails.mockReturnValue(collectionPost);
+
+    render(<PostPreviewCard postId={COLLECTION_COMPOSITE_ID} flush />);
+
+    expect(screen.getByTestId('collection-card')).toHaveClass('rounded-t-none');
   });
 
-  it('matches snapshot with default props', () => {
-    const { container } = render(<PostPreviewCard postId="snapshot-post-id" />);
-    expect(container.firstChild).toMatchSnapshot();
+  it('keeps rounded corners for collection embeds by default', () => {
+    mockUsePostDetails.mockReturnValue(collectionPost);
+
+    render(<PostPreviewCard postId={COLLECTION_COMPOSITE_ID} />);
+
+    expect(screen.getByTestId('collection-card')).not.toHaveClass('rounded-t-none');
   });
 
-  it('matches snapshot with extra className', () => {
-    const { container } = render(<PostPreviewCard postId="snapshot-post-id" className="bg-muted" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for a collection original', () => {
+  it('is the TTL subscriber for a collection original (observes the embed wrapper)', () => {
+    // This wrapper owns the embed's subscription; the nested `CollectionCard`
+    // skips its own for `presentation="embed"` (covered in CollectionCard tests).
     mockUsePostDetails.mockReturnValue(collectionPost);
 
     const { container } = render(<PostPreviewCard postId={COLLECTION_COMPOSITE_ID} />);
-    expect(container.firstChild).toMatchSnapshot();
+
+    expect(mockUseTtlSubscription).toHaveBeenCalledWith({ type: 'post', id: COLLECTION_COMPOSITE_ID });
+    expect(mockTtlRef).toHaveBeenCalledWith(container.querySelector('[data-cy="post-preview-card"]'));
+    expect(screen.getByTestId('collection-card')).toHaveAttribute('data-presentation', 'embed');
   });
 });

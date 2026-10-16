@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useReducedMotion } from 'motion/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST_MAX_CHARACTER_LENGTH } from '@/config/posts';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { PostMainLayoutProvider } from '@/organisms/PostMain/PostMainLayoutContext';
-import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { QuickReply } from './QuickReply';
 import { QUICK_REPLY_PROMPTS_COUNT } from './QuickReply.constants';
 
@@ -60,6 +60,7 @@ function createUsePostInputReturn(options: unknown, overrides: Record<string, un
     handleDragOver: vi.fn(),
     handleDrop: vi.fn(),
     handlePaste: vi.fn(),
+    handleSelectionChange: vi.fn(),
     setTags: vi.fn(),
     ...overrides,
   };
@@ -215,6 +216,8 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({
     isAuthenticated: mockIsAuthenticated,
     requireAuth: mockRequireAuth,
+    isWaiting: false,
+    waitForAuth: async () => mockRequireAuth(() => true) === true,
   }),
 }));
 
@@ -230,6 +233,8 @@ function getExpandedPostHeader() {
   return within(screen.getByTestId('quick-reply-expanded-header')).getByTestId('post-header');
 }
 
+beforeEach(() => useAuthStore.getState().setRestoreStatus('ready'));
+
 afterEach(() => {
   vi.mocked(useReducedMotion).mockReturnValue(false);
 });
@@ -244,6 +249,45 @@ describe('QuickReply', () => {
     mockUseEnterSubmit.mockReturnValue(() => undefined);
     mockUsePostInput.mockImplementation((options: unknown) => createUsePostInputReturn(options));
   });
+
+  it.each([
+    ['reauth-required', false],
+    ['reauth-required', true],
+    ['temporary-error', false],
+    ['temporary-error', true],
+  ] as const)(
+    'hides retained reply identity after %s, expanded=%s, preserving the draft',
+    async (status, isExpanded) => {
+      const handleChange = vi.fn();
+      mockUsePostInput.mockImplementation((options: unknown) =>
+        createUsePostInputReturn(options, {
+          content: 'Keep this reply',
+          isExpanded,
+          handleChange,
+        }),
+      );
+      render(<QuickReply parentPostId="author:post1" />);
+      mockIsAuthenticated = false;
+      mockRequireAuth.mockReturnValue(undefined);
+      act(() => useAuthStore.getState().setRestoreStatus('restoring'));
+      expect(screen.getByTestId('quick-reply-stable-avatar')).toBeInTheDocument();
+
+      act(() => useAuthStore.getState().setRestoreStatus(status));
+      expect(screen.getByTestId('quick-reply-fallback-avatar')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId('post-header')).not.toBeInTheDocument());
+      expect(screen.queryByTestId('quick-reply-collapsed-avatar-placeholder')).not.toBeInTheDocument();
+      const textarea = screen.getByTestId('quick-reply-textarea');
+      expect(textarea).toHaveValue('Keep this reply');
+      expect(textarea).toHaveAttribute('readonly');
+      fireEvent.change(textarea, { target: { value: 'Unauthorized change' } });
+      expect(handleChange).not.toHaveBeenCalled();
+
+      mockIsAuthenticated = true;
+      act(() => useAuthStore.getState().setRestoreStatus('ready'));
+      expect(screen.getByTestId('quick-reply-stable-avatar')).toBeInTheDocument();
+      expect(textarea).toHaveValue('Keep this reply');
+    },
+  );
 
   it('picks a placeholder from the prompt list on mount', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0); // first prompt
@@ -265,6 +309,23 @@ describe('QuickReply', () => {
     expect(screen.getByTestId('quick-reply-connector').parentElement).toHaveClass('absolute', '-inset-y-px', 'left-0');
     expect(screen.getByTestId('quick-reply-connector')).toHaveAttribute('height', '175');
     expect(screen.getByTestId('quick-reply-connector')).toHaveAttribute('variant', 'last');
+  });
+
+  it('forwards caret selection events to usePostInput handleSelectionChange', () => {
+    const handleSelectionChange = vi.fn();
+    mockUsePostInput.mockImplementation((options: unknown) =>
+      createUsePostInputReturn(options, { handleSelectionChange }),
+    );
+
+    render(<QuickReply parentPostId="author:post1" />);
+
+    const textarea = screen.getByTestId('quick-reply-textarea');
+    fireEvent.select(textarea);
+    expect(handleSelectionChange).toHaveBeenCalled();
+
+    handleSelectionChange.mockClear();
+    fireEvent.keyUp(textarea, { key: 'ArrowLeft' });
+    expect(handleSelectionChange).toHaveBeenCalled();
   });
 
   it('forwards clipboard paste to usePostInput handlePaste (image attachments)', () => {
@@ -475,6 +536,22 @@ describe('QuickReply', () => {
     expect(screen.getByTestId('post-header-character-count')).toHaveTextContent(`11/${POST_MAX_CHARACTER_LENGTH}`);
   });
 
+  it('counts an emoji reply draft at the enforced limit so the warning is not missed (issue #1761)', () => {
+    mockUsePostInput.mockImplementation((options: unknown) =>
+      createUsePostInputReturn(options, {
+        content: `😀${'a'.repeat(POST_MAX_CHARACTER_LENGTH - 2)}`,
+        isExpanded: true,
+      }),
+    );
+
+    render(<QuickReply parentPostId="author:post1" />);
+
+    expect(getExpandedPostHeader()).toHaveAttribute('data-count', POST_MAX_CHARACTER_LENGTH.toString());
+    expect(screen.getByTestId('post-header-character-count')).toHaveTextContent(
+      `${POST_MAX_CHARACTER_LENGTH}/${POST_MAX_CHARACTER_LENGTH}`,
+    );
+  });
+
   it('does not show character count when collapsed', () => {
     mockUsePostInput.mockImplementation((options: unknown) =>
       createUsePostInputReturn(options, { content: 'Hello world', isExpanded: false }),
@@ -651,96 +728,5 @@ describe('QuickReply', () => {
     );
 
     expect(screen.getByTestId('quick-reply-state-content')).toHaveClass('flex', 'flex-col', 'gap-4');
-  });
-});
-
-describe('QuickReply - Snapshots', () => {
-  const mockUseIsMobile = vi.mocked(useIsMobile);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseIsMobile.mockReturnValue(false);
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    mockIsAuthenticated = true;
-    mockElementHeight.value = 123;
-    mockRequireAuth.mockImplementation(<T,>(action: () => T) => action());
-    mockUseEnterSubmit.mockReturnValue(() => undefined);
-    mockUsePostInput.mockImplementation((options: unknown) => createUsePostInputReturn(options));
-  });
-
-  it('matches snapshot with default props', () => {
-    const { container } = render(
-      <PostMainLayoutProvider tagsLayout="side">
-        <QuickReply parentPostId="author:post1" />
-      </PostMainLayoutProvider>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when expanded', () => {
-    mockElementHeight.value = 260;
-    mockUsePostInput.mockImplementation((options: unknown) =>
-      createUsePostInputReturn(options, { content: 'Expanded reply', isExpanded: true }),
-    );
-
-    const { container } = render(
-      <PostMainLayoutProvider tagsLayout="side">
-        <QuickReply parentPostId="author:post1" />
-      </PostMainLayoutProvider>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with a logged-out fallback avatar', () => {
-    mockIsAuthenticated = false;
-    mockUsePostInput.mockImplementation((options: unknown) =>
-      createUsePostInputReturn(options, { currentUserPubky: null, currentUserDetails: null }),
-    );
-
-    const { container } = render(<QuickReply parentPostId="author:post1" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-});
-
-describe('QuickReply - Mobile Snapshots', () => {
-  const mockUseIsMobile = vi.mocked(useIsMobile);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseIsMobile.mockReturnValue(true);
-    setMobileViewport();
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    mockIsAuthenticated = true;
-    mockElementHeight.value = 123;
-    mockRequireAuth.mockImplementation(<T,>(action: () => T) => action());
-    mockUseEnterSubmit.mockReturnValue(() => undefined);
-    mockUsePostInput.mockImplementation((options: unknown) => createUsePostInputReturn(options));
-  });
-
-  afterEach(() => {
-    resetViewport();
-  });
-
-  it('matches snapshot on mobile viewport', () => {
-    const { container } = render(
-      <PostMainLayoutProvider tagsLayout="side">
-        <QuickReply parentPostId="author:post1" />
-      </PostMainLayoutProvider>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches expanded snapshot on mobile viewport', () => {
-    mockElementHeight.value = 260;
-    mockUsePostInput.mockImplementation((options: unknown) =>
-      createUsePostInputReturn(options, { content: 'Expanded reply', isExpanded: true }),
-    );
-
-    const { container } = render(
-      <PostMainLayoutProvider tagsLayout="side">
-        <QuickReply parentPostId="author:post1" />
-      </PostMainLayoutProvider>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

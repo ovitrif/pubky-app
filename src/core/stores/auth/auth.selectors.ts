@@ -1,5 +1,21 @@
 import { ZustandGet } from '../stores.types';
-import { AuthStore } from './auth.types';
+import { AuthState, AuthStore } from './auth.types';
+
+/**
+ * Pure snapshot check: the user is authenticated when the snapshot holds a session.
+ *
+ * Use this — not `selectIsAuthenticated()` — when comparing `state` and `prevState`
+ * inside a store subscriber. The selectors below close over the store's `get()`, so
+ * `prevState.selectIsAuthenticated()` reads the *current* store and can never differ
+ * from `state.selectIsAuthenticated()`; a transition compared that way is never seen.
+ */
+export const isAuthenticatedState = (state: Pick<AuthState, 'session'>): boolean => state.session !== null;
+
+/** Preserve account chrome during restoration; show guest UI once restoration has failed. Not an action guard. */
+export const selectDisplayUserPubky = (state: Pick<AuthState, 'currentUserPubky' | 'restoreStatus'>) =>
+  state.restoreStatus === 'reauth-required' || state.restoreStatus === 'temporary-error'
+    ? null
+    : state.currentUserPubky;
 
 // Selectors - State access functions with validation
 export const createAuthSelectors = (get: ZustandGet<AuthStore>) => ({
@@ -15,10 +31,7 @@ export const createAuthSelectors = (get: ZustandGet<AuthStore>) => ({
   /**
    * User is authenticated when they have a valid session
    */
-  selectIsAuthenticated: () => {
-    const state = get();
-    return state.session !== null;
-  },
+  selectIsAuthenticated: () => isAuthenticatedState(get()),
 
   /**
    * Selects the current session

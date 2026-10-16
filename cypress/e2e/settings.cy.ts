@@ -1,10 +1,11 @@
 import { latestPostInFeedContentEq, createQuickPost, waitForFeedToLoad } from '../support/posts';
 import { searchForProfileByPubky } from '../support/contacts';
 import { goToHomePage } from '../support/header';
+import { confirmLogoutBackupBeforeNavigation } from '../support/logout';
 import { slowCypressDown } from 'cypress-slow-down';
 import 'cypress-slow-down/commands';
 import { BackupType, CheckForNewPosts, HasBackedUp } from '../support/types/enums';
-import { backupDownloadFilePath } from '../support/common';
+import { backupDownloadFilePath, extendedTimeout } from '../support/common';
 
 describe('settings', () => {
   before(() => {
@@ -20,6 +21,8 @@ describe('settings', () => {
     const profileName = 'MrAccountSettings';
 
     const signInFromLogoutWithRecoveryPhrase = () => {
+      // Sign back in stays hidden while this browser still holds the onboarding key.
+      confirmLogoutBackupBeforeNavigation(HasBackedUp.Yes, '#logout-navigation-continue-btn');
       cy.get('#logout-navigation-continue-btn').should('be.visible').click();
       cy.location('pathname').should('eq', '/sign-in');
       cy.get('#restore-recovery-phrase-btn').click();
@@ -65,6 +68,12 @@ describe('settings', () => {
     // Sign back in and confirm we are presented with profile creation page
     signInFromLogoutWithRecoveryPhrase();
     cy.location('pathname').should('eq', '/onboarding/profile');
+
+    // Recreating the deleted profile must show Experience again for the same pubky.
+    cy.get('#profile-name-input').clear().type(profileName);
+    cy.get('#profile-finish-btn').click(extendedTimeout());
+    cy.location('pathname').should('eq', '/onboarding/tags');
+    cy.get('[data-testid="tags-of-interest-form"]').should('be.visible');
   });
 
   it.skip('Privacy and Safety settings is displayed correctly', () => {});

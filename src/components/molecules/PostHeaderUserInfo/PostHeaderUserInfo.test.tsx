@@ -1,6 +1,8 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { formatPublicKey } from '@/libs/utils/utils';
 import { PostHeaderUserInfo } from './PostHeaderUserInfo';
 
@@ -274,6 +276,67 @@ describe('PostHeaderUserInfo', () => {
     expect(screen.getAllByText(`@${formattedPublicKey}`).length).toBeGreaterThan(0);
   });
 
+  it('renders a status emoji immediately after the user name', () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <PostHeaderUserInfo userId="userpubkykey" userName="Test User" status="vacationing" />
+      </TooltipProvider>,
+    );
+
+    const userName = screen.getAllByText('Test User')[0];
+    const statusEmoji = screen.getByRole('button', { name: 'Vacationing status' });
+
+    expect(userName.parentElement?.nextElementSibling).toBe(statusEmoji);
+    expect(statusEmoji).toHaveTextContent('🌴');
+  });
+
+  it('shows the status label in a tooltip when the emoji is hovered', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <PostHeaderUserInfo userId="userpubkykey" userName="Test User" status="vacationing" />
+      </TooltipProvider>,
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'Vacationing status' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Vacationing');
+      expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveClass(
+        'bg-accent',
+        'font-medium',
+        'text-foreground',
+        '[&_svg]:fill-accent',
+      );
+    });
+  });
+
+  it('shows the status label when the emoji is tapped without bubbling to the post', async () => {
+    const onPostClick = vi.fn();
+
+    render(
+      <TooltipProvider delayDuration={0}>
+        <div onClick={onPostClick}>
+          <PostHeaderUserInfo userId="userpubkykey" userName="Test User" status="vacationing" />
+        </div>
+      </TooltipProvider>,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Vacationing status' }), { pointerType: 'touch' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Vacationing');
+    });
+    expect(onPostClick).not.toHaveBeenCalled();
+  });
+
+  it('does not render a status emoji for no status', () => {
+    render(<PostHeaderUserInfo userId="userpubkykey" userName="Test User" status="noStatus" />);
+
+    expect(screen.queryByRole('button', { name: /status/i })).not.toBeInTheDocument();
+  });
+
   it('renders avatar with image when avatarUrl is provided', () => {
     render(<PostHeaderUserInfo userId="user123" userName="Test User" avatarUrl="https://example.com/avatar.png" />);
 
@@ -306,6 +369,32 @@ describe('PostHeaderUserInfo', () => {
 
     const characterCount = screen.getByText('21/2000');
     expect(characterCount.parentElement).toHaveTextContent(formattedPublicKey);
+  });
+
+  it('turns the character count destructive at the limit (issue #1761)', () => {
+    const { rerender } = render(
+      <PostHeaderUserInfo
+        userId="userpubkykey"
+        userName="Test User"
+        showPopover={false}
+        characterLimit={{ count: 1999, max: 2000 }}
+      />,
+    );
+
+    expect(screen.getByText('1999/2000')).toHaveClass('text-muted-foreground');
+
+    rerender(
+      <PostHeaderUserInfo
+        userId="userpubkykey"
+        userName="Test User"
+        showPopover={false}
+        characterLimit={{ count: 2000, max: 2000 }}
+      />,
+    );
+
+    const atLimitCount = screen.getByText('2000/2000');
+    expect(atLimitCount).toHaveClass('text-destructive');
+    expect(atLimitCount).not.toHaveClass('text-muted-foreground');
   });
 
   it('renders the character count on the username row when requested', () => {
@@ -554,194 +643,5 @@ describe('PostHeaderUserInfo - Navigation', () => {
 
     expect(usernameLink).toHaveClass('w-fit', 'max-w-full', 'min-w-0', 'overflow-hidden');
     expect(usernameLink).not.toHaveClass('w-full');
-  });
-});
-
-describe('PostHeaderUserInfo - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: 'currentUser123' });
-    mockUseCurrentUserProfile.mockReturnValue({ currentUserPubky: 'currentUser123' });
-    mockUseUserProfile.mockReturnValue({
-      profile: {
-        name: 'Test User',
-        bio: '',
-        avatarUrl: 'https://example.com/avatar.png',
-        publicKey: 'pk:user123',
-      },
-      isLoading: false,
-    });
-    mockUseIsFollowing.mockReturnValue({
-      isFollowing: false,
-      isLoading: false,
-    });
-    mockUseFollowUser.mockReturnValue({
-      toggleFollow: vi.fn(),
-      isUserLoading: vi.fn(() => false),
-    });
-    mockUseProfileStats.mockReturnValue({
-      stats: {
-        followers: 0,
-        following: 0,
-        posts: 0,
-        replies: 0,
-        friends: 0,
-        uniqueTags: 0,
-        notifications: 0,
-      },
-      isLoading: false,
-    });
-    mockUseProfileConnections.mockReturnValue({
-      connections: [],
-      count: 0,
-      isLoading: false,
-      isLoadingMore: false,
-      error: null,
-      hasMore: false,
-      loadMore: vi.fn(),
-      refresh: vi.fn(),
-    });
-  });
-
-  it('matches snapshot with all props', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        avatarUrl="https://example.com/avatar.png"
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot without avatarUrl', () => {
-    const { container } = render(<PostHeaderUserInfo userId="snapshotUserKey" userName="Snapshot User" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with minimal props', () => {
-    const { container } = render(<PostHeaderUserInfo userId="user123" userName="Test User" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with bio', () => {
-    mockUseUserProfile.mockReturnValue({
-      profile: {
-        name: 'Snapshot User',
-        bio: 'This is a snapshot bio',
-        avatarUrl: undefined,
-        publicKey: 'pk:snapshotUserKey',
-      },
-      isLoading: false,
-    });
-
-    const { container } = render(<PostHeaderUserInfo userId="snapshotUserKey" userName="Snapshot User" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for current user (no Follow button)', () => {
-    mockUseAuthStore.mockReturnValue({ currentUserPubky: 'snapshotUserKey' });
-
-    const { container } = render(<PostHeaderUserInfo userId="snapshotUserKey" userName="Snapshot User" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when following', () => {
-    mockUseIsFollowing.mockReturnValue({
-      isFollowing: true,
-      isLoading: false,
-    });
-
-    const { container } = render(<PostHeaderUserInfo userId="otherUser123" userName="Other User" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with large size', () => {
-    const { container } = render(<PostHeaderUserInfo userId="snapshotUserKey" userName="Snapshot User" size="large" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with extraLarge size', () => {
-    const { container } = render(
-      <PostHeaderUserInfo userId="snapshotUserKey" userName="Snapshot User" size="extraLarge" />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with timeAgo', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        timeAgo="5m ago"
-        indexedAt={new Date('2025-03-01T12:00:00Z')}
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with all new props', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        avatarUrl="https://example.com/avatar.png"
-        size="extraLarge"
-        timeAgo="1h ago"
-        indexedAt={new Date('2025-03-01T13:00:00Z')}
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with avatar-only user info', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        avatarUrl="https://example.com/avatar.png"
-        showPopover={false}
-        showUserInfo={false}
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with a visually hidden avatar', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        avatarUrl="https://example.com/avatar.png"
-        showPopover={false}
-        visuallyHideAvatar
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with character count in the metadata row', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        showPopover={false}
-        characterLimit={{ count: 21, max: 2000 }}
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with character count in the name row', () => {
-    const { container } = render(
-      <PostHeaderUserInfo
-        userId="snapshotUserKey"
-        userName="Snapshot User"
-        showPopover={false}
-        characterLimit={{ count: 21, max: 2000 }}
-        characterLimitPlacement="name-row"
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

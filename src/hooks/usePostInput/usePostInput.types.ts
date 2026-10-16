@@ -1,10 +1,12 @@
 import { type MDXEditorMethods, type MDXEditorProps } from '@mdxeditor/editor';
 import type { RefObject } from 'react';
+import type { ComposerDraft, ExistingAttachment, UsePostReturn } from '@/hooks/usePost/usePost.types';
 import type { AutocompleteUserData } from '@/hooks/useUserDetailsFromIds/useUserDetailsFromIds.types';
-import type { PostInputVariant } from '@/organisms/PostInput/PostInput.types';
+import type { EditLock, PostInputVariant } from '@/organisms/PostInput/PostInput.types';
 import type { NexusUserDetails } from '@/services/nexus/nexus.types';
 
 export interface UsePostInputOptions {
+  active?: boolean;
   /** Variant determines if this is a reply, repost, or a new post */
   variant: PostInputVariant;
   /** Optional parent post ID (required if variant is 'reply') */
@@ -13,6 +15,14 @@ export interface UsePostInputOptions {
   originalPostId?: string;
   /** Optional edit post ID (required if variant is 'edit') */
   editPostId?: string;
+  /** Existing lock announcement metadata (edit variant only). */
+  editLock?: EditLock;
+  /** The post's current attachment URIs (edit variant only) */
+  editAttachmentUris?: string[];
+  /** The post's current content (edit variant only) — used to derive the article cover slot */
+  editContent?: string;
+  /** Whether the post being edited is an article (edit variant only) */
+  editIsArticle?: boolean;
   /** Callback after successful post, receives the created post ID */
   onSuccess?: (createdPostId: string) => void;
   /** Custom placeholder text */
@@ -22,15 +32,26 @@ export interface UsePostInputOptions {
    * shared repost flow read as a different action, e.g. sharing a collection.
    */
   successToastTitle?: string;
+  /** Use collection-share wording for the repost toast's Undo action. */
+  isCollectionShare?: boolean;
   /**
    * Controls whether the component starts in expanded mode.
    * @default false
    */
   expanded?: boolean;
   /** Callback when content, tags, attachments, or article title change */
-  onContentChange?: (content: string, tags: string[], attachments: File[], articleTitle: string) => void;
+  onContentChange?: (
+    content: string,
+    tags: string[],
+    attachments: File[],
+    articleTitle: string,
+    existingAttachments?: ExistingAttachment[],
+  ) => void;
   /** Callback when article mode changes */
   onArticleModeChange?: (isArticle: boolean) => void;
+  /** Optional external work-in-progress check, added to the tracked fields before collapsing */
+  hasExternalContent?: () => boolean;
+  keepInlineMedia?: boolean;
 }
 
 export interface UsePostInputReturn {
@@ -47,15 +68,41 @@ export interface UsePostInputReturn {
   setTags: React.Dispatch<React.SetStateAction<string[]>>;
   attachments: File[];
   setAttachments: React.Dispatch<React.SetStateAction<File[]>>;
+  existingAttachments: ExistingAttachment[];
+  setExistingAttachments: React.Dispatch<React.SetStateAction<ExistingAttachment[]>>;
   isArticle: boolean;
   setIsArticle: React.Dispatch<React.SetStateAction<boolean>>;
   articleTitle: string;
   setArticleTitle: React.Dispatch<React.SetStateAction<string>>;
+  lockTitle: string;
+  setLockTitle: React.Dispatch<React.SetStateAction<string>>;
+  /** Restores a captured draft as one commit, cover included (an abandoned lock). */
+  restoreComposerDraft: (draft: ComposerDraft) => void;
   isDragging: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
   showEmojiPicker: boolean;
   setShowEmojiPicker: (show: boolean) => void;
+  /** Article inline media editor surface for the MarkdownEditor */
+  inlineMedia: {
+    upload: (file: File) => Promise<string>;
+    getPreviewUrl: (src: string) => string | null;
+    /** MIME type of a file URI from this session or the edited post's attachments; null otherwise */
+    getMediaType: (uri: string) => string | null;
+    /** File name of a URI the composer knows: uploaded this session, or an attachment of the edited post */
+    getMediaName: (uri: string) => string | null;
+  };
+  /**
+   * True while the file rows of an edited article's inline attachments are still resolving, for a
+   * bounded time. The editor imports markdown once, so it waits: a video it cannot yet tell from an
+   * image would mount as a broken picture. Always false outside article edits.
+   */
+  isEditInlineMediaLoading: boolean;
+  /** Inline media uploads in flight; submit stays disabled while > 0 */
+  uploadingCount: number;
+  serializeArticleForLock: UsePostReturn['serializeArticleForLock'];
+  /** The article as the inputs hold it now. `articleTitle` and `content` trail them by the debounce. */
+  getLatestArticle: () => { title: string; body: string };
 
   // Mention autocomplete state
   mentionUsers: AutocompleteUserData[];
@@ -79,11 +126,14 @@ export interface UsePostInputReturn {
   handleEmojiSelect: (emoji: { native: string }) => void;
   handleFilesAdded: (files: File[]) => void;
   handleFileClick: () => void;
+  removeExistingAttachment: (uri: string) => void;
   handleDragEnter: (e: React.DragEvent) => void;
   handleDragLeave: (e: React.DragEvent) => void;
   handleDragOver: (e: React.DragEvent) => void;
   handleDrop: (e: React.DragEvent) => void;
   handlePaste: (e: React.ClipboardEvent) => void;
+  /** Track the composer caret from the textarea's selection events */
+  handleSelectionChange: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   handleMentionSelect: (userId: string) => void;
   handleMentionKeyDown: (e: React.KeyboardEvent) => boolean;
 }

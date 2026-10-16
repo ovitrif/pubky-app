@@ -6,18 +6,33 @@ layout/style/responsive/cross-OS regressions — not functional bugs (use unit /
 interaction tests for those).
 
 - Test files: `*.vrt.test.tsx` (the `vrt` Vitest project in `vitest.config.ts`).
+- Setup (once per machine, and after a Playwright bump): `npm run test:vrt:setup`
+  downloads the browsers; on Linux it also installs apt libraries via `sudo`
+  (`npx playwright install --with-deps chromium firefox` is enough there, see
+  below).
 - Run: `npm run test:vrt`. Update baselines: `npm run test:vrt:regenerate-baseline`.
+- Orphan check: `npm run test:vrt:check-baselines` (also in Code Quality CI).
 - Baselines: `__screenshots__/<file>/<name>-<browser>-<platform>.png`, one per
-  browser (chromium/firefox/webkit) × platform (darwin/linux).
-- Harness: `src/test-utils/vrt.tsx` (`renderForVRT`, `VRT_ROOT_TESTID`),
+  browser × platform: chromium and firefox on darwin and linux, webkit on darwin
+  only. Nobody browses with WebKit on Linux, so `vitest.config.ts` omits the
+  webkit instance when `process.platform === 'linux'` and there are no
+  `*-webkit-linux.png` files; do not add them.
+- Harness: `src/test-utils/vrt.tsx` (`renderForVRT`, `matchVrtFrameScreenshot`),
   `vrt.setup.ts` (global mocks), `vrt.clock.ts`, `vrt.viewports.ts`.
 - Reference example: `src/test/vrt/feed/Home.vrt.test.tsx`.
+- Run one browser only: `npx vitest run --project "vrt (chromium)"` (CI runs one
+  job per browser this way).
+- `patches/@vitest+browser+*.patch` (applied by `patch-package` on install) clears
+  the `toMatchScreenshot` stability timer once a capture settles. Upstream leaves
+  it running, so the last capture in a run kept the Node process alive and every
+  `npm run test:vrt` ended with a 10s `close timed out` wait. Drop the patch once
+  `@vitest/browser` ships the fix.
 
 ## Writing a test
 
 ```tsx
-const screen = await renderForVRT(<Component />, { viewport: VRT_VIEWPORT_DESKTOP });
-await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('name-desktop');
+await renderForVRT(<Component />, { viewport: VRT_VIEWPORT_DESKTOP });
+await matchVrtFrameScreenshot('name-desktop');
 ```
 
 `renderForVRT` wraps the tree in a viewport-clamped root (the screenshot is
@@ -38,10 +53,29 @@ to genuinely-changed surfaces. The trade-off is that a visual change under 0.1%
 of pixels won't be flagged — still pin every deterministic source below so real
 diffs stand out:
 
+The comparator also has a per-pixel `threshold` (pixelmatch default `0.1`)
+below which a colour change is not counted at all. Very low-contrast content —
+e.g. the dark-gray empty-state illustrations on the near-black background —
+falls entirely under it, so VRT does not guard that artwork, and `--update`
+will not rewrite a baseline whose only change is in such content. To refresh
+those baselines, delete the PNGs first so they are regenerated from scratch.
+
 - **Async data** — mock the hook/controller to a fixed value. An unmocked fetch
   resolves differently per run/region. This is the #1 cause of flakiness.
 - **Time** — `renderForVRT` calls `freezeNow()`; mock any relative-time hook to
   the stable formatter in `vrt.clock.ts`.
+- **Waits** — every wait in the harness is bounded (`fonts`, viewport ack,
+  image preload/decode, dynamic icons, cursor park) and rejects with a message
+  naming the wait, so a stall is never reported as a generic
+  `Test timed out in 30000ms`. An untimed `document.fonts.ready` or
+  `image.decode()` has no limit at all, and a Playwright action without
+  `timeout` is given whatever is left of the test budget by Vitest, so its
+  `.catch` runs too late to help. Inter Tight is loaded in `vrt.setup.ts`
+  before the file's tests, so the first capture does not pay that cold start.
+  Do not add an unbounded `await` inside a test. Bounded waits still add up:
+  a surface whose first capture legitimately runs long on a busy macOS runner
+  (the `next/dynamic` markdown editor, the Collections overview) gets its own
+  `it`/`describe` timeout rather than a change to the project `testTimeout`.
 - **Randomness** — `Math.random` is seeded by the harness, so name generators
   and placeholders stay stable.
 - **Images** — `next/image` is mocked to a plain `<img>` in `vrt.setup.ts` (the
@@ -63,6 +97,30 @@ diffs stand out:
   covered by the wait, but a cold fetch can still race the initial paint —
   `preloadImages(...)` them too when a surface has flaked on a specific asset
   (see the Landing VRT's header/brand logos).
+- **App chrome** — the header nav (Home, Hot, Shop, Collections, Settings,
+  avatar) renders synchronously from the auth store mock and the runtime-config
+  defaults, so it needs no wait. The own-profile sidebar's **Unlocked** row is
+  the exception: `useUnlockedList` reads the reader's `/priv` from the
+  homeserver and shows a spinner until that read settles. `vrt.setup.ts` mocks
+  it to a settled empty read (count `0`) for every file, so no capture depends
+  on whether a real request has failed yet. Mock any other hook that does IO
+  for chrome the same way, in the shared setup, not per test. Note that a
+  chrome change under the 0.1% tolerance (one 48px icon button, one sidebar
+  row) does not fail existing baselines and `--update` does not rewrite them;
+  delete the affected PNGs so they are regenerated with the new chrome.
+- **Pubky Passport and popups** — "Continue with Google" renders only once
+  `usePassportEligibility` resolves `enabled`, which needs an HTTPS page, so the
+  real hook never enables it on the http VRT server. `vrt.setup.ts` mocks it to
+  `enabled` and stubs `usePassportAuth` to an idle attempt, so no capture opens
+  the Passport popup or polls the relay. To capture the waiting state, either
+  override `usePassportAuth` with a pending stand-in (see
+  `onboarding/Join.vrt.test.tsx`), or restore the real hook with
+  `importOriginal()` and stub sign-in at the `AuthController` boundary so the
+  real auth hooks drive the states (see `auth/SignInPage.vrt.test.tsx`). For
+  that second path `vrt.setup.ts` also replaces `window.open` with an inert
+  popup that never closes or navigates, so the click leaves the page waiting
+  without opening a live third-party origin. A Ring request that always
+  resolves to one fixed URL makes the QR matrix identical on every run and OS.
 - **Avatars** — VRT profile fixtures use `image: null` so every avatar renders
   `FacehashAvatar`. `vrt.setup.ts` sets `globalThis.__VRT__` and stabiliser CSS;
   `FacehashAvatar` disables blink, 3D tilt, and hover when that flag is set.
@@ -76,7 +134,7 @@ diffs stand out:
 A template alone misses chrome the root layout adds. Onboarding pages render
 under `<Header />` (the step bar), mounted by `src/app/layout.tsx`. Render that
 wrapper in the test and mock what it reads (`usePathname`, `useAuthStore`,
-`usePublicRoute`) so the snapshot matches what the user sees.
+`usePublicRoute`) so the screenshot matches what the user sees.
 
 ## Limitation: can't capture a page taller than the screen
 
@@ -88,9 +146,60 @@ makes the browser scale the whole screenshot by an env-dependent factor, which
 breaks the cross-OS comparison.
 
 **What to do:** accept the viewport crop (every other VRT here does), or capture
-a tall page section by section (header / card / footer as separate snapshots).
+a tall page section by section (header / card / footer as separate captures).
 
 See [Vitest Discussion #7749](https://github.com/vitest-dev/vitest/discussions/7749).
+
+## Limitation: dialogs portal to `document.body`
+
+Radix `Dialog.Portal` mounts overlay + content on `document.body`, outside
+`[data-testid="vrt-root"]`, so an element screenshot of the VRT root would miss
+them.
+
+Do **not** `vi.mock('radix-ui')` to retarget the portal. `importOriginal()` of
+that barrel pulls in every Radix primitive (including `Slot`, used by every
+`Button`) and can shift `oklch` brand green on unrelated screenshots — often
+only on some browser/OS pairs, so it looks random. The onboarding Finish / Pay
+Once buttons are a typical false positive.
+
+Do **not** move portal DOM nodes into `vrt-root` either. React still thinks they
+live on `document.body`; the next commit then throws `NotFoundError` from
+`removeChild` and can leave the Vitest browser process hanging
+(`close timed out after 10000ms`).
+
+Instead, screenshot the iframe document with `matchVrtFrameScreenshot()`
+(exported from `vrt.tsx`) so overlay + content on `body` are in the crop.
+Query dialog contents with `page.getBy…` from `vitest/browser`, not the render
+`screen` (which is scoped to `vrt-root`). Production `Dialog.tsx` stays
+unchanged.
+
+## Gotcha: Playwright cursor position can trigger `:hover` states
+
+Playwright's default pointer position can land on interactive elements inside a
+small mobile viewport, especially when the browser window is larger than the
+VRT viewport. The screenshot then captures the `:hover` state instead of the
+resting state (e.g. `bg-brand/30` instead of `bg-brand/16`), producing a brighter
+button on some browser/OS pairs but not others. This looks like a random colour
+shift but is actually cursor position.
+
+`page.elementLocator(...).unhover()` moves the pointer to `document.body`, but
+on a small viewport the body centre can still be over a button, so the issue
+may persist.
+
+`renderForVRT` and `matchVrtFrameScreenshot` instead create a temporary 8x8
+transparent target at the top-left corner of the viewport, hover it to move the
+pointer to `(0, 0)`, and then remove the target so it cannot block interactions
+or affect the screenshot. The helper does not click or move keyboard focus —
+click-outside would collapse QuickReply, and a focused composer would lose
+`:focus-within`. The baseline is always free of accidental `:hover`. If a test
+moves the cursor by clicking, use `matchVrtFrameScreenshot()` (or call the helper
+again) before the final screenshot.
+
+Expanded QuickReply tests click the textarea again after the expand motion so
+the field stays focused. Product CSS then hides the prompt
+(`focus-within:[&_textarea::placeholder]:opacity-0`); VRT already sets
+`caret-color: transparent` and `transition: none` on `::placeholder`, so the
+capture is an empty focused input with no caret and no prompt.
 
 ## Artifact: sub-pixel seams on segmented elements
 
@@ -120,6 +229,11 @@ After any `--update`, run `git status` and revert baselines you didn't intend to
 touch (`git checkout -- <path>`). Pre-existing cross-machine drift (a baseline
 that fails on your Mac with the code reverted) is not yours to re-baseline.
 
+When you rename or delete a `*.vrt.test.tsx` file, `git mv` (or `git rm -r`) its
+`__screenshots__/<file>/` folder in the same change. Vitest does not prune
+stale folders; `npm run test:vrt:check-baselines` fails if a screenshot folder
+has no sibling test file.
+
 Prove a hypothesis on one test before regenerating many. If a shared helper
 (`vrt.tsx` / `vrt.setup.ts`) changes, re-run one image and eyeball it first.
 
@@ -134,14 +248,30 @@ baselined.
 | Feature branch | Same feature branch                              | None                            |
 | `master`       | —                                                | Workflow fails (do not use)     |
 
-The workflow never commits directly to `dev` or `master`. It regenerates on both
-`ubuntu-latest` and `macos-latest`, merges `*-linux.png` and `*-darwin.png`
-artifacts, then commits the combined result.
+The workflow never commits directly to `dev` or `master`. It regenerates in one
+job per OS × browser (`ubuntu-latest` × chromium, firefox; `macos-latest` ×
+chromium, firefox, webkit), merges every job's `*-<browser>-<platform>.png`
+artifact, then commits the combined result. `vrt.yml` uses the same matrix for
+the checks.
+
+Linux jobs run inside the official Playwright image
+(`mcr.microsoft.com/playwright:v<version>-noble`, resolved from the `playwright`
+entry in `package-lock.json`), so browsers and system libraries never install
+per run. The image's fonts differ from the bare runner, which is why Linux
+baselines must come from that image, not from a local Linux machine.
 
 Only baselines that changed are committed: `--update` leaves matching baselines
 untouched on disk (within the tolerance above), and the commit step stages via
 `git add` + `git diff --staged --quiet`, so a run with no visual changes makes no
-commit and opens no PR.
+commit and opens no PR. Changed files are committed in batches through the
+GraphQL `createCommitOnBranch` mutation (GitHub-signed, so `dev`'s
+required-signatures rule holds): one request per 20 MiB of baselines, which is
+one commit for a normal regeneration.
+
+**PR CI does not run VRT.** `vrt.yml` has no `pull_request` trigger, so a change that
+shifts pixels on a covered surface is not caught by the PR checks. Say so in the PR and
+dispatch this workflow; do not commit baselines produced locally by
+`npm run test:vrt:regenerate-baseline`.
 
 **CI is the source of truth.** Because pixel rendering differs between a local
 machine and the GitHub runners, baselines must be generated by this workflow, not

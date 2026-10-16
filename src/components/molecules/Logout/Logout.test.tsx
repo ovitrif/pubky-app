@@ -48,13 +48,15 @@ vi.mock('@/molecules/ButtonsNavigation/ButtonsNavigation', () => {
       continueText,
       onHandleBackButton,
       onHandleContinueButton,
+      className,
     }: {
       backText: string;
       continueText: string;
       onHandleBackButton: () => void;
       onHandleContinueButton: () => void;
+      className?: string;
     }) => (
-      <div>
+      <div data-testid="buttons-navigation" data-class={className}>
         <button onClick={onHandleBackButton}>{backText}</button>
         <button onClick={onHandleContinueButton}>{continueText}</button>
       </div>
@@ -106,7 +108,7 @@ describe('LogoutHeader', () => {
 
   it('renders subtitle correctly', () => {
     render(<LogoutHeader />);
-    expect(screen.getByText('You have securely signed out.')).toBeInTheDocument();
+    expect(screen.getByText('You have signed out.')).toBeInTheDocument();
   });
 });
 
@@ -134,12 +136,9 @@ describe('LogoutNavigation', () => {
     fireEvent.click(continueButton);
     expect(mockPush).toHaveBeenCalledWith(AUTH_ROUTES.SIGN_IN);
   });
-});
 
-describe('LogoutContent - Snapshots', () => {
-  it('matches the signed-out illustration layout', () => {
-    const { container } = render(<LogoutContent />);
-
-    expect(container.firstChild).toMatchSnapshot();
+  it('forwards the caller className to the navigation buttons', () => {
+    render(<LogoutNavigation className="pb-0 lg:pb-6" />);
+    expect(screen.getByTestId('buttons-navigation')).toHaveAttribute('data-class', 'pb-0 lg:pb-6');
   });
 });

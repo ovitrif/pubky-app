@@ -8,9 +8,7 @@
  * Shared content for Home feed sidebars - WhoToFollow, ActiveUsers, HotTags, FeedbackCard.
  * Used by both HomeFeedRightSidebar (desktop) and HomeFeedRightDrawer (tablet).
  */
-import { Pencil, UsersRound } from 'lucide-react';
 import { Container } from '@/atoms/Container/Container';
-import { FeedSection } from '@/molecules/FeedSection/FeedSection';
 import { ActiveUsers } from '../ActiveUsers/ActiveUsers';
 import { FeedbackCard } from '../FeedbackCard/FeedbackCard';
 import { HotTags } from '../HotTags/HotTags';
@@ -54,30 +52,14 @@ export function HomeFeedRightDrawer() {
   );
 }
 
-/**
- * HomeFeedRightDrawerMobile
- *
- * Right drawer for Home feed (mobile) - displays FeedSection.
- */
+/** Phone feed drawer content; ActiveUsers remains in the tablet and desktop sidebars. */
 export function HomeFeedRightDrawerMobile() {
   return (
-    <FeedSection
-      feeds={[
-        {
-          icon: UsersRound,
-          label: 'Following',
-        },
-        {
-          icon: Pencil,
-          label: 'Based bitcoin',
-        },
-        {
-          icon: Pencil,
-          label: 'Mining industry',
-        },
-      ]}
-      showCreateButton={true}
-    />
+    <Container overrideDefaults className="flex w-(--filter-bar-width) flex-col gap-6">
+      <WhoToFollowSidebar />
+      <HotTags />
+      <FeedbackCard />
+    </Container>
   );
 }
 

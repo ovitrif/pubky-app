@@ -9,12 +9,6 @@ import {
 } from './FeedRightSidebar';
 
 // Mock Molecules
-vi.mock('@/molecules/FeedSection/FeedSection', () => {
-  return {
-    FeedSection: () => <div data-testid="feed-section">FeedSection</div>,
-  };
-});
-
 // Mock Organisms
 vi.mock('@/organisms/ActiveUsers/ActiveUsers', () => {
   return {
@@ -49,11 +43,6 @@ describe('HomeFeedRightSidebar', () => {
     expect(screen.getByTestId('hot-tags')).toBeInTheDocument();
     expect(screen.getByTestId('feedback-card')).toBeInTheDocument();
   });
-
-  it('matches snapshot', () => {
-    const { container } = render(<HomeFeedRightSidebar />);
-    expect(container).toMatchSnapshot();
-  });
 });
 
 describe('HomeFeedRightDrawer', () => {
@@ -65,24 +54,6 @@ describe('HomeFeedRightDrawer', () => {
     expect(screen.getByTestId('hot-tags')).toBeInTheDocument();
     expect(screen.getByTestId('feedback-card')).toBeInTheDocument();
   });
-
-  it('matches snapshot', () => {
-    const { container } = render(<HomeFeedRightDrawer />);
-    expect(container).toMatchSnapshot();
-  });
-});
-
-describe('HomeFeedRightDrawerMobile', () => {
-  it('renders FeedSection', () => {
-    render(<HomeFeedRightDrawerMobile />);
-
-    expect(screen.getByTestId('feed-section')).toBeInTheDocument();
-  });
-
-  it('matches snapshot', () => {
-    const { container } = render(<HomeFeedRightDrawerMobile />);
-    expect(container).toMatchSnapshot();
-  });
 });
 
 describe('HotFeedRightSidebar', () => {
@@ -92,23 +63,23 @@ describe('HotFeedRightSidebar', () => {
     expect(screen.getByTestId('who-to-follow')).toBeInTheDocument();
     expect(screen.getByTestId('feedback-card')).toBeInTheDocument();
   });
-
-  it('matches snapshot', () => {
-    const { container } = render(<HotFeedRightSidebar />);
-    expect(container).toMatchSnapshot();
-  });
 });
 
+describe('HomeFeedRightDrawerMobile', () => {
+  it('renders recommendations, tags and feedback in order without active users', () => {
+    render(<HomeFeedRightDrawerMobile />);
+
+    expect(screen.queryByTestId('active-users')).not.toBeInTheDocument();
+    expect(
+      screen.getAllByTestId(/who-to-follow|hot-tags|feedback-card/).map((section) => section.dataset.testid),
+    ).toEqual(['who-to-follow', 'hot-tags', 'feedback-card']);
+  });
+});
 describe('HotFeedRightDrawer', () => {
   it('renders WhoToFollow and FeedbackCard', () => {
     render(<HotFeedRightDrawer />);
 
     expect(screen.getByTestId('who-to-follow')).toBeInTheDocument();
     expect(screen.getByTestId('feedback-card')).toBeInTheDocument();
-  });
-
-  it('matches snapshot', () => {
-    const { container } = render(<HotFeedRightDrawer />);
-    expect(container).toMatchSnapshot();
   });
 });

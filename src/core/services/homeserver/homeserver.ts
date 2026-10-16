@@ -1,45 +1,38 @@
-import {
-  Address,
-  AuthFlowKind,
-  Capabilities,
-  Client,
-  Keypair,
-  Pubky,
-  PublicKey,
-  resolvePubky,
-  Session,
-  Signer,
-} from '@synonymdev/pubky';
+import { Address, Client, Keypair, Pubky, PublicKey, resolvePubky, Session, Signer } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
+import { getAuthClientId } from '@/config/auth';
 import {
-  getDefaultHttpRelay,
   getHomeserver,
   getHomeserverUrl,
   getPkarrRelays,
   getTestnet,
   isStagingHomeserverDeploy,
 } from '@/config/network';
+import type { ActiveSessionFailure, SessionReference } from '@/libs/auth/session.types';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, DatabaseErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError } from '@/libs/error/error.http';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { hasHttpStatus, toAppError } from '@/libs/error/error.utils';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
+import { HOMESERVER_EVENT_STREAM_SUBSCRIBE_OPERATION } from '@/libs/observability/sentry.constants';
+import { sleep } from '@/libs/utils/utils';
 import type { Pubky as TPubkyModel } from '@/models/models.types';
 import type {
   TGenerateAuthUrlResult,
-  THomeserverRestoreSessionParams,
   THomeserverSessionResult,
   THomeserverSignUpParams,
   TSignupTokenVerificationStatus,
 } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { extractStatusCode, handleError } from './error.utils';
+import { extractStatusCode, handleError, isPubkyErrorLike } from './error.utils';
+import { type GrantFlowRequest, GrantFlowService } from './grant-flow';
 import type {
-  PubPath,
-  TGenerateSignupAuthUrlParams,
+  StoragePath,
+  THomeserverBytesResult,
   THomeserverFetchParams,
   THomeserverListAllParams,
   THomeserverListParams,
@@ -51,7 +44,7 @@ import type {
 } from './homeserver.types';
 import {
   assertOk,
-  createCancelableAuthApproval,
+  extractPubkyZ32,
   getOwnedResponse,
   isHttpUrl,
   parseResponseOrUndefined,
@@ -59,8 +52,9 @@ import {
   resolveOwnedSessionPath,
 } from './homeserver.utils';
 
-const CAPABILITIES = '/pub/pubky.app/:rw';
-const PUB_PATH_PREFIX = '/pub/' as const;
+const STORAGE_PATH_PREFIXES = ['/pub/', '/priv/'] as const;
+const DELETE_IDEMPOTENT_MAX_ATTEMPTS = 3;
+const DELETE_IDEMPOTENT_RETRY_DELAY_MS = 500;
 /** Default limit for list operations */
 const LIST_DEFAULT_LIMIT = 500;
 
@@ -72,6 +66,44 @@ export class HomeserverService {
   private constructor() {}
 
   private static pubkySdk: Pubky | null = null;
+
+  private static sessionFailureListeners = new Set<(failure: ActiveSessionFailure) => void>();
+
+  static subscribeSessionFailures(listener: (failure: ActiveSessionFailure) => void): () => void {
+    this.sessionFailureListeners.add(listener);
+    return () => {
+      this.sessionFailureListeners.delete(listener);
+    };
+  }
+
+  /** Observe only owned requests, after the SDK has exhausted its bearer refresh/retry. */
+  private static async withActiveSession<T>(session: Session, request: () => Promise<T>): Promise<T> {
+    const snapshot = useAuthStore.getState();
+    const generation = snapshot.generation;
+    try {
+      return await request();
+    } catch (error) {
+      const terminal =
+        extractStatusCode(error) === HttpStatusCode.UNAUTHORIZED ||
+        (error instanceof AppError &&
+          error.service === ErrorService.Homeserver &&
+          error.code === AuthErrorCode.SESSION_EXPIRED) ||
+        (isPubkyErrorLike(error) &&
+          error.name === 'AuthenticationError' &&
+          extractStatusCode(error) !== HttpStatusCode.FORBIDDEN) ||
+        (snapshot.sessionReference && this.unusableGrantReason(error, snapshot.sessionReference.sessionStoreId));
+      if (terminal && snapshot.session === session && snapshot.restoreStatus === 'ready') {
+        for (const listener of this.sessionFailureListeners) {
+          try {
+            listener({ session, generation });
+          } catch {
+            // A lifecycle observer must not replace the original request error or prevent rollback.
+          }
+        }
+      }
+      throw error;
+    }
+  }
 
   /**
    * Gets the Pubky SDK singleton.
@@ -90,7 +122,7 @@ export class HomeserverService {
 
   private static resolveOwnedSessionPath(url: string): TOwnedSessionPath | null {
     const session = useAuthStore.getState().selectSession();
-    return resolveOwnedSessionPath({ url, session, pubPathPrefix: PUB_PATH_PREFIX });
+    return resolveOwnedSessionPath({ url, session, allowedPrefixes: STORAGE_PATH_PREFIXES });
   }
 
   /**
@@ -106,7 +138,8 @@ export class HomeserverService {
   /**
    * Resolves the key's homeserver from its PKARR record.
    * @returns The homeserver public key, or `null` when the record is provably absent
-   * @throws When the lookup itself failed (relay/network error) — absence NOT proven
+   * @throws When the lookup itself failed (relay/network error) — absence NOT proven.
+   *   The SDK rejects with `PkarrError`, which is mapped to a retryable Network error.
    */
   private static async resolveHomeserverRecord({ publicKey }: THomeserverPublicKeyParams) {
     try {
@@ -116,7 +149,7 @@ export class HomeserverService {
     } catch (error) {
       return handleError({
         error,
-        additionalContext: { publicKey: publicKey?.z32?.() },
+        additionalContext: { publicKey: publicKey?.z32?.(), operation: 'resolveHomeserverRecord' },
       });
     }
   }
@@ -130,7 +163,8 @@ export class HomeserverService {
    * force-republish this guard exists to prevent (#2126). This also means a key
    * whose just-published record has not yet propagated to our relays is rejected
    * until it propagates. Only a lookup that itself failed (relay/network error)
-   * throws a retryable server error instead.
+   * throws a retryable error instead (Network for the SDK's `PkarrError`,
+   * Server for anything else).
    */
   static async assertUserHomeserverAllowed({ publicKey }: THomeserverPublicKeyParams): Promise<void> {
     if (!isStagingHomeserverDeploy()) {
@@ -162,31 +196,6 @@ export class HomeserverService {
   }
 
   /**
-   * Signs up a new user in the homeserver
-   * @param keypair - The keypair to sign up with
-   * @param signupToken - The signup token to use
-   * @returns The session
-   */
-  static async signUp({ keypair, signupToken }: THomeserverSignUpParams): Promise<THomeserverSessionResult> {
-    try {
-      const homeserverPublicKey = PublicKey.from(getHomeserver());
-      const signer = this.getSigner(keypair);
-      const session = await signer.signup(homeserverPublicKey, signupToken);
-
-      Logger.debug('Signup successful', { session });
-
-      return { session };
-    } catch (error) {
-      return handleError({
-        error,
-        additionalContext: { signupTokenProvided: Boolean(signupToken) },
-        statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
-        alwaysUseHomeserverError: true,
-      });
-    }
-  }
-
-  /**
    * Verifies a signup token (invite code) against the homeserver.
    *
    * Performs a GET to the homeserver's `/signup_tokens/<token>` endpoint. This is a
@@ -206,7 +215,7 @@ export class HomeserverService {
   static async verifySignupToken(signupToken: string): Promise<TSignupTokenVerificationStatus> {
     const url = `${getHomeserverUrl()}/signup_tokens/${encodeURIComponent(signupToken)}`;
     try {
-      const response = await this.getPubkySdk().client.fetch(url, { method: HttpMethod.GET });
+      const response = await this.getPubkySdk().client.fetch(url, { method: HttpMethod.GET, credentials: 'omit' });
       Logger.debug('Signup token verification response', { status: response.status });
 
       if (response.status === HttpStatusCode.NOT_FOUND) {
@@ -243,6 +252,7 @@ export class HomeserverService {
    * @returns The session result, or `undefined` if homeserver was republished and caller should retry
    */
   static async signIn({ keypair }: TKeypairParams): Promise<THomeserverSessionResult | undefined> {
+    await this.assertSessionStoreAvailable();
     const signer = this.getSigner(keypair);
 
     if (isStagingHomeserverDeploy()) {
@@ -253,9 +263,7 @@ export class HomeserverService {
       // Lookup-failure hardening: self-heal (republish) only a PROVABLY ABSENT
       // record (e.g. expired from the DHT). A failed lookup throws instead —
       // republishing on a transient error could overwrite an existing record
-      // that points at another homeserver. NOTE: the signin-failure branch
-      // below still republishes a PRESENT record (long-standing stale-record
-      // migration self-heal); narrowing that is a separate product decision.
+      // that points at another homeserver. A failed grant exchange never republishes it.
       const homeserverRecord = await this.resolveHomeserverRecord({ publicKey: keypair.publicKey });
       if (homeserverRecord === null) {
         return await this.republishConfiguredHomeserver({
@@ -267,11 +275,177 @@ export class HomeserverService {
     }
 
     try {
-      const session = await signer.signin();
+      const session = await signer.signin(getAuthClientId());
       return { session };
     } catch (signinError) {
-      return await this.republishConfiguredHomeserver({ signer, keypair, originalError: signinError });
+      return handleError({ error: signinError, additionalContext: { operation: 'signIn' } });
     }
+  }
+
+  /** Account creation and session issuance are separate so retries cannot spend the invite twice. */
+  static async createAccount({ keypair, signupToken }: THomeserverSignUpParams): Promise<void> {
+    try {
+      await this.assertSessionStoreAvailable();
+      await this.getSigner(keypair).signup(PublicKey.from(getHomeserver()), signupToken);
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'createAccount' } });
+    }
+  }
+
+  static async signInCreatedAccount({ keypair }: TKeypairParams): Promise<THomeserverSessionResult> {
+    try {
+      await this.assertSessionStoreAvailable();
+      const signer = this.getSigner(keypair);
+      const record = await this.resolveHomeserverRecord({ publicKey: keypair.publicKey });
+      // Only this signup-specific path knows the generated key's intended homeserver.
+      // A lost create response can leave an account without its PKARR publication.
+      if (record === null) await signer.pkdns.publishHomeserverForce(PublicKey.from(getHomeserver()));
+      else if (record.z32() !== getHomeserver()) {
+        throw Err.auth(AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER, 'This signup belongs to another homeserver.', {
+          service: ErrorService.Homeserver,
+          operation: 'signInCreatedAccount',
+        });
+      }
+      return { session: await signer.signin(getAuthClientId()) };
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'signInCreatedAccount' } });
+    }
+  }
+
+  static async saveSession(session: Session): Promise<SessionReference> {
+    try {
+      if (!session.grant) {
+        throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'A grant session is required.', {
+          service: ErrorService.Homeserver,
+          operation: 'saveSession',
+        });
+      }
+      const info = await session.grant.sessionInfo();
+      if (info.clientId !== getAuthClientId()) {
+        throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'The approved grant belongs to another application.', {
+          service: ErrorService.Homeserver,
+          operation: 'saveSession',
+        });
+      }
+      await this.assertSessionStoreAvailable();
+      const saved = await this.getPubkySdk()
+        .browserSessionStore.save(session)
+        .catch((error) => {
+          if (isPubkyErrorLike(error) && error.name === 'ClientStateError') {
+            throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Could not save the authenticated session.', {
+              service: ErrorService.Local,
+              operation: 'saveSession',
+              cause: error,
+            });
+          }
+          throw error;
+        });
+      return {
+        kind: 'grant',
+        sessionStoreId: saved.id,
+        clientId: info.clientId,
+        grantId: info.grantId,
+        grantExpiresAt: info.grantExpiresAt,
+        tokenExpiresAt: info.tokenExpiresAt,
+      };
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'saveSession' } });
+    }
+  }
+
+  /** Keep completed approvals recoverable without selecting them or deleting a shared delegated key. */
+  static async retainUnusedSession(session: Session, persistence?: Promise<SessionReference>): Promise<void> {
+    try {
+      await (persistence ?? this.saveSession(session));
+      Logger.warn(
+        'Grant approval was canceled or superseded; the completed session was retained in SDK storage. Remote revocation was not confirmed.',
+      );
+    } catch {
+      Logger.warn(
+        'Grant approval was canceled or superseded; saving the completed session failed. Remote revocation was not confirmed.',
+      );
+    }
+  }
+
+  static async restoreReference(reference: SessionReference): Promise<Session> {
+    const store = this.getPubkySdk().browserSessionStore;
+    try {
+      await this.assertSessionStoreAvailable();
+      return await store.restore(reference.sessionStoreId);
+    } catch (error) {
+      const reason = this.unusableGrantReason(error, reference.sessionStoreId);
+      if (reason) {
+        throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Authorize this account again to restore its session.', {
+          service: ErrorService.Homeserver,
+          operation: 'restoreGrant',
+          context: { reason },
+        });
+      }
+      if (isPubkyErrorLike(error) && error.name === 'ClientStateError') {
+        throw Err.database(DatabaseErrorCode.QUERY_FAILED, 'Could not read the saved session. Try again.', {
+          service: ErrorService.Local,
+          operation: 'restoreGrant',
+          cause: error,
+        });
+      }
+      return handleError({ error, additionalContext: { operation: 'restoreGrant' } });
+    }
+  }
+
+  static async removeSessionRecord(reference: SessionReference): Promise<void> {
+    const store = this.getPubkySdk().browserSessionStore;
+    try {
+      await store.remove(reference.sessionStoreId);
+    } catch (error) {
+      if (this.isMissingSessionRecord(error, reference.sessionStoreId)) return;
+      return handleError({ error, additionalContext: { operation: 'removeSessionRecord' } });
+    }
+  }
+
+  private static async assertSessionStoreAvailable(): Promise<void> {
+    if (!(await this.getPubkySdk().browserSessionStore.isAvailable())) {
+      throw Err.database(
+        DatabaseErrorCode.INIT_FAILED,
+        'Session storage is unavailable. Try an updated browser or retry.',
+        {
+          service: ErrorService.Homeserver,
+          operation: 'checkSessionStore',
+        },
+      );
+    }
+  }
+
+  private static unusableGrantReason(error: unknown, id: string): string | null {
+    if (this.isMissingSessionRecord(error, id)) return 'missing_local_grant';
+    if (
+      typeof error !== 'object' ||
+      !error ||
+      !('name' in error) ||
+      error.name !== 'ClientStateError' ||
+      !('message' in error)
+    )
+      return null;
+    // Exact terminal outcomes from SDK 0.16 restore; other ClientStateErrors include retryable storage failures.
+    if (error.message === 'Browser session was signed out.') return 'remote_logout_completed';
+    if (error.message === 'Browser session is no longer valid.') return 'invalid_grant';
+    if (error.message === 'Unsupported stored session version.') return 'unsupported_stored_session';
+    // A successful key-store read found no delegated key. Retrying cannot recreate that private key.
+    if (typeof error.message === 'string' && /^Delegated grant key not found: .+$/.test(error.message))
+      return 'missing_local_grant';
+    return null;
+  }
+
+  private static isMissingSessionRecord(error: unknown, id: string): boolean {
+    // Pinned SDK 0.16 emits this only after a successful IndexedDB read finds no record.
+    // list() is unsuitable for checking absence: it also returns [] when IndexedDB fails.
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      error.name === 'ClientStateError' &&
+      'message' in error &&
+      error.message === `Stored Pubky session not found: ${id}`
+    );
   }
 
   private static async republishConfiguredHomeserver({
@@ -291,76 +465,78 @@ export class HomeserverService {
     } catch (republishError) {
       return handleError({
         error: republishError,
-        additionalContext: { pubky: Identity.pubkyFromKeypair(keypair), originalSigninError: String(originalError) },
+        additionalContext: {
+          pubky: Identity.pubkyFromKeypair(keypair),
+          originalSigninError: String(originalError),
+          operation: 'republishConfiguredHomeserver',
+        },
         statusCode: HttpStatusCode.UNAUTHORIZED,
       });
     }
   }
 
-  /**
-   * Generates an authentication URL for the homeserver
-   * @param caps - The capabilities to use
-   * @returns The authentication URL and approval promise
-   */
-  static async generateAuthUrl(caps?: Capabilities): Promise<TGenerateAuthUrlResult> {
-    const capabilities: Capabilities = caps || CAPABILITIES;
-
+  static async startGrantFlow(request: GrantFlowRequest): Promise<TGenerateAuthUrlResult> {
     try {
-      const pubkySdk = this.getPubkySdk();
-      const flow = pubkySdk.startAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
-      const approval = createCancelableAuthApproval(flow);
-
-      return {
-        authorizationUrl: flow.authorizationUrl,
-        awaitApproval: approval.awaitApproval,
-        cancelAuthFlow: approval.cancel,
-      };
+      await this.assertSessionStoreAvailable();
+      return await GrantFlowService.start(this.getPubkySdk(), request, (session) => this.retainUnusedSession(session));
     } catch (error) {
-      return handleError({ error, additionalContext: { capabilities, relay: getDefaultHttpRelay() } });
+      return handleError({ error, additionalContext: { operation: 'startGrantFlow' } });
     }
   }
 
-  /**
-   * Generates an authentication signup URL for the homeserver.
-   *
-   * Temporary hack to create a signup deeplink from the signin url still using the old pubky sdk.
-   * The new sdk will handle the creation of the signup deeplink out of the box.
-   * But until then, we need to use this hack.
-   * @param inviteCode InviteCode to the homeserver
-   * @param caps - The capabilities to use
-   * @returns The authentication URL and approval promise
-   */
-  static async generateSignupAuthUrl({
-    inviteCode,
-    caps,
-  }: TGenerateSignupAuthUrlParams): Promise<TGenerateAuthUrlResult> {
-    const res = await this.generateAuthUrl(caps);
-    const url = URL.parse(res.authorizationUrl);
-    if (!url) {
-      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Invalid authorization URL format', {
-        service: ErrorService.Homeserver,
-        operation: 'generateSignupAuthUrl',
-        context: { authorizationUrl: res.authorizationUrl },
-      });
-    }
-    url.host = 'signup';
-    url.pathname = '';
-    url.searchParams.set('hs', getHomeserver());
-    url.searchParams.set('st', inviteCode);
-    res.authorizationUrl = url.toString();
-    return res;
+  static clearPendingAuthFlow(): void {
+    GrantFlowService.clear();
   }
 
-  /**
-   * Logs out a user from the homeserver
-   * @param session - The authenticated Session to sign out
-   * @returns Void
-   */
-  static async logout({ session }: THomeserverSessionResult) {
+  /** Revoke a pre-migration cookie; never return it as an app session. */
+  static async revokeLegacyCookieSession(exported: string): Promise<void> {
+    let session: Session;
+    try {
+      session = await this.getPubkySdk().restoreSession(exported);
+    } catch (error) {
+      // SDK 0.16 maps a missing legacy GET /session (401/404) to this exact terminal error.
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'name' in error &&
+        'message' in error &&
+        error.name === 'AuthenticationError' &&
+        error.message === 'Authentication error: The provided auth request has expired or was cancelled.'
+      )
+        return;
+      return handleError({ error, additionalContext: { operation: 'restoreLegacyCookieForRevocation' } });
+    }
+    if (session.grant) return;
     try {
       await session.signout();
     } catch (error) {
+      if (extractStatusCode(error) === HttpStatusCode.UNAUTHORIZED) return;
+      return handleError({ error, additionalContext: { operation: 'revokeLegacyCookieSession' } });
+    }
+  }
+
+  static async logout({ session }: THomeserverSessionResult) {
+    try {
+      // SDK 0.16 coordinates logout and can use a grant proof after bearer expiry.
+      // Do not send a storage request first: a pending logout intentionally rejects it.
+      await session.signout();
+    } catch (error) {
       return handleError({ error, additionalContext: { url: 'signout' } });
+    }
+  }
+
+  /** Revoke an ambient cookie on explicit logout, without restoring a legacy app session. */
+  static async logoutLegacyCookie(pubky: string): Promise<void> {
+    try {
+      const url = `https://_pubky.${PublicKey.from(pubky).z32()}/session`;
+      // This idempotent cookie endpoint needs no bearer or persisted session export.
+      const response = await this.getPubkySdk().client.fetch(url, {
+        method: HttpMethod.DELETE,
+        credentials: 'include',
+      });
+      if (!response.ok) throw httpResponseToError(response, ErrorService.Homeserver, 'logoutLegacyCookie', url);
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'logoutLegacyCookie' } });
     }
   }
 
@@ -373,7 +549,8 @@ export class HomeserverService {
       const response = await httpBridge.fetch(resolvedUrl, {
         method: options?.method,
         body: options?.body as BodyInit | undefined,
-        credentials: 'include',
+        cache: options?.cache,
+        credentials: 'omit',
       });
 
       Logger.debug('Response from homeserver', { response });
@@ -388,7 +565,7 @@ export class HomeserverService {
    * Performs a request against the homeserver.
    *
    * Sends a JSON payload when provided and throws if the response is not OK.
-   * Note: Under the hood this uses `fetch` with `credentials: 'include'`.
+   * Owned paths use authenticated SDK storage; raw public HTTP requests omit cookies.
    *
    * @param {HttpMethod} method - HTTP method to use (e.g. PUT, POST, DELETE).
    * @param {string} url - Pubky URL.
@@ -403,27 +580,27 @@ export class HomeserverService {
 
       switch (method) {
         case HttpMethod.GET: {
-          const response = await getOwnedResponse({ session, path, url });
+          const response = await this.withActiveSession(session, () => getOwnedResponse({ session, path, url }));
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
         case HttpMethod.PUT:
-          await session.storage
-            .putJson(path, bodyJson ?? {})
-            .catch((error) => handleError({ error, additionalContext: { url, method } }));
+          await this.withActiveSession(session, () => session.storage.putJson(path, bodyJson ?? {})).catch((error) =>
+            handleError({ error, additionalContext: { url, method } }),
+          );
           return undefined as T;
         case HttpMethod.DELETE:
-          await session.storage
-            .delete(path)
-            .catch((error) => handleError({ error, additionalContext: { url, method } }));
+          await this.withActiveSession(session, () => session.storage.delete(path)).catch((error) =>
+            handleError({ error, additionalContext: { url, method } }),
+          );
           return undefined as T;
       }
     }
 
     // Non-owned: only GET allowed on non-HTTP URLs
-    if (method !== HttpMethod.GET && !isHttpUrl(url)) {
+    if (method !== HttpMethod.GET && (!isHttpUrl(url) || extractPubkyZ32(url) !== null)) {
       throw Err.validation(
         ValidationErrorCode.INVALID_INPUT,
-        `Authenticated writes must target an owned ${PUB_PATH_PREFIX}* path for the current session.`,
+        'Authenticated writes must target an owned /pub/* or /priv/* path for the current session.',
         {
           service: ErrorService.Homeserver,
           operation: 'request',
@@ -452,7 +629,7 @@ export class HomeserverService {
    * Uploads binary data to the homeserver using PUT.
    *
    * Intended for blob contents (e.g., avatars). Throws if the response is not OK.
-   * Note: Uses `fetch` with `credentials: 'include'`.
+   * Owned uploads use the active grant through SDK storage.
    *
    * @param {string} url - Pubky URL.
    * @param {Uint8Array} blob - Raw bytes of the blob to upload.
@@ -461,17 +638,17 @@ export class HomeserverService {
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
       try {
-        await owned.session.storage.putBytes(owned.path, blob);
+        await this.withActiveSession(owned.session, () => owned.session.storage.putBytes(owned.path, blob));
         return;
       } catch (error) {
         return handleError({ error, additionalContext: { url, method: HttpMethod.PUT } });
       }
     }
 
-    if (!isHttpUrl(url)) {
+    if (!isHttpUrl(url) || extractPubkyZ32(url) !== null) {
       throw Err.validation(
         ValidationErrorCode.INVALID_INPUT,
-        `Blob uploads must target an owned ${PUB_PATH_PREFIX}* path for the current session.`,
+        'Blob uploads must target an owned /pub/* or /priv/* path for the current session.',
         {
           service: ErrorService.Homeserver,
           operation: 'putBlob',
@@ -505,8 +682,10 @@ export class HomeserverService {
     try {
       const owned = this.resolveOwnedSessionPath(baseDirectory);
       if (owned) {
-        const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as PubPath<string>);
-        const files = await owned.session.storage.list(dirPath, cursor ?? null, reverse, limit, false);
+        const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as StoragePath<string>);
+        const files = await this.withActiveSession(owned.session, () =>
+          owned.session.storage.list(dirPath, cursor ?? null, reverse, limit, false),
+        );
         Logger.debug('List successful', { baseDirectory, filesCount: files.length });
         return files;
       }
@@ -562,6 +741,30 @@ export class HomeserverService {
   }
 
   /**
+   * Deletes a homeserver resource for cleanup flows: 404 counts as success
+   * ("already gone" is the desired end state) and transient failures retry
+   * with a short backoff. Mirrors the hardened delete account deletion uses
+   * (Sentry PUBKY-APP-6Y) so a single transport blip doesn't orphan resources.
+   */
+  static async deleteIdempotent(url: string) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.delete(url);
+        return;
+      } catch (error) {
+        if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {
+          return;
+        }
+        if (attempt >= DELETE_IDEMPOTENT_MAX_ATTEMPTS) {
+          throw error;
+        }
+        Logger.warn('[HomeserverService] Delete failed, retrying', { url, attempt });
+        await sleep(DELETE_IDEMPOTENT_RETRY_DELAY_MS * attempt);
+      }
+    }
+  }
+
+  /**
    * Fetches a resource from the homeserver.
    *
    * @param {string} url - Pubky URL to fetch.
@@ -570,18 +773,82 @@ export class HomeserverService {
   static async get(url: string): Promise<Response> {
     const pubkySdk = this.getPubkySdk();
     try {
-      if (isHttpUrl(url)) {
-        return await pubkySdk.client.fetch(url);
-      }
-
       const owned = this.resolveOwnedSessionPath(url);
       if (owned) {
-        return await getOwnedResponse({ session: owned.session, path: owned.path, url });
+        return await this.withActiveSession(owned.session, () =>
+          getOwnedResponse({ session: owned.session, path: owned.path, url }),
+        );
+      }
+
+      if (isHttpUrl(url)) {
+        return await pubkySdk.client.fetch(url, { credentials: 'omit' });
       }
 
       return await pubkySdk.publicStorage.get(url as Address);
     } catch (error) {
       return handleError({ error, additionalContext: { url, method: HttpMethod.GET } });
+    }
+  }
+
+  /** Read binary content, rejecting missing resources and failed HTTP responses. */
+  static async getBytes(url: string): Promise<Uint8Array> {
+    try {
+      const response = await this.get(url);
+      await assertOk({ response, url, operation: 'getBytes' });
+      return new Uint8Array(await response.arrayBuffer());
+    } catch (error) {
+      return handleError({ error, additionalContext: { url, method: HttpMethod.GET, operation: 'getBytes' } });
+    }
+  }
+
+  /**
+   * Read an owned resource with its server modification time. Only a 404 means absence;
+   * missing authentication, insufficient permissions and transport failures reject.
+   */
+  static async getBytesIfExists(url: string): Promise<THomeserverBytesResult | null> {
+    const owned = this.resolveOwnedSessionPath(url);
+    if (!owned) {
+      throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Reading owned storage requires a session for the resource owner.', {
+        service: ErrorService.Homeserver,
+        operation: 'getBytesIfExists',
+        context: { url },
+      });
+    }
+
+    try {
+      const response = await this.withActiveSession(owned.session, async () => {
+        const response = await owned.session.storage.get(owned.path);
+        if (response.status !== HttpStatusCode.NOT_FOUND)
+          await assertOk({ response, url, operation: 'getBytesIfExists' });
+        return response;
+      });
+      if (response.status === HttpStatusCode.NOT_FOUND) return null;
+      const lastModified = Date.parse(response.headers.get('last-modified') ?? '');
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        modifiedAt: Number.isNaN(lastModified) ? null : lastModified,
+      };
+    } catch (error) {
+      if (extractStatusCode(error) === HttpStatusCode.NOT_FOUND) return null;
+      return handleError({ error, additionalContext: { url, method: HttpMethod.GET } });
+    }
+  }
+
+  /**
+   * Reads a JSON resource past the browser HTTP cache. The homeserver sends `Last-Modified`
+   * without `max-age`, so a plain GET can be answered from a heuristically fresh cached copy.
+   * Throws an `AppError` on a non-OK response or a failed read (a body that breaks off
+   * mid-read included); resolves `undefined` for an empty or invalid body.
+   *
+   * @param url - Pubky URL to read.
+   */
+  static async getFreshJson<T>(url: string): Promise<T | undefined> {
+    try {
+      const response = await this.fetch({ url, options: { method: HttpMethod.GET, cache: 'no-store' } });
+      await assertOk({ response, url, operation: 'getFreshJson' });
+      return await parseResponseOrUndefined<T>({ response, operation: 'getFreshJson', url });
+    } catch (error) {
+      throw toAppError(error, ErrorService.Homeserver, 'getFreshJson');
     }
   }
 
@@ -593,36 +860,20 @@ export class HomeserverService {
     const pubkySdk = this.getPubkySdk();
 
     try {
+      const owned = this.resolveOwnedSessionPath(url);
+      if (owned) return await this.withActiveSession(owned.session, () => owned.session.storage.exists(owned.path));
       if (isHttpUrl(url)) {
-        const response = await pubkySdk.client.fetch(url);
+        const response = await pubkySdk.client.fetch(url, { credentials: 'omit' });
         if (response.status === HttpStatusCode.NOT_FOUND) return false;
         await assertOk({ response, url, operation: 'exists' });
         return true;
       }
 
-      const owned = this.resolveOwnedSessionPath(url);
-      return owned
-        ? await owned.session.storage.exists(owned.path)
-        : await pubkySdk.publicStorage.exists(url as Address);
+      return await pubkySdk.publicStorage.exists(url as Address);
     } catch (error) {
       return handleError({
         error,
         additionalContext: { url, method: HttpMethod.GET, operation: 'exists' },
-      });
-    }
-  }
-
-  /**
-   * Restore an authenticated Session from a previous `session.export()` snapshot.
-   */
-  static async restoreSession({ sessionExport }: THomeserverRestoreSessionParams): Promise<Session> {
-    try {
-      const pubkySdk = this.getPubkySdk();
-      return await pubkySdk.restoreSession(sessionExport);
-    } catch (error) {
-      return handleError({
-        error,
-        additionalContext: { sessionExport: Boolean(sessionExport) },
       });
     }
   }
@@ -691,9 +942,11 @@ export class HomeserverService {
 
       return this.normalizeUserEventStream(stream);
     } catch (error) {
+      // `operation` is matched by the `homeserver-event-stream-connect` Sentry drop rule:
+      // the mute-list coordinator reconnects on connect failures by design.
       return handleError({
         error,
-        additionalContext: { pathPrefix: params.pathPrefix },
+        additionalContext: { pathPrefix: params.pathPrefix, operation: HOMESERVER_EVENT_STREAM_SUBSCRIBE_OPERATION },
       });
     }
   }

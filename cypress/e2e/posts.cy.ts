@@ -6,8 +6,12 @@ import {
   latestPostInFeedContentEq,
   createQuickPost,
   createPostFromDialog,
+  createQuickArticle,
+  createArticleFromDialog,
+  articleInFeedEq,
   deletePost,
   editPost,
+  editArticle,
   fastTagPostInFeed,
   replyToPost,
   repostPost,
@@ -95,8 +99,8 @@ describe('posts', () => {
 
     cy.findFirstPostInFeed().within(() => {
       cy.get('[data-cy="post-text"]').should('contain.text', prefix.trim());
-      cy.contains('Show more').should('be.visible').click();
-      cy.contains('Show more').should('not.exist');
+      cy.get('button[aria-label="Show full post content"]').should('be.visible').click();
+      cy.get('button[aria-label="Show full post content"]').should('not.exist');
       cy.get('[data-cy="post-text"]').should('contain.text', postContent);
     });
     cy.location('pathname').should('eq', '/home');
@@ -104,7 +108,6 @@ describe('posts', () => {
 
   it('can post with emojis', () => {
     const postContent = `🥋🗾⛩️ I can post with emojis! ${Date.now()}`;
-    const expectedLength = Array.from(postContent).length;
 
     createQuickPost(postContent, []);
 
@@ -121,10 +124,70 @@ describe('posts', () => {
     });
   });
 
+  it('can edit a post to change and then remove its image', () => {
+    const postContent = `I can edit this post's image! ${Date.now()}`;
+    createQuickPostWithImage(postContent);
+
+    cy.findFirstPostInFeedFiltered(postContent, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.get('[data-cy="post-text"]').should('contain.text', postContent);
+      cy.get('img').should('be.visible');
+    });
+
+    // Local blob URLs stay cached until reload; the unique static URL is only
+    // available after a refresh, so capture that before replacing the image.
+    cy.reload();
+    waitForFeedToLoad();
+    cy.findFirstPostInFeedFiltered(postContent).within(() => {
+      cy.get('[data-cy="post-text"]').should('contain.text', postContent);
+      cy.get('img')
+        .should('be.visible')
+        .and(($img) => {
+          expect($img.attr('src')).to.not.include('blob:');
+        })
+        .invoke('attr', 'src')
+        .as('originalImageSrc');
+    });
+
+    editPost({
+      filterText: postContent,
+      imageAction: { action: 'replace' },
+    });
+
+    cy.reload();
+    waitForFeedToLoad();
+    cy.get('@originalImageSrc').then((originalImageSrc) => {
+      cy.findFirstPostInFeedFiltered(postContent).within(() => {
+        cy.get('[data-cy="post-text"]').should('contain.text', postContent);
+        cy.get('img')
+          .should('be.visible')
+          .and(($img) => {
+            expect($img.attr('src')).to.not.equal(String(originalImageSrc));
+          });
+      });
+    });
+
+    editPost({ filterText: postContent, imageAction: { action: 'remove' } });
+
+    cy.findFirstPostInFeedFiltered(postContent, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.get('[data-cy="post-text"]').should('contain.text', postContent);
+      cy.get('img').should('not.exist');
+    });
+
+    cy.reload();
+    waitForFeedToLoad();
+    cy.findFirstPostInFeedFiltered(postContent).within(() => {
+      cy.get('[data-cy="post-text"]').should('contain.text', postContent);
+      cy.get('img').should('not.exist');
+    });
+  });
+
   it('can post with embedded link', () => {
     const link = 'https://www.youtube.com/watch?v=989-7xsRLR4';
     const embedId = '989-7xsRLR4';
-    const postContent = `I can post with an embedded link! ${link} ${Date.now()}`;
+    // A raw URL renders as its host alone, so the text used to find the post again
+    // must be the part of the content that is shown verbatim.
+    const marker = `I can post with an embedded link! ${Date.now()}`;
+    const postContent = `${marker} ${link}`;
 
     cy.get('[data-cy="home-post-input"]').within(() => {
       cy.get('textarea').click().type(postContent);
@@ -135,8 +198,13 @@ describe('posts', () => {
       cy.get('[data-cy="post-input-action-bar-post"]').click();
     });
 
-    cy.findFirstPostInFeedFiltered(postContent, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
-      cy.get('[data-cy="post-text"]').should('contain.text', postContent);
+    cy.findFirstPostInFeedFiltered(marker, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.get('[data-cy="post-text"]').should('contain.text', marker);
+      // Compacted to the host, with the full destination kept on the anchor itself.
+      cy.get('[data-cy="post-text"] a')
+        .should('have.text', 'youtube.com')
+        .and('have.attr', 'href', link)
+        .and('have.attr', 'aria-label', link);
       cy.get('iframe[data-testid="YouTube video player"]')
         .should('be.visible')
         .should('have.attr', 'src')
@@ -485,11 +553,11 @@ describe('posts', () => {
     cy.get('[data-cy="collection-bookmark-card"]').click();
     cy.location('pathname').should('eq', '/collections/bookmarks');
 
-    cy.get('[data-cy="timeline-posts-grid"]').should('contain.text', postContent1);
-    cy.get('[data-cy="timeline-posts-grid"]').should('contain.text', postContent2);
+    cy.get('[data-cy="timeline-posts-cards"]').should('contain.text', postContent1);
+    cy.get('[data-cy="timeline-posts-cards"]').should('contain.text', postContent2);
 
     // unbookmark both posts
-    cy.get('[data-cy="timeline-posts-grid"]')
+    cy.get('[data-cy="timeline-posts-cards"]')
       .find('[data-cy="post-card"]')
       .should('have.length', 2)
       .then(($posts) => {
@@ -627,13 +695,142 @@ describe('posts', () => {
     cy.findFirstPostInFeedFiltered(editedRepostContent).should('be.visible');
   });
 
+  it('can create an article from quick post box', () => {
+    const title = `Quick article ${Date.now()}`;
+    const body = `I can create an article from the quick post box! ${Date.now()}`;
+
+    createQuickArticle(title, body);
+
+    articleInFeedEq(title, body, CheckForNewPosts.No, WaitForNewPosts.Yes);
+
+    cy.reload();
+    waitForFeedToLoad();
+    articleInFeedEq(title, body);
+  });
+
+  it('can create an article from new post', () => {
+    const title = `Dialog article ${Date.now()}`;
+    const body = `I can create an article from new post! ${Date.now()}`;
+
+    createArticleFromDialog(title, body);
+
+    articleInFeedEq(title, body, CheckForNewPosts.Yes);
+
+    cy.reload();
+    waitForFeedToLoad();
+    articleInFeedEq(title, body);
+  });
+
+  // Cover stacking bug: article composer must appear in the same dialog, not behind it
+  it('new article modal is shown infront of new post modal', () => {
+    cy.get('[data-cy="new-post-btn"]').click();
+
+    cy.get('[data-cy="dialog-content"]')
+      .should('be.visible')
+      .and('contain.text', 'New Post')
+      .and(($dialog) => {
+        expect(parseInt(window.getComputedStyle($dialog[0]).zIndex, 10)).to.be.at.least(50);
+      });
+
+    cy.get('[data-cy="new-post-input"]').within(() => {
+      cy.get('[data-cy="post-input-action-bar-add-article"]').should('be.visible').click();
+      cy.get('[data-cy="article-title-input"]').should('be.visible');
+    });
+
+    cy.get('[data-cy="dialog-content"]').should('be.visible').and('contain.text', 'New Article');
+
+    // Title field is interactable, so the article composer is in front of the post modal
+    cy.get('[data-cy="new-post-input"]').within(() => {
+      cy.get('[data-cy="article-title-input"]').should('be.visible').click();
+      cy.get('[data-cy="post-input-action-bar-publish-article"]').should('be.visible');
+    });
+
+    cy.get('[data-cy="new-post-btn"]').should(($fab) => {
+      expect(parseInt(window.getComputedStyle($fab[0]).zIndex, 10)).to.be.lessThan(50);
+    });
+
+    cy.get('[data-testid="dialog-close"]').filter(':visible').click();
+    cy.get('[data-cy="dialog-content"]').should('not.exist');
+  });
+
+  it('can edit an article', () => {
+    const title = `Editable article ${Date.now()}`;
+    const body = `This article will be edited! ${Date.now()}`;
+    const editedTitle = `Edited article ${Date.now()}`;
+    const editedBody = `This article has been edited! ${Date.now()}`;
+
+    createQuickArticle(title, body);
+    articleInFeedEq(title, body, CheckForNewPosts.No, WaitForNewPosts.Yes);
+
+    editArticle({ newTitle: editedTitle, newBody: editedBody, filterText: title });
+
+    articleInFeedEq(editedTitle, editedBody);
+    cy.reload();
+    waitForFeedToLoad();
+    articleInFeedEq(editedTitle, editedBody);
+  });
+
+  it('can edit an article to change and then remove its image', () => {
+    const title = `Article with cover ${Date.now()}`;
+    const body = `I can edit this article's image! ${Date.now()}`;
+
+    createQuickArticle(title, body, true);
+
+    cy.findFirstPostInFeedFiltered(title, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.contains(title).should('be.visible');
+      cy.get('[data-cy="post-text"]').should('contain.text', body);
+      cy.get('img').should('be.visible');
+    });
+
+    // Local blob URLs stay cached until reload; the unique static URL is only
+    // available after a refresh, so capture that before replacing the image.
+    cy.reload();
+    waitForFeedToLoad();
+    cy.findFirstPostInFeedFiltered(title).within(() => {
+      cy.contains(title).should('be.visible');
+      cy.get('img')
+        .should('be.visible')
+        .and(($img) => {
+          expect($img.attr('src')).to.not.include('blob:');
+        })
+        .invoke('attr', 'src')
+        .as('originalImageSrc');
+    });
+
+    editArticle({ filterText: title, imageAction: { action: 'replace' } });
+
+    cy.reload();
+    waitForFeedToLoad();
+    cy.get('@originalImageSrc').then((originalImageSrc) => {
+      cy.findFirstPostInFeedFiltered(title).within(() => {
+        cy.contains(title).should('be.visible');
+        cy.get('img')
+          .should('be.visible')
+          .and(($img) => {
+            expect($img.attr('src')).to.not.equal(String(originalImageSrc));
+          });
+      });
+    });
+
+    editArticle({ filterText: title, imageAction: { action: 'remove' } });
+
+    cy.findFirstPostInFeedFiltered(title, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.contains(title).should('be.visible');
+      cy.get('[data-cy="post-text"]').should('contain.text', body);
+      cy.get('img').should('not.exist');
+    });
+
+    cy.reload();
+    waitForFeedToLoad();
+    cy.findFirstPostInFeedFiltered(title).within(() => {
+      cy.contains(title).should('be.visible');
+      cy.get('[data-cy="post-text"]').should('contain.text', body);
+      cy.get('img').should('not.exist');
+    });
+  });
+
   // todo, covers bug https://github.com/pubky/franky/issues/993
   it('"see new posts" button does not appear after deleting new post that has a reply');
-
-  // todo: implement when articles are implemented, see https://github.com/pubky/franky/issues/756
-  it.skip('can create an article from quick post box');
-  it.skip('can create an article from new post');
-  it.skip('new article modal is shown infront of new post modal'); // cover bug from pubky-app
 
   // todo: check if we want this functionality
   it.skip('signout when 401 response from homeserver when creating new post');

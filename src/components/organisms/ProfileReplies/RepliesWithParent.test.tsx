@@ -1,14 +1,21 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TIMELINE_MAX_UNPRODUCTIVE_AUTO_LOADS } from '@/config/feed';
 import { PostController } from '@/controllers/post/post';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
+import { usePostHeaderVisibility } from '@/hooks/usePostHeaderVisibility/usePostHeaderVisibility';
 import { useStreamPagination } from '@/hooks/useStreamPagination/useStreamPagination';
 import type { Pubky } from '@/models/models.types';
 import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
 import type { PostStreamId } from '@/models/stream/post/postStream.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { RepliesWithParent } from './RepliesWithParent';
+
+const mockNavigate = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/usePostHeaderVisibility/usePostHeaderVisibility', () => ({
+  usePostHeaderVisibility: vi.fn(() => ({ showRepostHeader: false, shouldShowPostHeader: true, originalPostId: null })),
+}));
 
 // Mock dependencies
 vi.mock('dexie-react-hooks');
@@ -21,7 +28,7 @@ vi.mock('@/hooks/useInfiniteScroll/useInfiniteScroll', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: mockNavigate, replace: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }),
 }));
 
 // Mock components
@@ -62,6 +69,16 @@ vi.mock('@/molecules/Timeline/TimelineLoading', () => {
 vi.mock('@/molecules/Timeline/TimelineLoadingMore', () => {
   return {
     TimelineLoadingMore: () => <div data-testid="timeline-loading-more">Loading more...</div>,
+  };
+});
+
+vi.mock('@/molecules/Timeline/TimelineLoadMore', () => {
+  return {
+    TimelineLoadMore: ({ onLoadMore }: { onLoadMore: () => void }) => (
+      <button data-testid="timeline-load-more" onClick={onLoadMore}>
+        Load more
+      </button>
+    ),
   };
 });
 
@@ -124,6 +141,11 @@ describe('RepliesWithParent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(usePostHeaderVisibility).mockReturnValue({
+      showRepostHeader: false,
+      shouldShowPostHeader: true,
+      originalPostId: null,
+    });
 
     // Mock auth store to provide viewerId
     vi.spyOn(useAuthStore, 'getState').mockReturnValue({
@@ -148,6 +170,8 @@ describe('RepliesWithParent', () => {
     // Mock useInfiniteScroll
     mockUseInfiniteScroll.mockReturnValue({
       sentinelRef: vi.fn(),
+      isStalled: false,
+      resumeAutoLoad: vi.fn(),
     });
 
     // Mock useLiveQuery
@@ -155,6 +179,26 @@ describe('RepliesWithParent', () => {
   });
 
   describe('Loading States', () => {
+    it.each(['Enter', ' '])('opens the displayed original from a repost parent using %s', async (key) => {
+      mockUseStreamPagination.mockReturnValue({
+        ...mockUseStreamPagination({ streamId: mockStreamId }),
+        postIds: ['me:reply'],
+        hasMore: false,
+      });
+      mockUseLiveQuery
+        .mockReturnValueOnce('me:repost')
+        .mockReturnValueOnce({ id: 'me:repost', content: '', kind: 'short' });
+      vi.mocked(usePostHeaderVisibility).mockReturnValue({
+        showRepostHeader: true,
+        shouldShowPostHeader: false,
+        originalPostId: 'author:original',
+      });
+      render(<RepliesWithParent streamId={mockStreamId} />);
+      const parent = await screen.findByTestId('post-me:repost');
+      fireEvent.keyDown(parent.parentElement!, { key });
+      expect(mockNavigate).toHaveBeenCalledWith('/post/author/original');
+    });
+
     it('should render loading state initially', () => {
       mockUseStreamPagination.mockReturnValue({
         postIds: [],
@@ -491,7 +535,69 @@ describe('RepliesWithParent', () => {
         isLoading: false,
         threshold: 3000,
         debounceMs: 20,
+        // Rounds that do not grow the list are budgeted so a filtered region cannot
+        // chain loads to the end of the stream (#2523).
+        itemCount: 1,
+        maxUnproductiveLoads: TIMELINE_MAX_UNPRODUCTIVE_AUTO_LOADS,
       });
+    });
+
+    it('replaces the sentinel with a manual Load more once auto-loading stalls', () => {
+      const resumeAutoLoad = vi.fn();
+      mockUseInfiniteScroll.mockReturnValue({
+        sentinelRef: vi.fn(),
+        isStalled: true,
+        resumeAutoLoad,
+      });
+      mockUseStreamPagination.mockReturnValue({
+        postIds: ['author1:reply1'],
+        loading: false,
+        loadingMore: false,
+        error: null,
+        hasMore: true,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+        prependPosts: vi.fn(),
+        prependOptimisticPosts: vi.fn(),
+        removePosts: vi.fn(),
+        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
+      });
+
+      const { container } = render(<RepliesWithParent streamId={mockStreamId} />);
+
+      expect(container.querySelector('.h-5')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('timeline-load-more'));
+      expect(resumeAutoLoad).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the manual Load more while a resumed load is in flight or the stream has ended', () => {
+      mockUseInfiniteScroll.mockReturnValue({
+        sentinelRef: vi.fn(),
+        isStalled: true,
+        resumeAutoLoad: vi.fn(),
+      });
+      const pagination = {
+        postIds: ['author1:reply1'],
+        loading: false,
+        loadingMore: true,
+        error: null,
+        hasMore: true,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+        prependPosts: vi.fn(),
+        prependOptimisticPosts: vi.fn(),
+        removePosts: vi.fn(),
+        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
+      };
+      mockUseStreamPagination.mockReturnValue(pagination);
+
+      const { rerender } = render(<RepliesWithParent streamId={mockStreamId} />);
+      expect(screen.queryByTestId('timeline-load-more')).not.toBeInTheDocument();
+      expect(screen.getByTestId('timeline-loading-more')).toBeInTheDocument();
+
+      mockUseStreamPagination.mockReturnValue({ ...pagination, loadingMore: false, hasMore: false });
+      rerender(<RepliesWithParent streamId={mockStreamId} />);
+      expect(screen.queryByTestId('timeline-load-more')).not.toBeInTheDocument();
     });
   });
 
@@ -540,129 +646,6 @@ describe('RepliesWithParent', () => {
 
       // Restore the original implementation
       vi.restoreAllMocks();
-    });
-  });
-
-  describe('Snapshots', () => {
-    it('should match snapshot for loading state', () => {
-      mockUseStreamPagination.mockReturnValue({
-        postIds: [],
-        loading: true,
-        loadingMore: false,
-        error: null,
-        hasMore: true,
-        loadMore: vi.fn(),
-        refresh: vi.fn(),
-        prependPosts: vi.fn(),
-        prependOptimisticPosts: vi.fn(),
-        removePosts: vi.fn(),
-        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
-      });
-
-      const { container } = render(<RepliesWithParent streamId={mockStreamId} />);
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot for empty state', () => {
-      mockUseStreamPagination.mockReturnValue({
-        postIds: [],
-        loading: false,
-        loadingMore: false,
-        error: null,
-        hasMore: false,
-        loadMore: vi.fn(),
-        refresh: vi.fn(),
-        prependPosts: vi.fn(),
-        prependOptimisticPosts: vi.fn(),
-        removePosts: vi.fn(),
-        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
-      });
-
-      const { container } = render(<RepliesWithParent streamId={mockStreamId} />);
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot for error state', () => {
-      mockUseStreamPagination.mockReturnValue({
-        postIds: [],
-        loading: false,
-        loadingMore: false,
-        error: 'Network error',
-        hasMore: false,
-        loadMore: vi.fn(),
-        refresh: vi.fn(),
-        prependPosts: vi.fn(),
-        prependOptimisticPosts: vi.fn(),
-        removePosts: vi.fn(),
-        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
-      });
-
-      const { container } = render(<RepliesWithParent streamId={mockStreamId} />);
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot with replies (no parents)', () => {
-      mockUseStreamPagination.mockReturnValue({
-        postIds: ['author1:reply1', 'author2:reply2'],
-        loading: false,
-        loadingMore: false,
-        error: null,
-        hasMore: true,
-        loadMore: vi.fn(),
-        refresh: vi.fn(),
-        prependPosts: vi.fn(),
-        prependOptimisticPosts: vi.fn(),
-        removePosts: vi.fn(),
-        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
-      });
-
-      // Mock useLiveQuery to handle multiple calls (2 replies × 2 queries each = 4 calls):
-      // For reply1: 1st call = parentPostId, 2nd call = parentPost
-      // For reply2: 3rd call = parentPostId, 4th call = parentPost
-      mockUseLiveQuery
-        .mockReturnValueOnce(null) // reply1: parentPostId
-        .mockReturnValueOnce(null) // reply1: parentPost
-        .mockReturnValueOnce(null) // reply2: parentPostId
-        .mockReturnValueOnce(null); // reply2: parentPost
-
-      const { container } = render(<RepliesWithParent streamId={mockStreamId} />);
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot with replies and parents', () => {
-      const mockParentId1 = 'author3:parent1';
-      const mockParentId2 = 'author4:parent2';
-
-      mockUseStreamPagination.mockReturnValue({
-        postIds: ['author1:reply1', 'author2:reply2'],
-        loading: false,
-        loadingMore: false,
-        error: null,
-        hasMore: true,
-        loadMore: vi.fn(),
-        refresh: vi.fn(),
-        prependPosts: vi.fn(),
-        prependOptimisticPosts: vi.fn(),
-        removePosts: vi.fn(),
-        removePostsOptimistically: vi.fn(() => ({ commit: vi.fn(), rollback: vi.fn() })),
-      });
-
-      // Mock useLiveQuery to handle multiple calls (2 replies × 2 queries each = 4 calls):
-      // For reply1: 1st call = parentPostId (string), 2nd call = parentPost (object)
-      // For reply2: 3rd call = parentPostId (string), 4th call = parentPost (object)
-      mockUseLiveQuery
-        .mockReturnValueOnce(mockParentId1) // reply1: parentPostId
-        .mockReturnValueOnce({ id: mockParentId1 }) // reply1: parentPost
-        .mockReturnValueOnce(mockParentId2) // reply2: parentPostId
-        .mockReturnValueOnce({ id: mockParentId2 }); // reply2: parentPost
-
-      const { container } = render(<RepliesWithParent streamId={mockStreamId} />);
-
-      expect(container).toMatchSnapshot();
     });
   });
 });

@@ -55,10 +55,15 @@ type BaseStreamModelSchema<TId, TItem> = {
   stream: TItem[]; // Array of items (composite post IDs, pubkeys, or hot tags)
 };
 
-// Example: PostStreamModelSchema = BaseStreamModelSchema<PostStreamId, string>
+// Example: PostStreamModelSchema = BaseStreamModelSchema<PostStreamId, string> & { tailCursor?: number }
 // Example: UserStreamModelSchema = BaseStreamModelSchema<UserStreamId, string>
 // Example: TagStreamModelSchema  = BaseStreamModelSchema<TagStreamTypes, NexusHotTag>
 ```
+
+Post stream rows also carry `tailCursor`: the Nexus `last_post_score` of the deepest page fetched into the
+stream, which every cache→Nexus seam resumes from. It is a plain row field (not an index), so it needs no
+`DB_VERSION` bump. Never derive a stream cursor from a post's `indexed_at` — Nexus bumps it on edit/delete
+without moving the post in the stream (`docs/local-first.md`, _Stream Pagination Cursors_).
 
 ### Stream Operations
 
@@ -131,6 +136,29 @@ ttlUserMs: 600_000,  // 10 minutes (users)
 ttlBatchIntervalMs: 5_000, // 5 seconds between batches
 ```
 
+### Viewport TTL subscriptions (UI)
+
+`useLocalFirstQuery` (and therefore `usePostDetails` / `useUserProfile`) never re-fetches a row that is already in IndexedDB. A cached row on screen is refreshed by a `TtlCoordinator` subscription (ADR-0012). The usual path is a viewport subscription via `useTtlSubscription`; `useIsFollowing` also holds a user reference for as long as the Follow control is mounted (not viewport-gated). The coordinator overwrites the row and bumps its TTL, and the live query re-renders every consumer.
+
+Post and user subscriptions are both reference counted, so nested surfaces that track the same entity cannot unsubscribe each other. Each surface still subscribes once per entity it renders; an embed whose enclosing surface already subscribes the same id skips its own subscription, since a second one would only add a redundant `IntersectionObserver`:
+
+| Surface                             | Subscribes                                           | Notes                                                                                                               |
+| ----------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `PostMain`                          | its post id; also the original for flattened reposts | Feed / thread / single-post cards; collection-share originals remain owned by `PostPreviewCard`                     |
+| `PostPreviewCard`                   | the original post id                                 | Repost + link embeds, share/repost dialogs                                                                          |
+| `CollectionCard` (`landing`)        | the collection id                                    | Profile Collections tab, `/collections` sections, search                                                            |
+| `CollectionCard` (`embed`)          | —                                                    | Always inside `PostPreviewCard` or `PostMain` → `PostContentBase`, which subscribe                                  |
+| `CollectionHero`                    | the collection id                                    | The single-collection page's subscriber for its envelope                                                            |
+| `PostSavePicker` ("Also in" rows)   | each other-user collection id                        | The save picker's list of collections that curate the post; the post reference also holds the curator               |
+| `ProfilePageHeader`, `UserListItem` | the user pubky                                       | Profile header and user lists                                                                                       |
+| `useIsFollowing`                    | the follow target                                    | Not viewport-gated: data hook without a DOM node; relationship rows are viewer-relative and only TTL refreshes them |
+
+The collection envelope (`name`, `description`, `cover_image`, `items`, `layout`) is one cached post row, so a single refresh updates the title, cover, and item count everywhere at once. For every viewer, including the owner and guests, the single-collection feed renders the complete local `items` membership in envelope order. `TimelineFeed` reads it and `TimelineFeedContent` projects it over the collection's pagination with `useCollectionStreamMembership`; `useStreamPagination` stays a plain Nexus paginator, and the projection is separate from the raw Nexus page IDs and offsets. An unresolved local read is distinct from a resolved empty collection. A lagging or refreshed Nexus stream cannot erase locally saved items or reintroduce removed members; the trade-off is that an item Nexus indexed before this device's envelope learned of it (added on another device) appears once the envelope refreshes, through the TTL coordinator or a pull-to-refresh, which refetches the envelope with the stream. For the owner, that refetch is skipped during the indexing retry window (`ttlRetryDelayMs`) after a local collection write: Nexus can still serve the pre-save envelope with a newer `indexed_at`, and persisting it would undo the save. Collection creates, edits and compensating rollbacks stamp the optional `post_details.localUpdatedAt` alongside TTL; Nexus persistence retains this timestamp without extending it. Ordinary cache reads only freshen TTL and never suppress an explicit refresh. Here `localUpdatedAt` records the last local write, not an unacknowledged edit: the window is a heuristic, not a guarantee, and a save Nexus indexes later remains exposed to refresh. A skipped request does not schedule a delayed retry; a later pull or the TTL coordinator refreshes the envelope. When the envelope drops an item whose row the stream already served, that row also leaves the raw page so the next skip offset follows Nexus's shorter list.
+
+Cached members render immediately. Uncached members wait for the existing stream's batch hydration before mounting their cards. Until the stream settles, the feed stays in its loading-more state (the list and card layouts show the loading row below the visible cards) and scroll-to-load stays disarmed, so no page request races the initial or eager loads; a pure local read checks member details, relationships, author details and repost originals before exposing a cached card. Once the stream settles, or the eager-load cap stops it, remaining unindexed or unavailable members use the normal card fallback. A failed hydration does not release the members it could not load: a stream page whose batch hydration fails (post details, their attachment metadata or authors) is reported as a failed page, like author-scoped search, with its cursor not consumed, and the feed shows its error instead of a column of unavailable placeholders for posts that may exist, including beside the owner's Add Content cell, where the error takes the empty state's place (the shared timeline renderers do the same for Bookmarks). A hydration cut short by a viewer session change is no outage: that page is discarded and requested again. Already displayed cards stay mounted during refresh or membership reads, subject to current membership and removal suppression.
+
+Transient collection interaction state is scoped to the collection; `CollectionTimelineFeed` remounts the feed when the collection or viewer changes. The save picker retains its card while open or while its membership update is pending, then releases it on close/completion/unmount; releasing is what removes a card the current collection no longer lists. A completed save or rollback keeps that collection pending until a fresh local read resolves with current membership, including intervening writes from other pickers; the picker's other collections stay interactive meanwhile, and a restored card also waits for the feed's local read before releasing retention. Pending removals remain hidden until committed or rolled back, and a committed removal also ends the card's retention; automatic membership updates never invoke the explicit prepend action that clears removal suppression. Successful explicit inserts may bridge the interval before the live envelope read catches up; only the optimistic insert that follows a confirmed save (Add Content, the FAB) does this. The generic insert, which the composer calls before its collection save, leaves a non-member to membership, so a post whose save fails never appears. Muting filters the projected display without permanently removing membership, so unmuting restores eligible items; while the stream hydrates, a projection whose ready members are all muted keeps the feed loading rather than empty. Deleted/unavailable post placeholders still belong to the collection until their membership is removed.
+
 ## Pipes Normalization (ADR-0006)
 
 Pipes normalize external data to domain shapes.
@@ -170,8 +198,9 @@ export class PostNormalizer {
     }
   }
 
-  // Edit an existing post
-  static async toEdit({ compositePostId, content, currentUserPubky }): Promise<PostResult> {
+  // Edit an existing post. `builder.editPost` swaps content only, so optional
+  // attachment/kind changes ride on the reconstructed original post.
+  static async toEdit({ compositePostId, content, currentUserPubky, attachments, kind }): Promise<PostResult> {
     const builder = PubkySpecsSingleton.get(authorId);
     return builder.editPost(originalPost, postId, content);
   }
@@ -195,8 +224,9 @@ class PostController {
 // Application also normalizes data before persisting
 // Real: src/core/application/profile/profile.ts
 class ProfileApplication {
-  static async commitUpdate({ pubky, name, bio, image, links }) {
-    const { user, meta } = UserNormalizer.to({ name, bio, image, links, status }, pubky);
+  private static async commitChanges({ pubky, changes }) {
+    const published = UserNormalizer.fromPublished(await HomeserverService.getFreshJson(userUriBuilder(pubky)));
+    const { user, meta } = UserNormalizer.to(UserNormalizer.merge(published, changes), pubky);
     await HomeserverService.request({ method: HttpMethod.PUT, url: meta.url, bodyJson: user.toJson() });
     await LocalProfileService.updateDetails(user, pubky);
   }
@@ -215,16 +245,31 @@ const settingsJson = await HomeserverService.request<RawSettings>({ method: Http
 return SettingsNormalizer.from(settingsJson);
 ```
 
+## Article Inline Media (ADR-0023)
+
+Article bodies (`kind: long`) embed images, videos, audio and PDFs with one markdown form. The media type is never in the body.
+
+- **Composer form** references the author's upload: `![alt](pubky://{author}/pub/pubky.app/files/{id})`, uploaded at insert time (`useInlineMediaUpload`).
+- **Published form** references a slot: `![alt](attachment:{n})`, where `n` indexes `post.attachments = [cover?, ...inline first-appearance, ...unreferenced originals]` (spec cap 10). `serializeArticleBody` / `deserializeArticleBody` in `src/libs/post/articleInlineMedia.ts` convert between the two and block publishing hand-typed refs, blob URIs, author file URIs in raw HTML or reference-style definitions, and over-cap bodies.
+- **Slot-0 cover rule**: `attachments[0]` is the cover unless the body references `attachment:0` (`articleHasInlineSlotZero`), consumed by `usePostArticle`, `usePostAttachmentsMedia`, `useVisualFeedTiles` and `postCoverPreload`. The cover stays image-only.
+- **Type from metadata**: the reader resolves each inline slot through `useAttachmentsMetadata` and matches rows by `uri` (Dexie returns key order, never request order); a same-session publish uses the local files store entry's `type`; unlocked content uses the bytes the reader holds; an external `https:` URL is typed by its extension (`inferMediaKindFromUrl`). Unknown is rendered as an image.
+- **Ownership invariant**: a ref resolves only when `attachments[n]` is a file URI owned by the author (`isAuthorFileUri`); otherwise an unavailable placeholder renders with no request.
+- Inline slots never leak into post-media surfaces (lightbox, list thumbnails, Visual feed, OG text): those read the cover slot only.
+
 ## Data Model Reference
 
 All tables defined in `src/core/database/franky/franky.ts`.
 
+### Schema changes
+
+`franky.ts` declares a single `this.version(DB_VERSION).stores({...})`; there is no incremental migration chain. `DB_VERSION` is `Env.NEXT_PUBLIC_DB_VERSION` (`src/config/database.ts`). When the stored version differs, the client deletes and recreates the local database (`recreateDatabase`), which is user-visible local data loss until the next sync. Bumping `DB_VERSION` or changing a table's index map is therefore a deliberate, reviewed change with its own callout in the PR, never a side effect of a feature. See `docs/adr/0019-dexie-recreate-on-version-mismatch.md` (supersedes ADR-0007).
+
 ### User Tables
 
 ```
-user_details       — Profile data (name, bio, image, links, status)
+user_details       — Profile data (name, bio, image, links, status) + social_graph_status folded in from the Nexus user view
 user_counts        — Follower/following/post counts
-user_relationships — Follow/mute relationships
+user_relationships — Follow/mute relationships (viewer-relative: only written when the fetch carried a `viewerId`)
 user_connections   — User connection data
 user_tags          — Tag collections per user
 user_ttl           — Cache staleness (id, lastUpdatedAt)
@@ -235,7 +280,7 @@ notifications      — Notification records
 
 ```
 post_details       — Post content, kind, attachments, timestamps
-post_counts        — Reply/repost/tag counts
+post_counts        — Reply/repost/tag counts, plus `collections` (how many collections curate the post; bumped locally when the viewer's own collections change)
 post_relationships — Author, parent, repost relationships
 post_tags          — Tag collections per post
 post_ttl           — Cache staleness (id, lastUpdatedAt)
@@ -258,6 +303,7 @@ bookmarks          — Bookmarked post references
 hot_tags           — Trending tag snapshots
 feeds              — Custom feed definitions
 moderation         — Content moderation state
+locks              — Cached lock descriptors and readable post metadata
 ```
 
 ## Quick Checklist
@@ -269,3 +315,4 @@ When working with data:
 - [ ] TTL updated on every write?
 - [ ] External data normalized through pipes?
 - [ ] Pipes are pure (no IO)?
+- [ ] Article body media referenced by `attachment:{n}` slot, type from file metadata?

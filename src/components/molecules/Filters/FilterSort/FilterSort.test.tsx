@@ -74,6 +74,13 @@ describe('FilterSort', () => {
     });
   });
 
+  it('preserves data-cy selectors for e2e tests', () => {
+    render(<FilterSort />);
+
+    expect(screen.getByLabelText('Recent')).toHaveAttribute('data-cy', 'recent-sort-toggle');
+    expect(screen.getByLabelText('Popularity')).toHaveAttribute('data-cy', 'popularity-sort-toggle');
+  });
+
   it('renders with different selected tabs', () => {
     const { rerender } = render(<FilterSort selectedTab={SORT.TIMELINE} />);
 
@@ -91,27 +98,5 @@ describe('FilterSort', () => {
 
     expect(recentItem).toBeInTheDocument();
     expect(popularityItem).toBeInTheDocument();
-  });
-});
-
-describe('FilterSort - Snapshots', () => {
-  it('matches snapshot with default props', () => {
-    const { container } = render(<FilterSort />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with Recent content selected tab', () => {
-    const { container } = render(<FilterSort selectedTab={SORT.TIMELINE} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with Popularity content selected tab', () => {
-    const { container } = render(<FilterSort selectedTab={SORT.ENGAGEMENT} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with disabled state', () => {
-    const { container } = render(<FilterSort disabled />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

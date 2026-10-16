@@ -113,11 +113,7 @@ vi.mock('@/molecules/Page/Page', () => {
   };
 });
 
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    toast: vi.fn(),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 
 // Mock copyToClipboard function - use vi.hoisted to ensure it's available before vi.mock runs
 const { mockCopyToClipboard } = vi.hoisted(() => ({
@@ -125,8 +121,10 @@ const { mockCopyToClipboard } = vi.hoisted(() => ({
 }));
 
 // Mock atoms
-vi.mock('@/atoms/Button/Button', () => {
+vi.mock('@/atoms/Button/Button', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/atoms/Button/Button')>();
   return {
+    ...actual,
     Button: ({
       asChild,
       children,
@@ -280,7 +278,7 @@ describe('ScanContent', () => {
 
     // Wait for the component to finish loading
     await waitFor(() => {
-      expect(screen.getByText('Authorize with Pubky Ring')).toBeInTheDocument();
+      expect(screen.getByText('Authorize with Pubky Ring or Bitkit')).toBeInTheDocument();
     });
 
     const images = screen.getAllByTestId('next-image');
@@ -295,10 +293,10 @@ describe('ScanContent', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Authorize with Pubky Ring/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /Authorize with Pubky Ring or Bitkit/i })).not.toBeDisabled();
     });
 
-    const authorizeButton = screen.getByRole('button', { name: /Authorize with Pubky Ring/i });
+    const authorizeButton = screen.getByRole('button', { name: /Authorize with Pubky Ring or Bitkit/i });
 
     await act(async () => {
       fireEvent.click(authorizeButton);
@@ -423,53 +421,5 @@ describe('ScanNavigation', () => {
     fireEvent.click(backButton);
 
     expect(mockPush).toHaveBeenCalledWith(ONBOARDING_ROUTES.INSTALL);
-  });
-});
-
-describe('Scan Components - Snapshots', () => {
-  beforeEach(() => {
-    onboardingState.inviteCode = 'A9KM-7MJP-ERM9';
-    vi.mocked(useMobileAuth).mockReturnValue({
-      url: 'mock-auth-url',
-      isLoading: false,
-      isExpired: false,
-      fetchUrl: mockFetchUrl,
-      copyAuthUrl: mockCopyAuthUrl,
-      isOpeningRing: false,
-      onAuthorizeClick: mockOnAuthorizeClick,
-    });
-  });
-
-  describe('ScanContent - Snapshots', () => {
-    it('matches snapshot for default ScanContent', () => {
-      const { container } = render(<ScanContent />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-  });
-
-  describe('ScanFooter - Snapshots', () => {
-    it('matches snapshot for default ScanFooter', () => {
-      const { container } = render(<ScanFooter />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-  });
-
-  describe('ScanHeader - Snapshots', () => {
-    it('matches snapshot for mobile ScanHeader', () => {
-      const { container } = render(<ScanHeader isMobile={true} />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches snapshot for desktop ScanHeader', () => {
-      const { container } = render(<ScanHeader isMobile={false} />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-  });
-
-  describe('ScanNavigation - Snapshots', () => {
-    it('matches snapshot for default ScanNavigation', () => {
-      const { container } = render(<ScanNavigation />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
   });
 });

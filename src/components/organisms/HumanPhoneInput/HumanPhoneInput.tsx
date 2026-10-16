@@ -11,7 +11,7 @@ import { parsePhoneNumber } from '@/libs/phone/phone';
 import { cn } from '@/libs/utils/utils';
 import { HumanPhoneInputField } from '@/molecules/HumanPhoneInputField/HumanPhoneInputField';
 import { PageTitle } from '@/molecules/Page/Page';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { SmsCodeErrorType } from '@/services/homegate/homegate.constants';
 
 type HumanPhoneInputProps = {
@@ -122,7 +122,7 @@ export const HumanPhoneInput = ({ onBack, onCodeSent, initialPhoneNumber }: Huma
           id="human-phone-back-btn"
           size="lg"
           className="w-full flex-1 rounded-full md:flex-0"
-          variant="secondary"
+          variant="outline"
           onClick={onBack}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />

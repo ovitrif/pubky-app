@@ -199,6 +199,18 @@ describe('TimelineStateWrapper', () => {
       expect(screen.queryByTestId('mock-children')).not.toBeInTheDocument();
     });
 
+    it('renders only the children when auto-loading is stalled (the manual Load more lives there)', () => {
+      render(
+        <TimelineStateWrapper loading={false} error={null} hasItems={false} hasMore={true} stalled={true}>
+          {mockChildren}
+        </TimelineStateWrapper>,
+      );
+
+      expect(screen.queryByTestId('default-loading')).not.toBeInTheDocument();
+      expect(screen.getByTestId('mock-children')).toBeInTheDocument();
+      expect(screen.queryByText('No posts found')).not.toBeInTheDocument();
+    });
+
     it('renders children alone (no loading component) once items exist', () => {
       render(
         <TimelineStateWrapper loading={false} error={null} hasItems={true} hasMore={true}>
@@ -268,69 +280,6 @@ describe('TimelineStateWrapper', () => {
       expect(screen.getByTestId('child-1')).toBeInTheDocument();
       expect(screen.getByTestId('child-2')).toBeInTheDocument();
       expect(screen.getByTestId('child-3')).toBeInTheDocument();
-    });
-  });
-
-  describe('Snapshots', () => {
-    it('should match snapshot for loading state', () => {
-      const { container } = render(
-        <TimelineStateWrapper loading={true} error={null} hasItems={false}>
-          {mockChildren}
-        </TimelineStateWrapper>,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot for error state', () => {
-      const { container } = render(
-        <TimelineStateWrapper loading={false} error="Network error" hasItems={false}>
-          {mockChildren}
-        </TimelineStateWrapper>,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot for empty state', () => {
-      const { container } = render(
-        <TimelineStateWrapper loading={false} error={null} hasItems={false}>
-          {mockChildren}
-        </TimelineStateWrapper>,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot for success state', () => {
-      const { container } = render(
-        <TimelineStateWrapper loading={false} error={null} hasItems={true}>
-          {mockChildren}
-        </TimelineStateWrapper>,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('should match snapshot with custom components', () => {
-      const customLoading = <div>Custom Loading</div>;
-      const customError = <div>Custom Error</div>;
-      const customEmpty = <div>Custom Empty</div>;
-
-      const { container } = render(
-        <TimelineStateWrapper
-          loading={false}
-          error={null}
-          hasItems={false}
-          loadingComponent={customLoading}
-          errorComponent={customError}
-          emptyComponent={customEmpty}
-        >
-          {mockChildren}
-        </TimelineStateWrapper>,
-      );
-
-      expect(container).toMatchSnapshot();
     });
   });
 });

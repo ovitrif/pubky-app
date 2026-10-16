@@ -1,5 +1,4 @@
 import { PostResult, PubkyAppPost, PubkyAppPostEmbed, PubkyAppPostKind } from 'pubky-app-specs';
-import type { TEditPostParams } from '@/controllers/post/post.types';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -15,6 +14,19 @@ import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import type { PostValidatorData } from '@/pipes/pipes.types';
 import { CollectionPostContent } from '@/pipes/post/post.collection';
 
+type TToEditParams = {
+  compositePostId: string;
+  content: string;
+  currentUserPubky: Pubky;
+  /**
+   * Full ordered attachment URI list to persist on the edited post.
+   * `undefined` keeps the stored attachments; `[]` and `null` both clear them.
+   */
+  attachments?: string[] | null;
+  /** Kind for the edited post. `undefined` preserves the stored kind. */
+  kind?: PubkyAppPostKind;
+};
+
 export class PostNormalizer {
   private constructor() {}
 
@@ -26,16 +38,40 @@ export class PostNormalizer {
   /**
    * Maps stored kind string to PubkyAppPostKind enum.
    * DB stores "short"/"long" strings, but PubkyAppPost expects numeric enum values.
+   *
+   * Fails closed on unrecognized kinds: the stored kind is an open string
+   * (Nexus running a newer spec can serve kinds this client doesn't know, as
+   * happened when `collection` shipped), and a fallback would make every edit
+   * of such a post silently rewrite its kind on the homeserver.
    */
   static mapKindToEnum(kind: string): PubkyAppPostKind {
     const normalized = kind.toLowerCase();
+    if (normalized === 'short' || normalized === String(PubkyAppPostKind.Short)) {
+      return PubkyAppPostKind.Short;
+    }
     if (normalized === 'long' || normalized === String(PubkyAppPostKind.Long)) {
       return PubkyAppPostKind.Long;
     }
     if (normalized === 'collection' || normalized === String(PubkyAppPostKind.Collection)) {
       return PubkyAppPostKind.Collection;
     }
-    return PubkyAppPostKind.Short;
+    if (normalized === 'image' || normalized === String(PubkyAppPostKind.Image)) {
+      return PubkyAppPostKind.Image;
+    }
+    if (normalized === 'video' || normalized === String(PubkyAppPostKind.Video)) {
+      return PubkyAppPostKind.Video;
+    }
+    if (normalized === 'link' || normalized === String(PubkyAppPostKind.Link)) {
+      return PubkyAppPostKind.Link;
+    }
+    if (normalized === 'file' || normalized === String(PubkyAppPostKind.File)) {
+      return PubkyAppPostKind.File;
+    }
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Unsupported post kind', {
+      service: ErrorService.Local,
+      operation: 'mapKindToEnum',
+      context: { kind },
+    });
   }
 
   static async toCollection(collection: CollectionContentInput, specsPubky: Pubky): Promise<PostResult> {
@@ -82,13 +118,22 @@ export class PostNormalizer {
         }
       }
 
-      let attachments: string[] | null = null;
+      // Final attachment order: uploaded files first (article cover), then
+      // pre-uploaded URIs (article inline images, already on the homeserver).
+      const attachmentList = [
+        ...(post.attachments ?? []).map((attachment) => attachment.fileResult.meta.url),
+        ...(post.attachmentUris ?? []),
+      ];
+      const attachments = attachmentList.length > 0 ? attachmentList : null;
 
-      if (post.attachments) {
-        attachments = post.attachments.map((attachment) => attachment.fileResult.meta.url);
-      }
-
-      return builder.createPost(post.content, post.kind, post.parentUri ?? null, embedObject, attachments);
+      return builder.createPost(
+        post.content,
+        post.kind,
+        post.parentUri ?? null,
+        embedObject,
+        attachments,
+        post.lock ?? null,
+      );
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
@@ -107,7 +152,9 @@ export class PostNormalizer {
     compositePostId,
     content,
     currentUserPubky,
-  }: TEditPostParams & { currentUserPubky: Pubky }): Promise<PostResult> {
+    attachments,
+    kind,
+  }: TToEditParams): Promise<PostResult> {
     const { pubky: authorId, id: postId } = parseCompositeId(compositePostId);
 
     if (authorId !== currentUserPubky) {
@@ -121,11 +168,12 @@ export class PostNormalizer {
     const builder = PubkySpecsSingleton.get(authorId);
 
     const postDetails = await PostDetailsModel.findById(compositePostId);
-    // Tombstoned posts (`content === '[DELETED]'`) are treated as not-found
-    // here. Pre-tombstone refactor `!postDetails` caught hard-deleted rows;
-    // now they stick around as tombstones and falling through would build a
-    // `PubkyAppPost` whose content is the `[DELETED]` sentinel.
-    if (!postDetails || isPostDeleted(postDetails.content)) {
+    // Tombstoned posts (the Nexus `deleted` flag, or the legacy `[DELETED]`
+    // content) are treated as not-found here. Pre-tombstone refactor
+    // `!postDetails` caught hard-deleted rows; now they stick around as
+    // tombstones and falling through would build a `PubkyAppPost` from the
+    // tombstone's content.
+    if (!postDetails || isPostDeleted(postDetails)) {
       throw Err.client(ClientErrorCode.NOT_FOUND, 'Post not found', {
         service: ErrorService.Local,
         operation: 'toEdit',
@@ -151,12 +199,22 @@ export class PostNormalizer {
       }
     }
 
-    const originalPost = new PubkyAppPost(
+    // `builder.editPost` swaps content only, so attachment/kind changes ride on
+    // the reconstructed "original" post: it carries the *next* attachments and
+    // kind, and `editPost` validates the result under the existing post id/URL.
+    const nextAttachments =
+      attachments === undefined ? postDetails.attachments : attachments && attachments.length > 0 ? attachments : null;
+
+    // Everything but the content is carried over from this pre-edit post, so `lock` has to be on it —
+    // and `new_with_lock` is the only constructor that accepts one. Omit it and editing an
+    // announcement republishes it with no link to the paid content, unrecoverably.
+    const originalPost = PubkyAppPost.new_with_lock(
       postDetails.content,
-      this.mapKindToEnum(postDetails.kind),
+      kind ?? this.mapKindToEnum(postDetails.kind),
       postRelationships?.replied ?? null,
       embedObject ?? null,
-      postDetails.attachments,
+      nextAttachments,
+      postDetails.lock ?? null,
     );
 
     const result = builder.editPost(originalPost, postId, content);

@@ -76,6 +76,30 @@ describe('ControlledInputField', () => {
     expect(handlePaste).toHaveBeenCalled();
   });
 
+  it('forwards icon clicks through an accessible icon button', () => {
+    const handleClickIcon = vi.fn();
+
+    render(
+      <TestWrapper>
+        {(form) => (
+          <ControlledInputField<TestFormData>
+            name="testField"
+            control={form.control}
+            placeholder="Enter value"
+            icon={<span>icon</span>}
+            iconPosition="right"
+            onClickIcon={handleClickIcon}
+            iconAriaLabel="Icon action"
+          />
+        )}
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Icon action' }));
+
+    expect(handleClickIcon).toHaveBeenCalledTimes(1);
+  });
+
   it('renders without a label wrapper', () => {
     render(
       <TestWrapper>
@@ -87,24 +111,5 @@ describe('ControlledInputField', () => {
 
     expect(screen.queryByText('Test Label')).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText('Enter value')).toBeInTheDocument();
-  });
-});
-
-describe('ControlledInputField - Snapshots', () => {
-  it('matches snapshot for default state', () => {
-    const { container } = render(
-      <TestWrapper>
-        {(form) => (
-          <ControlledInputField<TestFormData>
-            name="testField"
-            control={form.control}
-            label="Test Label"
-            placeholder="Enter value"
-          />
-        )}
-      </TestWrapper>,
-    );
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

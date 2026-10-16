@@ -1,11 +1,10 @@
-import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-import type { SnapshotSerializer } from 'vitest';
+import { STARTER_PACK_RESERVED_TAGS } from '@/config/nexus';
 import { DEFAULT_DISPLAY_PUBLIC_KEY_LENGTH, TAG_MAX_LENGTH } from '@/config/posts';
 import { parseCompositeId } from '@/models/models.utils';
+import { DELETED } from '@/models/post/details/postDetails.constants';
 import type { PostInputVariant } from '@/organisms/PostInput/PostInput.types';
 import { getSafeExternalUrl } from './safeExternalUrl';
-import { RADIX_ID_REGEX, RADIX_ID_TEST_REGEX, TAG_BANNED_CHARS } from './utils.constants';
+import { DELETED_USER_NAME, TAG_BANNED_CHARS } from './utils.constants';
 import type {
   CopyToClipboardProps,
   ExtractInitialsProps,
@@ -13,9 +12,7 @@ import type {
   GetDisplayTagsOptions,
 } from './utils.types';
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+export { cn } from 'cn';
 
 const PUBKY_PREFIX = 'pubky';
 const LEGACY_PUBKY_PREFIX = 'pk:';
@@ -31,6 +28,8 @@ export function withPubkyPrefix(key: string): string {
 
 export function stripPubkyPrefix(key: string): string {
   if (!key) return '';
+  // A raw key can itself start with "pubky"; only strip a display prefix.
+  if (isPubkyIdentifier(key)) return key;
   if (key.startsWith(PUBKY_PREFIX)) return key.slice(PUBKY_PREFIX.length);
   if (key.startsWith(LEGACY_PUBKY_PREFIX)) return key.slice(LEGACY_PUBKY_PREFIX.length);
   return key;
@@ -53,10 +52,24 @@ export function formatPublicKey({
 /**
  * Resolves a user's display name, falling back to a shortened public key when
  * the profile has no `name` set. Mirrors the app's UI convention
- * (`user.name || formatPublicKey(...)`, e.g. in `UserListItem`).
+ * (`user.name || formatPublicKey(...)`, e.g. in `UserListItem`). Deleted users
+ * resolve to `[DELETED]` rather than the fallback.
  */
-export function resolveDisplayName(user: { name: string; id: string }): string {
-  return user.name || formatPublicKey({ key: user.id });
+export function resolveDisplayName(user: { name: string; id: string; deleted?: boolean }): string {
+  return resolveUserDisplayName(user) || formatPublicKey({ key: user.id });
+}
+
+/**
+ * Display label for a user: `[DELETED]` for a tombstone, the user's own name otherwise, and
+ * an empty string when a live user has none. Empty lets the caller keep its own fallback
+ * (public key, "Unknown User", …) while a deleted user never degrades into one. Surfaces
+ * that key on the label (`AvatarWithFallback` picks its glyph from it) must pass the resolved
+ * value, not a raw row name: a new-shape tombstone's row has `name: ''`, which renders a seed
+ * letter instead of the glyph.
+ */
+export function resolveUserDisplayName(user: { name?: string | null; deleted?: boolean } | null | undefined): string {
+  if (isUserDeleted(user)) return DELETED_USER_NAME;
+  return user?.name ?? '';
 }
 
 /**
@@ -153,6 +166,18 @@ export async function copyToClipboard({ text }: CopyToClipboardProps) {
   }
 }
 
+/**
+ * Read text from the clipboard. Throws when the Clipboard API is unavailable
+ * (non-secure context, unsupported browser) or the read is denied.
+ */
+export async function readFromClipboard(): Promise<string> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+    throw new Error('Clipboard API not supported');
+  }
+
+  return navigator.clipboard.readText();
+}
+
 const customCases = [
   { name: 'bitcoin', color: '#FF9900' },
   { name: 'synonym', color: '#FF6600' },
@@ -160,6 +185,7 @@ const customCases = [
   { name: 'pubky', color: '#C8FF00' },
   { name: 'blocktank', color: '#FFAE00' },
   { name: 'tether', color: '#26A17B' },
+  { name: 'ai', color: '#00C8FF' },
 ];
 
 /**
@@ -200,7 +226,14 @@ export function generateRandomColor(str: string): string {
   ];
 
   // Select pattern based on the hash
-  const pattern = patterns[positiveHash % patterns.length];
+  const patternIndex = positiveHash % patterns.length;
+  // The blue-heavy patterns span 220–260° when their variable channel is <= 85.
+  // Remap only that range to teal/cyan (165–195°), keeping the hash's variation.
+  if ((patternIndex === 3 || patternIndex === 4) && randomByte <= 85) {
+    const cyanHex = (255 - Math.round(randomByte * 0.75)).toString(16).padStart(2, '0');
+    return patternIndex === 3 ? `#00${cyanHex}FF` : `#00FF${cyanHex}`;
+  }
+  const pattern = patterns[patternIndex];
 
   return `#${pattern}`;
 }
@@ -250,16 +283,6 @@ export function formatInviteCode(code: string) {
     // Take only first 12 characters for longer codes
     const truncated = uppercased.slice(0, 12);
     return `${truncated.slice(0, 4)}-${truncated.slice(4, 8)}-${truncated.slice(8, 12)}`;
-  }
-}
-
-export function clearCookies() {
-  if (typeof document !== 'undefined') {
-    document.cookie.split(';').forEach((cookie) => {
-      const eqPos = cookie.indexOf('=');
-      const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
-      document.cookie = `${name.trim()}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-    });
   }
 }
 
@@ -432,7 +455,27 @@ export const convertHmsToSeconds = (
   return h * 3600 + m * 60 + s;
 };
 
-export const isPostDeleted = (content: string | undefined) => content === '[DELETED]';
+/**
+ * Whether a post is a Nexus tombstone. Current Nexus sets `deleted: true` and empties the
+ * content; rows cached from older builds still carry the legacy `[DELETED]` content instead.
+ * Takes the details rather than the content string, so a call site cannot silently drop the flag.
+ */
+export const isPostDeleted = (post: { content?: string | null; deleted?: boolean } | null | undefined) =>
+  post?.deleted === true || post?.content === DELETED;
+
+/**
+ * Whether a user is a Nexus tombstone. Current Nexus sets `deleted: true` and empties the name;
+ * rows cached from older builds still carry the legacy `[DELETED]` name instead.
+ */
+export const isUserDeleted = (user: { name?: string | null; deleted?: boolean } | null | undefined) =>
+  user?.deleted === true || user?.name === DELETED_USER_NAME;
+
+/**
+ * Whether a profile name is reserved for the tombstone label. `[DELETED]` is what the app shows for
+ * a deleted user, so a live profile must not be able to take it: it would render as deleted.
+ * Reserved at input by `UserValidator` and the profile form, both of which gate the name on this.
+ */
+export const isReservedUserName = (name: string) => name.trim() === DELETED_USER_NAME;
 
 /**
  * Get tags that fit within the character budget.
@@ -569,6 +612,26 @@ export function getCharacterCount(text: string): number {
 }
 
 /**
+ * Counts the characters the composer actually enforces, i.e. UTF-16 code units.
+ *
+ * `maxLength` and `usePostInput`'s write handlers all compare `.length`, so an astral character
+ * (an emoji) occupies two units and input stops at that count. `getCharacterCount` counts code
+ * points instead, so it reads one lower per emoji: a draft can sit at the enforced limit with a
+ * code-point count still below it. Derive the counter, its destructive state and
+ * `useCharacterLimitWarning` from this measure so all three agree with what the field accepts.
+ *
+ * @param text - The string to measure
+ * @returns The number of UTF-16 code units in the string
+ *
+ * @example
+ * getEnforcedCharacterCount('Hello') // 5
+ * getEnforcedCharacterCount('👍') // 2
+ */
+export function getEnforcedCharacterCount(text: string): number {
+  return text.length;
+}
+
+/**
  * Remove banned characters from tag input
  * Used to sanitize tag input on every keystroke and paste
  *
@@ -582,6 +645,22 @@ export function getCharacterCount(text: string): number {
  */
 export function sanitizeTagInput(value: string): string {
   return value.replace(TAG_BANNED_CHARS, '');
+}
+
+/**
+ * Convert a tag label to the canonical form used by local storage and Nexus.
+ *
+ * @param value - The raw tag label
+ * @returns The trimmed, lowercase tag label
+ */
+export function canonicalizeTagLabel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Whether Nexus reserves this label from starter-pack interest streams. */
+export function isStarterPackReservedTag(value: string): boolean {
+  const canonical = canonicalizeTagLabel(value);
+  return STARTER_PACK_RESERVED_TAGS.some((label) => label === canonical);
 }
 
 /**
@@ -604,13 +683,14 @@ export function isValidTagLabel(value: string): boolean {
  * @param isSubmitting - Whether a submission is currently in progress
  * @param isArticle - Whether the post is an article (optional)
  * @param articleTitle - The title of the article (optional)
+ * @param hasBlockingUploads - Whether inline image uploads are still in flight (optional)
  * @returns true if the post can be submitted, false otherwise
  *
  * @remarks
  * - Reposts allow empty content
  * - Posts and replies require either content or attachments
  * - Articles require both content and title
- * - Cannot submit if already submitting
+ * - Cannot submit if already submitting or while inline image uploads are in flight
  *
  * @example
  * canSubmitPost('post', 'Hello world', [], false) // true
@@ -623,12 +703,13 @@ export function isValidTagLabel(value: string): boolean {
 export function canSubmitPost(
   variant: PostInputVariant,
   content: string,
-  attachments: File[],
+  attachments: ReadonlyArray<unknown>,
   isSubmitting: boolean,
   isArticle?: boolean,
   articleTitle?: string,
+  hasBlockingUploads?: boolean,
 ): boolean {
-  if (isSubmitting) return false;
+  if (isSubmitting || hasBlockingUploads) return false;
 
   // Reposts allow empty content, posts and replies require content or attachments
   if (variant === 'repost') return true;
@@ -638,9 +719,7 @@ export function canSubmitPost(
     return !!content.trim() && !!articleTitle?.trim();
   }
 
-  // Edit mode requires content to submit
-  if (variant === 'edit') return !!content.trim();
-
+  // Posts, replies, and edits require content or attachments (edits count kept + new)
   return Boolean(content.trim()) || attachments.length > 0;
 }
 
@@ -818,23 +897,3 @@ export function focusAdjacentGridItem(button: HTMLButtonElement): void {
     }
   }
 }
-
-/**
- * Snapshot serializer to normalize Radix UI generated IDs.
- * This ensures snapshot tests are consistent across test runs by replacing
- * dynamic Radix IDs (e.g., "radix-_r_12345") with a normalized placeholder.
- *
- * @see https://github.com/pubky/pubky-app/issues/1101
- *
- * @example
- * // In test setup (e.g., vitest.setup.ts):
- * import { radixIdSerializer } from '@/libs/utils/utils';
- * expect.addSnapshotSerializer(radixIdSerializer);
- */
-export const radixIdSerializer: SnapshotSerializer = {
-  test: (val): val is string => typeof val === 'string' && RADIX_ID_TEST_REGEX.test(val),
-  serialize: (val, config, indentation, depth, refs, printer) => {
-    const normalized = (val as string).replace(RADIX_ID_REGEX, 'radix-normalized');
-    return printer(normalized, config, indentation, depth, refs);
-  },
-};

@@ -1,6 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
+import { toast } from '@/molecules/Toaster/toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { authInitialState } from '@/stores/auth/auth.types';
+import { mockSession } from '@/test-utils/pubky';
 import { usePostMenuActions } from './usePostMenuActions';
 import { POST_MENU_ACTION_IDS } from './usePostMenuActions.constants';
 
@@ -8,7 +12,6 @@ import { POST_MENU_ACTION_IDS } from './usePostMenuActions.constants';
 const {
   mockIsAppError,
   mockParseCompositeId,
-  mockToast,
   mockUseCurrentUserProfile,
   mockUsePostDetails,
   mockUseUserProfile,
@@ -17,10 +20,10 @@ const {
   mockUseMuteUser,
   mockUseMutedUsers,
   mockUseCopyToClipboard,
+  mockUseShareUrl,
 } = vi.hoisted(() => ({
   mockIsAppError: vi.fn(),
   mockParseCompositeId: vi.fn(),
-  mockToast: vi.fn(),
   mockUseCurrentUserProfile: vi.fn(),
   mockUsePostDetails: vi.fn(),
   mockUseUserProfile: vi.fn(),
@@ -29,6 +32,7 @@ const {
   mockUseMuteUser: vi.fn(),
   mockUseMutedUsers: vi.fn(),
   mockUseCopyToClipboard: vi.fn(),
+  mockUseShareUrl: vi.fn(),
 }));
 
 // Mock dependencies
@@ -69,12 +73,12 @@ vi.mock('@/hooks/useCopyToClipboard/useCopyToClipboard', () => ({
   useCopyToClipboard: mockUseCopyToClipboard,
 }));
 
+vi.mock('@/hooks/useShareUrl/useShareUrl', () => ({
+  useShareUrl: mockUseShareUrl,
+}));
+
 // Mock Molecules
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    toast: (props: unknown) => mockToast(props),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/libs/error/error.utils', async () => {
   const actual = await vi.importActual<typeof import('@/libs/error/error.utils')>('@/libs/error/error.utils');
@@ -114,15 +118,23 @@ describe('usePostMenuActions', () => {
     toggleFollow: vi.fn().mockResolvedValue(undefined),
     isFollowLoading: false,
     isUserLoading: vi.fn().mockReturnValue(false),
-    toggleMute: vi.fn().mockResolvedValue(undefined),
+    toggleMute: vi.fn().mockResolvedValue(true),
     isMuteLoading: false,
     isMuteUserLoading: vi.fn().mockReturnValue(false),
     isMuted: vi.fn().mockReturnValue(false),
     copyToClipboard: vi.fn().mockResolvedValue(true),
+    shareUrl: vi.fn().mockResolvedValue(true),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useAuthStore.setState({
+      ...authInitialState,
+      currentUserPubky: mockCurrentUserId,
+      session: mockSession(),
+      restoreStatus: 'ready',
+      hasHydrated: true,
+    });
     mockIsAppError.mockReturnValue(false);
     defaultMocks.isMuted.mockReturnValue(false);
 
@@ -172,6 +184,69 @@ describe('usePostMenuActions', () => {
     mockUseCopyToClipboard.mockReturnValue({
       copyToClipboard: defaultMocks.copyToClipboard,
     });
+    mockUseShareUrl.mockReturnValue({
+      shareUrl: defaultMocks.shareUrl,
+    });
+  });
+
+  describe.each([
+    { recovery: 'reauth-required', restoreStatus: 'reauth-required', session: null },
+    { recovery: 'temporary-error', restoreStatus: 'temporary-error', session: null },
+    { recovery: 'temporary-error with a live session', restoreStatus: 'temporary-error', session: mockSession() },
+    { recovery: 'restoring', restoreStatus: 'restoring', session: null },
+  ] as const)('an already-open menu during $recovery', ({ restoreStatus, session }) => {
+    it.each([POST_MENU_ACTION_IDS.REPORT, POST_MENU_ACTION_IDS.EDIT, POST_MENU_ACTION_IDS.DELETE])(
+      'blocks a retained %s callback before the account action runs',
+      async (actionId) => {
+        const currentUserPubky =
+          actionId === POST_MENU_ACTION_IDS.EDIT || actionId === POST_MENU_ACTION_IDS.DELETE
+            ? mockAuthorId
+            : mockCurrentUserId;
+        useAuthStore.setState({ currentUserPubky });
+        mockUseCurrentUserProfile.mockReturnValue({ currentUserPubky });
+        const callbacks = { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() };
+        const { result } = renderHook(() => usePostMenuActions(mockPostId, callbacks));
+        const retainedAction = result.current.menuItems.find((item) => item.id === actionId);
+        expect(retainedAction).toBeDefined();
+
+        await act(async () => {
+          useAuthStore.setState({ restoreStatus, session });
+          await retainedAction?.onClick();
+        });
+
+        expect(defaultMocks.toggleFollow).not.toHaveBeenCalled();
+        expect(defaultMocks.toggleMute).not.toHaveBeenCalled();
+        expect(callbacks.onReportClick).not.toHaveBeenCalled();
+        expect(callbacks.onEditClick).not.toHaveBeenCalled();
+        expect(callbacks.onDeleteClick).not.toHaveBeenCalled();
+        expect(vi.mocked(toast)).toHaveBeenCalledTimes(restoreStatus === 'temporary-error' ? 1 : 0);
+        expect(useAuthStore.getState().currentUserPubky).toBe(currentUserPubky);
+        expect(useAuthStore.getState().showSignInDialog).toBe(restoreStatus === 'reauth-required');
+      },
+    );
+
+    it('keeps retained public copy and share callbacks available', async () => {
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
+      const retainedActions = result.current.menuItems.filter(
+        (item) =>
+          item.id === POST_MENU_ACTION_IDS.COPY_PUBKY ||
+          item.id === POST_MENU_ACTION_IDS.COPY_LINK ||
+          item.id === POST_MENU_ACTION_IDS.COPY_TEXT,
+      );
+      expect(retainedActions).toHaveLength(3);
+
+      await act(async () => {
+        useAuthStore.setState({ restoreStatus, session });
+        for (const action of retainedActions) await action.onClick();
+      });
+
+      expect(defaultMocks.copyToClipboard).toHaveBeenCalledWith(`pubky${mockAuthorId}`);
+      expect(defaultMocks.copyToClipboard).toHaveBeenCalledWith('Test post');
+      expect(defaultMocks.shareUrl).toHaveBeenCalledWith('https://example.com/post/author123/post456');
+      expect(useAuthStore.getState().showSignInDialog).toBe(false);
+    });
   });
 
   describe('Menu items for other user posts', () => {
@@ -216,7 +291,7 @@ describe('usePostMenuActions', () => {
       expect(followItem?.disabled).toBe(true);
     });
 
-    it('calls toggleFollow with full author name on follow action click', async () => {
+    it('calls toggleFollow with the author id on follow action click', async () => {
       const { result } = renderHook(() =>
         usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
       );
@@ -228,10 +303,10 @@ describe('usePostMenuActions', () => {
         await followItem?.onClick();
       });
 
-      expect(defaultMocks.toggleFollow).toHaveBeenCalledWith(mockAuthorId, false, 'Test Author');
+      expect(defaultMocks.toggleFollow).toHaveBeenCalledWith(mockAuthorId, false);
     });
 
-    it('calls toggleFollow with full author name on unfollow action click', async () => {
+    it('calls toggleFollow with the author id on unfollow action click', async () => {
       mockUseIsFollowing.mockReturnValue({
         isFollowing: true,
         isLoading: false,
@@ -248,7 +323,7 @@ describe('usePostMenuActions', () => {
         await followItem?.onClick();
       });
 
-      expect(defaultMocks.toggleFollow).toHaveBeenCalledWith(mockAuthorId, true, 'Test Author');
+      expect(defaultMocks.toggleFollow).toHaveBeenCalledWith(mockAuthorId, true);
     });
 
     it('does not throw when the follow fails (useFollowUser handles feedback)', async () => {
@@ -305,8 +380,8 @@ describe('usePostMenuActions', () => {
       });
 
       expect(defaultMocks.toggleMute).toHaveBeenCalledWith(mockAuthorId, false);
-      expect(mockToast).toHaveBeenCalledWith({
-        title: 'Test Author muted',
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        title: 'User muted',
       });
     });
 
@@ -319,6 +394,20 @@ describe('usePostMenuActions', () => {
       expect(reportItem).toBeDefined();
       expect(reportItem?.label).toBe('Report post');
       expect(reportItem?.disabled).toBeUndefined();
+    });
+
+    it('calls onReportClick on report action click', async () => {
+      const onReportClick = vi.fn();
+      const { result } = renderHook(() =>
+        usePostMenuActions(mockPostId, { onReportClick, onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
+      );
+      const reportItem = result.current.menuItems.find((item) => item.id === POST_MENU_ACTION_IDS.REPORT);
+
+      await act(async () => {
+        await reportItem?.onClick();
+      });
+
+      expect(onReportClick).toHaveBeenCalledOnce();
     });
 
     it('does not include edit action for other user posts', () => {
@@ -490,7 +579,7 @@ describe('usePostMenuActions', () => {
       expect(copyLinkItem?.label).toBe('Copy link to post');
     });
 
-    it('calls copyToClipboard with post URL on copy link click', async () => {
+    it('hands the post URL to shareUrl on copy link click', async () => {
       const { result } = renderHook(() =>
         usePostMenuActions(mockPostId, { onReportClick: vi.fn(), onEditClick: vi.fn(), onDeleteClick: vi.fn() }),
       );
@@ -501,7 +590,7 @@ describe('usePostMenuActions', () => {
         await copyLinkItem?.onClick();
       });
 
-      expect(defaultMocks.copyToClipboard).toHaveBeenCalledWith('https://example.com/post/author123/post456');
+      expect(defaultMocks.shareUrl).toHaveBeenCalledWith('https://example.com/post/author123/post456');
     });
 
     it('includes copy text action for short posts', () => {

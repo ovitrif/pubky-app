@@ -7,10 +7,13 @@ import { Card } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { RadioGroup, RadioGroupItem } from '@/atoms/RadioGroup/RadioGroup';
 import { Typography } from '@/atoms/Typography/Typography';
+import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
+import { LEGAL_ENTITY_NAME } from '@/config/legal';
 import { useCopyrightForm } from '@/hooks/useCopyrightForm/useCopyrightForm';
 import { COPYRIGHT_FORM_FIELDS, COPYRIGHT_ROLES } from '@/hooks/useCopyrightForm/useCopyrightForm.constants';
 import type { CopyrightFormData } from '@/hooks/useCopyrightForm/useCopyrightForm.types';
 import { formatUSDate } from '@/libs/utils/utils';
+import { cn } from '@/libs/utils/utils';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 
@@ -20,7 +23,7 @@ export function CopyrightForm() {
   const roleError = errors.role?.message;
   const currentDate = formatUSDate();
   return (
-    <Container size="container" className="px-6 pb-12 xl:px-0">
+    <Container size="container" className={cn('pb-12', CONTENT_GUTTER_CLASS)}>
       <form onSubmit={onSubmit}>
         <Card className="rounded-t-lg rounded-b-none border border-border p-8 md:p-12">
           <Container className="gap-6">
@@ -33,7 +36,7 @@ export function CopyrightForm() {
             </Typography>
 
             <Typography size="sm" className="font-normal text-muted-foreground">
-              {'Synonym Software, S.A. de C.V. ("Synonym")'}
+              {`${LEGAL_ENTITY_NAME} ("Synonym")`}
               <br />
               87 avenida norte, calle El Mirador, edificio Torre Futura, oficina 06, nivel 11, colonia Escalón, del
               municipio de San Salvador, departamento de San Salvador. Código postal 01101, República de El Salvador.

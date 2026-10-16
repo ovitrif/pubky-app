@@ -6,6 +6,7 @@ import type React from 'react';
  * intentionally absent: they are passed at call time to `handleDragEventWithAuth`.
  */
 export interface UsePostInputAuthHandlersOptions {
+  active?: boolean;
   handleExpand: () => void;
   handleSubmit: () => Promise<void>;
   setTags: React.Dispatch<React.SetStateAction<string[]>>;
@@ -19,6 +20,8 @@ export interface UsePostInputAuthHandlersOptions {
   handleArticleTitleChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
   handleArticleBodyChange?: NonNullable<MDXEditorProps['onChange']>;
   handleArticleClick?: () => void;
+  /** PostInput edit mode only — omit in QuickReply. */
+  removeExistingAttachment?: (uri: string) => void;
 }
 
 export interface CreateKeyDownHandlerDeps {
@@ -29,6 +32,7 @@ export interface CreateKeyDownHandlerDeps {
 
 export interface UsePostInputAuthHandlersReturn {
   isAuthenticated: boolean;
+  isWaiting: boolean;
   handleExpandWithAuth: () => void;
   handleSubmitWithAuth: () => Promise<void> | undefined;
   setTagsWithAuth: React.Dispatch<React.SetStateAction<string[]>>;
@@ -44,4 +48,6 @@ export interface UsePostInputAuthHandlersReturn {
   handleArticleTitleChangeWithAuth?: (event: React.ChangeEvent<HTMLInputElement>) => void;
   handleArticleBodyChangeWithAuth?: NonNullable<MDXEditorProps['onChange']>;
   handleArticleClickWithAuth?: () => void;
+  /** Present only when `removeExistingAttachment` is provided (PostInput edit mode). */
+  removeExistingAttachmentWithAuth?: (uri: string) => void;
 }

@@ -199,6 +199,7 @@ describe('DialogRepost', () => {
 
     expect(PostInput).toHaveBeenCalledWith(
       {
+        active: false,
         dataCy: 'repost-post-input',
         variant: POST_INPUT_VARIANT.REPOST,
         originalPostId: 'test-post-123',
@@ -232,6 +233,7 @@ describe('DialogRepost', () => {
           submitLabel: 'Share',
           submitIcon: ShareIcon,
           successToastTitle: "You've shared the My Collection collection",
+          isCollectionShare: true,
         }}
       />,
     );
@@ -243,6 +245,7 @@ describe('DialogRepost', () => {
         submitLabel: 'Share',
         submitIcon: ShareIcon,
         successToastTitle: "You've shared the My Collection collection",
+        isCollectionShare: true,
       }),
       undefined,
     );
@@ -272,40 +275,5 @@ describe('DialogRepost', () => {
     rerender(<DialogRepost postId="test-post-123" open={true} onOpenChangeAction={onOpenChangeAction} />);
     dialog = screen.getByTestId('dialog');
     expect(dialog).toHaveAttribute('data-open', 'true');
-  });
-});
-
-describe('DialogRepost - Snapshots', () => {
-  const mockHandleContentChange = vi.fn();
-  const mockHandleOpenChange = vi.fn();
-  const mockHandleDiscard = vi.fn();
-  const mockSetShowConfirmDialog = vi.fn();
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseConfirmableDialog.mockReturnValue({
-      showConfirmDialog: false,
-      setShowConfirmDialog: mockSetShowConfirmDialog,
-      resetKey: 0,
-      handleContentChange: mockHandleContentChange,
-      handleOpenChange: mockHandleOpenChange,
-      handleDiscard: mockHandleDiscard,
-    });
-  });
-
-  it('matches snapshot with default props', () => {
-    const onOpenChangeAction = vi.fn();
-    const { container } = render(
-      <DialogRepost postId="snapshot-post-id" open={false} onOpenChangeAction={onOpenChangeAction} />,
-    );
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with open prop', () => {
-    const onOpenChangeAction = vi.fn();
-    const { container } = render(
-      <DialogRepost postId="snapshot-post-id" open={true} onOpenChangeAction={onOpenChangeAction} />,
-    );
-    expect(container).toMatchSnapshot();
   });
 });

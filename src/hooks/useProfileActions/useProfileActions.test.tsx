@@ -1,40 +1,46 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProfileController } from '@/controllers/profile/profile';
-import { ErrorMessages } from '@/libs/error/error.messages';
+import { AppError } from '@/libs/error/error';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import type { Pubky } from '@/models/models.types';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { authInitialState } from '@/stores/auth/auth.types';
+import { mockSession } from '@/test-utils/pubky';
 import { useProfileActions } from './useProfileActions';
 
 // Mock next/navigation
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/test',
   useRouter: () => ({
     push: mockPush,
   }),
 }));
 
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  toast: vi.fn(),
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 // Mock AuthController.logout
 const mockLogout = vi.fn();
-vi.mock('@/controllers/auth/auth', () => ({
-  AuthController: {
-    logout: () => mockLogout(),
-  },
-}));
+vi.mock('@/controllers/auth/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/controllers/auth/auth')>();
+  return { AuthController: { logout: () => mockLogout(), waitForSession: actual.AuthController.waitForSession } };
+});
 
 // Mock useCopyToClipboard hook
 const mockCopyToClipboard = vi.fn();
+const copyToClipboardOptions: Array<{ successTitle?: string }> = [];
 
 vi.mock('@/hooks/useCopyToClipboard/useCopyToClipboard', () => ({
-  useCopyToClipboard: () => ({
-    copyToClipboard: mockCopyToClipboard,
-  }),
+  useCopyToClipboard: (options: { successTitle?: string } = {}) => {
+    copyToClipboardOptions.push(options);
+    return {
+      copyToClipboard: mockCopyToClipboard,
+    };
+  },
 }));
 
 describe('useProfileActions', () => {
@@ -46,8 +52,7 @@ describe('useProfileActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(Logger, 'error').mockImplementation(() => {});
-    vi.mocked(toast).mockImplementation(() => ({ id: '1', dismiss: vi.fn(), update: vi.fn() }));
-    useAuthStore.setState({ currentUserPubky: null });
+    useAuthStore.setState({ ...authInitialState, hasHydrated: true, session: mockSession(), restoreStatus: 'ready' });
   });
 
   describe('Action handlers', () => {
@@ -140,6 +145,15 @@ describe('useProfileActions', () => {
 
       expect(mockCopyToClipboard).toHaveBeenCalledWith('');
     });
+
+    it('titles the toast for a profile link rather than a pubky', () => {
+      copyToClipboardOptions.length = 0;
+
+      renderHook(() => useProfileActions(defaultProps));
+
+      const titles = copyToClipboardOptions.map((options) => options.successTitle);
+      expect(titles).toContain('Profile link copied to clipboard');
+    });
   });
 
   describe('onSignOut', () => {
@@ -191,10 +205,10 @@ describe('useProfileActions', () => {
         await result.current.onSignOut();
       });
 
-      expect(Logger.error).toHaveBeenCalledWith('Failed to logout:', expect.any(Error));
+      expect(Logger.error).toHaveBeenCalledWith('Failed to sign out:', { error: expect.any(Error) });
       expect(toast).toHaveBeenCalledWith({
         variant: 'error',
-        description: ErrorMessages.LOGOUT_FAILED,
+        description: 'Could not sign out. Try again.',
       });
       expect(mockPush).not.toHaveBeenCalled();
     });
@@ -212,6 +226,17 @@ describe('useProfileActions', () => {
   });
 
   describe('onStatusChange', () => {
+    it('gates a status change when the account enters recovery after render', async () => {
+      useAuthStore.setState({ currentUserPubky: 'user' });
+      const commit = vi.spyOn(ProfileController, 'commitUpdateStatus').mockResolvedValue(undefined);
+      const { result } = renderHook(() => useProfileActions(defaultProps));
+      act(() => useAuthStore.setState({ restoreStatus: 'temporary-error' }));
+      await act(() => result.current.onStatusChange('available'));
+      expect(commit).not.toHaveBeenCalled();
+      expect(useAuthStore.getState().showSignInDialog).toBe(false);
+      commit.mockRestore();
+    });
+
     it('calls ProfileController.commitUpdateStatus with status', async () => {
       const mockUpdateStatus = vi.spyOn(ProfileController, 'commitUpdateStatus').mockResolvedValue(undefined);
       useAuthStore.setState({ currentUserPubky: 'test-user' as Pubky });
@@ -222,6 +247,48 @@ describe('useProfileActions', () => {
 
       expect(mockUpdateStatus).toHaveBeenCalledWith({ pubky: 'test-user', status: 'available' });
       expect(mockUpdateStatus).toHaveBeenCalledTimes(1);
+
+      mockUpdateStatus.mockRestore();
+    });
+
+    it('surfaces the deleted-profile refusal instead of inviting a retry', async () => {
+      const mockUpdateStatus = vi.spyOn(ProfileController, 'commitUpdateStatus').mockRejectedValue(
+        new AppError({
+          category: ErrorCategory.Client,
+          code: ClientErrorCode.GONE,
+          message: 'Cannot update the status of a deleted profile',
+          service: ErrorService.Local,
+          operation: 'commitUpdateStatus',
+        }),
+      );
+      useAuthStore.setState({ currentUserPubky: 'test-user' as Pubky });
+
+      const { result } = renderHook(() => useProfileActions(defaultProps));
+
+      await result.current.onStatusChange('available');
+
+      expect(toast).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'Cannot update the status of a deleted profile',
+      });
+
+      mockUpdateStatus.mockRestore();
+    });
+
+    it('keeps the generic retry toast for any other status failure', async () => {
+      const mockUpdateStatus = vi
+        .spyOn(ProfileController, 'commitUpdateStatus')
+        .mockRejectedValue(new Error('network down'));
+      useAuthStore.setState({ currentUserPubky: 'test-user' as Pubky });
+
+      const { result } = renderHook(() => useProfileActions(defaultProps));
+
+      await result.current.onStatusChange('available');
+
+      expect(toast).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'Could not update status. Try again.',
+      });
 
       mockUpdateStatus.mockRestore();
     });

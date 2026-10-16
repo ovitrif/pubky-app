@@ -1,13 +1,15 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileController } from '@/controllers/file/file';
+import { toast } from '@/molecules/Toaster/toast';
 import { FileVariant } from '@/services/nexus/file/file.types';
 import type { NexusFileDetails } from '@/services/nexus/nexus.types';
 import { asInvalid } from '@/test-utils/type-assertions';
 import { PostAttachments } from './PostAttachments';
 
-// Mock useToast
-const mockToast = vi.fn();
+// Mock toast
+vi.mock('@/molecules/Toaster/toast');
+
 vi.mock('@/molecules/PostAttachmentsAudios/PostAttachmentsAudios', () => {
   return {
     PostAttachmentsAudios: vi.fn(({ audios }) => (
@@ -44,12 +46,6 @@ vi.mock('@/molecules/PostAttachmentsImagesAndVideos/PostAttachmentsImagesAndVide
   };
 });
 
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    useToast: () => ({ toast: mockToast }),
-  };
-});
-
 // Mock atoms
 vi.mock('@/atoms/Container/Container', () => {
   return {
@@ -65,6 +61,7 @@ vi.mock('@/atoms/Container/Container', () => {
 vi.mock('@/controllers/file/file', () => ({
   FileController: {
     getMetadata: vi.fn(),
+    fetchFiles: vi.fn(),
     getFileUrl: vi.fn(),
   },
 }));
@@ -146,7 +143,46 @@ describe('PostAttachments', () => {
     mockGetFileUrl.mockImplementation(({ fileId, variant }) => `https://cdn.example.com/${fileId}/${variant}`);
   });
 
+  it('keeps Cards pending while attachment metadata resolves, including media-only posts', async () => {
+    const pending = Promise.withResolvers<NexusFileDetails[]>();
+    mockGetMetadata.mockReturnValue(pending.promise);
+    const { container } = render(
+      <PostAttachments
+        attachments={['pubky://user1/pub/pubky.app/files/image1']}
+        localAttachments={undefined}
+        mediaVariant="cards"
+      />,
+    );
+    expect(container.querySelector('[data-post-content-pending]')).not.toBeNull();
+    await act(async () => {
+      pending.resolve([createMockImageMetadata('user1:image1')]);
+    });
+    await waitFor(() => expect(container.querySelector('[data-post-content-pending]')).toBeNull());
+    expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
+  });
+
   describe('Rendering', () => {
+    // Unlocked content: the text is on screen while its bytes download, so the media area keeps its shape.
+    it('renders a skeleton per pending attachment, in its bucket, and no media', () => {
+      const { container } = render(
+        <PostAttachments
+          attachments={null}
+          localAttachments={[]}
+          pendingAttachments={[
+            { slot: 0, type: 'image/png' },
+            { slot: 1, type: 'video/mp4' },
+            { slot: 2, type: 'audio/mpeg' },
+          ]}
+        />,
+      );
+
+      const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
+      expect(skeletons).toHaveLength(3);
+      expect(skeletons[0]).toHaveClass('h-52'); // media tile
+      expect(skeletons[2]).toHaveClass('h-14'); // audio row
+      expect(screen.queryByTestId('post-attachments-images-and-videos')).not.toBeInTheDocument();
+    });
+
     it('renders nothing when attachments is null', () => {
       const { container } = render(<PostAttachments attachments={null} localAttachments={undefined} />);
       expect(container.firstChild).toBeNull();
@@ -391,7 +427,7 @@ describe('PostAttachments', () => {
       render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
+        expect(vi.mocked(toast)).toHaveBeenCalledWith({
           variant: 'error',
           description: 'Could not load attachments',
         });
@@ -405,10 +441,64 @@ describe('PostAttachments', () => {
       const { container } = render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalled();
+        expect(vi.mocked(toast)).toHaveBeenCalled();
       });
 
       // Should not render anything after error
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('clears previously rendered attachments when a re-fetch fails', async () => {
+      const initialAttachments = ['pubky://user1/pub/pubky.app/files/image1'];
+      const newAttachments = ['pubky://user2/pub/pubky.app/files/image2'];
+      mockGetMetadata.mockResolvedValueOnce([createMockImageMetadata('user1:image1')]);
+
+      const { container, rerender } = render(
+        <PostAttachments attachments={initialAttachments} localAttachments={undefined} />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
+      });
+
+      // An edit changed the attachment set, but the metadata fetch fails
+      mockGetMetadata.mockRejectedValueOnce(new Error('Network error'));
+      rerender(<PostAttachments attachments={newAttachments} localAttachments={undefined} />);
+
+      await waitFor(() => {
+        expect(vi.mocked(toast)).toHaveBeenCalledWith({
+          variant: 'error',
+          description: 'Could not load attachments',
+        });
+      });
+
+      // The previously constructed attachments must not linger as stale media
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('does not toast or clear when the failing fetch was already cancelled', async () => {
+      const attachments = ['pubky://user1/pub/pubky.app/files/image1'];
+      let rejectMetadata: (error: Error) => void = () => undefined;
+      const pendingMetadata = new Promise<NexusFileDetails[]>((_, reject) => {
+        rejectMetadata = reject;
+      });
+      mockGetMetadata.mockReturnValue(pendingMetadata);
+
+      const { container, rerender } = render(
+        <PostAttachments attachments={attachments} localAttachments={undefined} />,
+      );
+
+      await waitFor(() => expect(mockGetMetadata).toHaveBeenCalled());
+
+      // Removing the attachments retires the in-flight read
+      rerender(<PostAttachments attachments={null} localAttachments={undefined} />);
+
+      await act(async () => {
+        rejectMetadata(new Error('Network error'));
+        await Promise.resolve();
+      });
+
+      expect(vi.mocked(toast)).not.toHaveBeenCalled();
       expect(container.firstChild).toBeNull();
     });
   });
@@ -451,6 +541,72 @@ describe('PostAttachments', () => {
       });
 
       expect(screen.queryByTestId('post-attachments-generic-files')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Clearing on attachment removal', () => {
+    it('clears rendered remote attachments when the list becomes empty', async () => {
+      const attachments = ['pubky://user1/pub/pubky.app/files/image1'];
+      mockGetMetadata.mockResolvedValue([createMockImageMetadata('user1:image1')]);
+
+      const { container, rerender } = render(
+        <PostAttachments attachments={attachments} localAttachments={undefined} />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
+      });
+
+      rerender(<PostAttachments attachments={null} localAttachments={undefined} />);
+
+      await waitFor(() => {
+        expect(container.firstChild).toBeNull();
+      });
+    });
+
+    it('clears rendered local attachments when the store entry is removed and no remote attachments remain', async () => {
+      const localAttachments = [createLocalImageAttachment()];
+
+      const { container, rerender } = render(
+        <PostAttachments attachments={null} localAttachments={localAttachments} />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
+      });
+
+      rerender(<PostAttachments attachments={null} localAttachments={undefined} />);
+
+      await waitFor(() => {
+        expect(container.firstChild).toBeNull();
+      });
+    });
+
+    it('ignores a late metadata resolution after the attachments were removed', async () => {
+      const attachments = ['pubky://user1/pub/pubky.app/files/image1'];
+      let resolveMetadata: (value: NexusFileDetails[]) => void = () => undefined;
+      mockGetMetadata.mockReturnValue(
+        new Promise<NexusFileDetails[]>((resolve) => {
+          resolveMetadata = resolve;
+        }),
+      );
+
+      const { container, rerender } = render(
+        <PostAttachments attachments={attachments} localAttachments={undefined} />,
+      );
+
+      await waitFor(() => {
+        expect(mockGetMetadata).toHaveBeenCalled();
+      });
+
+      rerender(<PostAttachments attachments={null} localAttachments={undefined} />);
+
+      await act(async () => {
+        resolveMetadata([createMockImageMetadata('user1:image1')]);
+        await Promise.resolve();
+      });
+
+      expect(container.firstChild).toBeNull();
     });
   });
 
@@ -629,73 +785,58 @@ describe('PostAttachments', () => {
       expect(screen.queryByTestId('post-attachments-generic-files')).not.toBeInTheDocument();
     });
   });
-});
 
-describe('PostAttachments - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetFileUrl.mockImplementation(({ fileId, variant }) => `https://cdn.example.com/${fileId}/${variant}`);
-  });
-
-  it('matches snapshot with images only', async () => {
+  it('renders images only', async () => {
     const attachments = ['pubky://user1/pub/pubky.app/files/image1', 'pubky://user1/pub/pubky.app/files/image2'];
     mockGetMetadata.mockResolvedValue([
       createMockImageMetadata('user1:image1'),
       createMockImageMetadata('user1:image2'),
     ]);
 
-    const { container } = render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
+    render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches snapshot with videos only', async () => {
+  it('renders videos only', async () => {
     const attachments = ['pubky://user1/pub/pubky.app/files/video1', 'pubky://user1/pub/pubky.app/files/video2'];
     mockGetMetadata.mockResolvedValue([
       createMockVideoMetadata('user1:video1'),
       createMockVideoMetadata('user1:video2'),
     ]);
 
-    const { container } = render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
+    render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches snapshot with audios only', async () => {
+  it('renders audios only', async () => {
     const attachments = ['pubky://user1/pub/pubky.app/files/audio1'];
     mockGetMetadata.mockResolvedValue([createMockAudioMetadata('user1:audio1')]);
 
-    const { container } = render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
+    render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-audios')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches snapshot with generic files only', async () => {
+  it('renders generic files only', async () => {
     const attachments = ['pubky://user1/pub/pubky.app/files/doc1'];
     mockGetMetadata.mockResolvedValue([createMockPdfMetadata('user1:doc1')]);
 
-    const { container } = render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
+    render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-generic-files')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches snapshot with mixed attachment types', async () => {
+  it('renders mixed attachment types', async () => {
     const attachments = [
       'pubky://user1/pub/pubky.app/files/image1',
       'pubky://user1/pub/pubky.app/files/video1',
@@ -709,44 +850,30 @@ describe('PostAttachments - Snapshots', () => {
       createMockPdfMetadata('user1:doc1'),
     ]);
 
-    const { container } = render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
+    render(<PostAttachments attachments={attachments} localAttachments={undefined} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
       expect(screen.getByTestId('post-attachments-audios')).toBeInTheDocument();
       expect(screen.getByTestId('post-attachments-generic-files')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches snapshot with null attachments', () => {
-    const { container } = render(<PostAttachments attachments={null} localAttachments={undefined} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with empty attachments', () => {
-    const { container } = render(<PostAttachments attachments={[]} localAttachments={undefined} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with local attachments only', async () => {
+  it('renders local attachments only', async () => {
     const localAttachments = [
       createLocalImageAttachment('image1.jpg', 'blob:http://localhost/image1'),
       createLocalAudioAttachment('audio1.mp3', 'blob:http://localhost/audio1'),
     ];
 
-    const { container } = render(<PostAttachments attachments={null} localAttachments={localAttachments} />);
+    render(<PostAttachments attachments={null} localAttachments={localAttachments} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
       expect(screen.getByTestId('post-attachments-audios')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches snapshot with mixed local attachment types', async () => {
+  it('renders mixed local attachment types', async () => {
     const localAttachments = [
       createLocalImageAttachment(),
       createLocalVideoAttachment(),
@@ -754,14 +881,12 @@ describe('PostAttachments - Snapshots', () => {
       createLocalPdfAttachment(),
     ];
 
-    const { container } = render(<PostAttachments attachments={null} localAttachments={localAttachments} />);
+    render(<PostAttachments attachments={null} localAttachments={localAttachments} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('post-attachments-images-and-videos')).toBeInTheDocument();
       expect(screen.getByTestId('post-attachments-audios')).toBeInTheDocument();
       expect(screen.getByTestId('post-attachments-generic-files')).toBeInTheDocument();
     });
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

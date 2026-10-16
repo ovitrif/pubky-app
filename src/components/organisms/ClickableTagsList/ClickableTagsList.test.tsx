@@ -1,11 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import type { Pubky } from '@/models/models.types';
 import type { TagWithAvatars } from '@/molecules/TaggedItem/TaggedItem.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
 import { ClickableTagsList } from './ClickableTagsList';
 
 function getPostTagButton(label: string, count?: number) {
@@ -99,7 +98,11 @@ vi.mock('@/hooks/useTagSuggestions/useTagSuggestions', () => ({
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({
     isAuthenticated: mockIsAuthenticated,
-    requireAuth: <T,>(action: () => T) => (mockIsAuthenticated ? action() : (undefined as T)),
+    requireAuth: <T,>(action: () => T) => {
+      if (mockIsAuthenticated) return action();
+      useAuthStore.getState().setShowSignInDialog(true);
+      return undefined;
+    },
   }),
 }));
 
@@ -131,13 +134,17 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock('@/hooks/usePostTaggers/usePostTaggers', () => ({
-  usePostTaggers: () => ({
-    taggersByLabel: new Map(),
-    taggerStates: new Map(),
-    fetchAllTaggers: vi.fn(),
-  }),
-}));
+vi.mock('@/hooks/useEntityTaggers/useEntityTaggers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useEntityTaggers/useEntityTaggers')>();
+  return {
+    ...actual,
+    useEntityTaggers: () => ({
+      taggerStates: new Map(),
+      loadTaggers: vi.fn(),
+      loadMoreTaggers: vi.fn(),
+    }),
+  };
+});
 
 vi.mock('@/organisms/AvatarWithFallback/AvatarWithFallback', () => ({
   AvatarWithFallback: ({ name }: { name: string }) => <div data-testid={`avatar-${name}`}>Avatar</div>,
@@ -736,84 +743,5 @@ describe('ClickableTagsList', () => {
 
       expect(getPostTagButton('bitcoin', 5)).toBeInTheDocument();
     });
-  });
-
-  describe('Snapshots', () => {
-    beforeEach(() => {
-      mockUseIsMobile.mockReturnValue(false);
-    });
-
-    it('matches snapshot with input visible', () => {
-      const { container } = render(
-        <ClickableTagsList taggedId="post-123" taggedKind={TagKind.POST} tags={mockTags} showInput={true} />,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('matches snapshot with add button', () => {
-      const { container } = render(
-        <ClickableTagsList
-          taggedId="post-123"
-          taggedKind={TagKind.POST}
-          tags={mockTags}
-          maxTags={10}
-          showAddButton={true}
-        />,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('matches snapshot with close buttons', () => {
-      const { container } = render(
-        <ClickableTagsList taggedId="post-123" taggedKind={TagKind.POST} tags={mockTags} showTagClose={true} />,
-      );
-
-      expect(container).toMatchSnapshot();
-    });
-  });
-});
-
-const snapshotTags: NexusTag[] = [
-  { label: 'bitcoin', taggers_count: 5, taggers: ['user1', 'user2'], relationship: true },
-  { label: 'ethereum', taggers_count: 3, taggers: ['user3'], relationship: false },
-  { label: 'web3', taggers_count: 10, taggers: [], relationship: false },
-];
-
-describe('ClickableTagsList - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockIsAuthenticated = true;
-    mockUseIsMobile.mockReturnValue(false);
-    useAuthStore.setState({ setShowSignInDialog: vi.fn() });
-  });
-
-  it('matches snapshot with tags and count', () => {
-    const { container } = render(
-      <ClickableTagsList taggedId="post-123" taggedKind={TagKind.POST} tags={snapshotTags} showCount={true} />,
-    );
-    expect(container).toMatchSnapshot();
-  });
-});
-
-describe('ClickableTagsList - Mobile Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockIsAuthenticated = true;
-    mockUseIsMobile.mockReturnValue(true);
-    setMobileViewport();
-    useAuthStore.setState({ setShowSignInDialog: vi.fn() });
-  });
-
-  afterEach(() => {
-    resetViewport();
-  });
-
-  it('matches snapshot on mobile viewport', () => {
-    const { container } = render(
-      <ClickableTagsList taggedId="post-123" taggedKind={TagKind.POST} tags={snapshotTags} showCount={true} />,
-    );
-    expect(container).toMatchSnapshot();
   });
 });

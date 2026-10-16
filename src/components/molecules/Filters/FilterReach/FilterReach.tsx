@@ -2,14 +2,36 @@
 
 import * as React from 'react';
 import { HeartHandshake, Radio, Tags, UserRound, Waypoints } from 'lucide-react';
+import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
 import { UsersRound2 } from '@/icons';
-import { REACH, type ReachType } from '@/stores/home/home.types';
+import { REACH, type ReachFilterValue, type ReachType } from '@/stores/home/home.types';
 import { FilterProfileTags } from '../FilterProfileTags/FilterProfileTags';
 import { FilterRadioGroup } from '../FilterRadioGroup/FilterRadioGroup';
 import type { BaseFilterProps, FilterListItem } from '../Filters.types';
 
-export const TAGGED_AS_FILTER_KEY = 'tagged_as' as const;
-export type ReachFilterValue = ReachType | typeof TAGGED_AS_FILTER_KEY;
+/**
+ * Canonical label + icon for each reach filter value. Single source for every
+ * surface that renders a reach (this filter, the feed navigation tab, ...) so
+ * they cannot drift apart.
+ */
+export const REACH_FILTER_META: Record<ReachFilterValue, { label: string; icon: FilterListItem['icon'] }> = {
+  [REACH.NETWORK]: { label: 'My network', icon: Waypoints },
+  [TAGGED_AS_FILTER_KEY]: { label: 'Tagged as', icon: Tags },
+  [REACH.FOLLOWING]: { label: 'Following', icon: UsersRound2 },
+  [REACH.FRIENDS]: { label: 'Friends', icon: HeartHandshake },
+  [REACH.ME]: { label: 'Me', icon: UserRound },
+  [REACH.ALL]: { label: 'All', icon: Radio },
+};
+
+/** Cypress hooks for the reach radiogroup — the WoT feed E2E selects by these. */
+const REACH_FILTER_DATA_CY: Record<ReachFilterValue, string> = {
+  [REACH.NETWORK]: 'network-reach-toggle',
+  [TAGGED_AS_FILTER_KEY]: 'tagged-as-reach-toggle',
+  [REACH.FOLLOWING]: 'following-reach-toggle',
+  [REACH.FRIENDS]: 'friends-reach-toggle',
+  [REACH.ME]: 'me-reach-toggle',
+  [REACH.ALL]: 'all-reach-toggle',
+};
 
 interface FilterReachSharedProps {
   profileTags?: string[];
@@ -18,91 +40,43 @@ interface FilterReachSharedProps {
   profileTagsDisabled?: boolean;
 }
 
-interface StandardFilterReachProps extends BaseFilterProps<ReachType>, FilterReachSharedProps {
+const DEFAULT_REACH_OPTIONS = [REACH.ALL, REACH.FOLLOWING, REACH.FRIENDS] as const;
+
+/** `options` sets the reaches and their order; `onTabChange` only ever receives one of them. */
+interface StandardFilterReachProps<T extends ReachType> extends BaseFilterProps<T>, FilterReachSharedProps {
+  options?: readonly T[];
   showTaggedAs?: false;
 }
 
 interface TaggedAsFilterReachProps extends BaseFilterProps<ReachFilterValue>, FilterReachSharedProps {
+  options?: never;
   showTaggedAs: true;
 }
 
-type FilterReachProps = StandardFilterReachProps | TaggedAsFilterReachProps;
+type FilterReachProps<T extends ReachType> = StandardFilterReachProps<T> | TaggedAsFilterReachProps;
 
-export function FilterReach({
+export function FilterReach<T extends ReachType = ReachType>({
   selectedTab,
-  defaultSelectedTab = REACH.ALL,
+  defaultSelectedTab,
   onTabChange,
   disabled,
+  options,
   showTaggedAs = false,
   profileTags,
   onProfileTagAdd,
   onProfileTagRemove,
   profileTagsDisabled = false,
-}: FilterReachProps) {
-  const reachItems: FilterListItem<ReachFilterValue>[] = showTaggedAs
-    ? [
-        {
-          key: REACH.NETWORK,
-          label: 'My network',
-          icon: Waypoints,
-          disabled,
-        },
-        {
-          key: TAGGED_AS_FILTER_KEY,
-          label: 'Tagged as',
-          icon: Tags,
-          disabled,
-        },
-        {
-          key: REACH.FOLLOWING,
-          label: 'Following',
-          icon: UsersRound2,
-          disabled,
-        },
-        {
-          key: REACH.FRIENDS,
-          label: 'Friends',
-          icon: HeartHandshake,
-          disabled,
-        },
-        {
-          key: REACH.ME,
-          label: 'Me',
-          icon: UserRound,
-          disabled,
-        },
-        {
-          key: REACH.ALL,
-          label: 'All',
-          icon: Radio,
-          disabled,
-        },
-      ]
-    : [
-        {
-          key: REACH.ALL,
-          label: 'All',
-          icon: Radio,
-          disabled,
-        },
-      ];
+}: FilterReachProps<T>) {
+  const orderedReachKeys: readonly ReachFilterValue[] = showTaggedAs
+    ? [REACH.NETWORK, TAGGED_AS_FILTER_KEY, REACH.FOLLOWING, REACH.FRIENDS, REACH.ME, REACH.ALL]
+    : (options ?? DEFAULT_REACH_OPTIONS);
 
-  if (!showTaggedAs) {
-    reachItems.push(
-      {
-        key: REACH.FOLLOWING,
-        label: 'Following',
-        icon: UsersRound2,
-        disabled,
-      },
-      {
-        key: REACH.FRIENDS,
-        label: 'Friends',
-        icon: HeartHandshake,
-        disabled,
-      },
-    );
-  }
+  const reachItems: FilterListItem<ReachFilterValue>[] = orderedReachKeys.map((key) => ({
+    key,
+    ...REACH_FILTER_META[key],
+    disabled,
+    dataCy: REACH_FILTER_DATA_CY[key],
+  }));
 
   const handleReachChange = (value: ReachFilterValue) => {
     if (showTaggedAs) {
@@ -110,8 +84,9 @@ export function FilterReach({
       return;
     }
 
+    // Items are built from `options`, so a standard selection is always a `T`.
     if (value !== TAGGED_AS_FILTER_KEY) {
-      (onTabChange as StandardFilterReachProps['onTabChange'])?.(value);
+      (onTabChange as StandardFilterReachProps<T>['onTabChange'])?.(value as T);
     }
   };
 
@@ -131,7 +106,7 @@ export function FilterReach({
       items={reachItems}
       itemExtras={showTaggedAs ? { [TAGGED_AS_FILTER_KEY]: profileTagEditor } : undefined}
       selectedValue={selectedTab}
-      defaultValue={defaultSelectedTab}
+      defaultValue={defaultSelectedTab ?? REACH.ALL}
       onChange={handleReachChange}
       testId="filter-reach-radiogroup"
       dataCy="filter-reach-radiogroup"

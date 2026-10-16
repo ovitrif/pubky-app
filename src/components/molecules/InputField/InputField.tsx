@@ -16,6 +16,7 @@ interface InputFieldProps {
   readOnly?: boolean;
   onClick?: () => void;
   onClickIcon?: () => void;
+  iconAriaLabel?: string;
   className?: React.HTMLAttributes<HTMLDivElement>['className'];
   icon?: ReactNode;
   variant?: 'default' | 'dashed';
@@ -29,6 +30,7 @@ interface InputFieldProps {
   onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void;
   maxLength?: number;
   iconPosition?: 'left' | 'right';
+  iconClassName?: React.HTMLAttributes<HTMLDivElement>['className'];
   message?: ReactNode;
   messageType?: 'default' | 'info' | 'alert' | 'error' | 'success';
   size?: 'sm' | 'md' | 'lg';
@@ -43,7 +45,8 @@ export function InputField({
   disabled = false,
   readOnly = false,
   onClick,
-  onClickIcon = () => {},
+  onClickIcon,
+  iconAriaLabel,
   className,
   icon,
   variant = 'default',
@@ -57,6 +60,7 @@ export function InputField({
   onPaste,
   maxLength,
   iconPosition = 'left',
+  iconClassName,
   message,
   messageType = 'default',
   size = 'md',
@@ -71,9 +75,9 @@ export function InputField({
     error: 'border-red-500 text-red-500',
   };
   const sizeClasses = {
-    sm: 'h-10 text-sm',
-    md: 'h-12 text-base',
-    lg: 'h-14 text-lg',
+    sm: 'min-h-10 text-sm',
+    md: 'min-h-12 text-base',
+    lg: 'min-h-14 text-lg',
   } as const;
   const messageClasses = {
     default: 'text-muted-foreground',
@@ -82,11 +86,39 @@ export function InputField({
     error: 'text-red-500',
     success: 'text-brand',
   } as const;
+  const messageId = id && message ? `${id}-message` : undefined;
+  // An actionable icon renders as a real button (keyboard/screen-reader reachable) and stays mounted while
+  // loading — aria-disabled instead of disabled/unmount — so keyboard focus survives the pending state.
+  const iconSlot =
+    icon &&
+    (onClickIcon ? (
+      <button
+        type="button"
+        aria-label={iconAriaLabel}
+        aria-disabled={loading}
+        onClick={loading ? undefined : onClickIcon}
+        className={cn(
+          'flex w-auto cursor-pointer items-center justify-center outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-disabled:cursor-default aria-disabled:opacity-50',
+          iconPosition === 'right' && 'mr-5',
+          iconClassName,
+        )}
+      >
+        {icon}
+      </button>
+    ) : (
+      !loading && (
+        <Container
+          className={cn('w-auto items-center justify-center', iconPosition === 'right' && 'mr-5', iconClassName)}
+        >
+          {icon}
+        </Container>
+      )
+    ));
   return (
     <>
       <Container
         className={cn(
-          '!bg-alpha-90/10 mx-0 mb-2 w-full cursor-pointer flex-row items-center gap-0 rounded-md border bg-transparent',
+          'mx-0 mb-2 w-full cursor-pointer flex-row items-center gap-0 rounded-md border border-input !bg-background/20',
           icon && iconPosition === 'left' ? 'pl-4.5' : 'pl-2',
           containerClasses,
           statusClasses[status],
@@ -102,16 +134,12 @@ export function InputField({
             )}
           </Container>
         )}
-        {!loading && icon && iconPosition === 'left' && (
-          <Container onClick={onClickIcon} className={cn('w-auto cursor-pointer items-center justify-center')}>
-            {icon}
-          </Container>
-        )}
+        {iconPosition === 'left' && iconSlot}
         <Input
           id={id}
           name={name}
           type="text"
-          className={cn('w-full border-none !bg-transparent', inputClassName)}
+          className={cn('h-auto w-full border-none !bg-transparent py-4', inputClassName)}
           value={loading ? resolvedLoadingText : value}
           placeholder={placeholder}
           disabled={disabled || loading}
@@ -123,16 +151,19 @@ export function InputField({
           onPaste={onPaste}
           maxLength={maxLength}
           aria-invalid={status === 'error'}
+          aria-describedby={messageId}
           data-cy={dataCy}
         />
-        {!loading && icon && iconPosition === 'right' && (
-          <Container onClick={onClickIcon} className={cn('mr-5 w-auto cursor-pointer items-center justify-center')}>
-            {icon}
-          </Container>
-        )}
+        {iconPosition === 'right' && iconSlot}
       </Container>
       {message && (
-        <Typography as="small" size="sm" className={cn('ml-1', messageClasses[messageType])}>
+        <Typography
+          as="small"
+          size="sm"
+          id={messageId}
+          role={messageType === 'error' ? 'alert' : undefined}
+          className={cn('ml-1', messageClasses[messageType])}
+        >
           {message}
         </Typography>
       )}

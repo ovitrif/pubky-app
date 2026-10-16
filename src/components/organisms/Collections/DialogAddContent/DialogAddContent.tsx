@@ -2,8 +2,8 @@
 
 import { type ComponentPropsWithoutRef, type ComponentRef, forwardRef, type SyntheticEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Library, MessageCircle, Plus, Repeat, SquarePlus } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { Activity, ClipboardPaste, Library, MessageCircle, Plus, Repeat, SquarePlus, UserRound } from 'lucide-react';
+import { APP_ROUTES, PROFILE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardFooter, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -20,6 +20,7 @@ import { useAddContentForm } from '@/hooks/useAddContentForm/useAddContentForm';
 import { ADD_CONTENT_FORM_FIELDS } from '@/hooks/useAddContentForm/useAddContentForm.types';
 import { useAvatarUrl } from '@/hooks/useAvatarUrl/useAvatarUrl';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useSaveCreatedPostToTarget } from '@/hooks/useSaveCreatedPostToTarget/useSaveCreatedPostToTarget';
 import { cn } from '@/libs/utils/utils';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
@@ -114,20 +115,37 @@ function renderDialogAddContentTrigger(variant: DialogAddContentTriggerVariant, 
   }
 }
 
+type ActionPillEmphasis = 'muted' | 'highlighted' | 'default';
+
+function actionPillEmphasisClass(emphasis: ActionPillEmphasis): string {
+  switch (emphasis) {
+    case 'muted':
+      return 'text-muted-foreground opacity-30';
+    case 'highlighted':
+      return 'text-muted-foreground drop-shadow-[0_0_8px_var(--brand)]';
+    case 'default':
+      return 'text-secondary-foreground';
+    default: {
+      const exhaustiveCheck: never = emphasis;
+      return exhaustiveCheck;
+    }
+  }
+}
+
 function ActionPill({
   icon: Icon,
-  count,
-  isHighlighted = false,
+  label,
+  emphasis = 'default',
   onClick,
   dataCy,
   ariaLabel,
 }: {
   icon: typeof MessageCircle;
-  count?: number;
-  isHighlighted?: boolean;
+  label?: string | number;
+  emphasis?: ActionPillEmphasis;
   onClick: () => void;
   dataCy: string;
-  ariaLabel: string;
+  ariaLabel?: string;
 }) {
   return (
     <Button
@@ -137,50 +155,68 @@ function ActionPill({
       aria-label={ariaLabel}
       data-cy={dataCy}
       className={cn(
-        'flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-secondary px-3.5 py-2 text-muted-foreground shadow-xs',
-        !isHighlighted && 'opacity-30',
-        isHighlighted && 'drop-shadow-[0_0_8px_var(--brand)]',
+        'flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-secondary px-3.5 py-2 shadow-xs',
+        actionPillEmphasisClass(emphasis),
       )}
     >
       <Icon className="size-4 shrink-0" />
-      {count !== undefined && (
+      {label !== undefined && (
         <Typography as="span" overrideDefaults className="text-xs leading-4 font-bold">
-          {count}
+          {label}
         </Typography>
       )}
     </Button>
   );
 }
 
-function FeedInstructionCard({ onOpenFeed }: { onOpenFeed: () => void }) {
+function FeedInstructionCard({
+  onOpenFeed,
+  onSelectFromPosts,
+}: {
+  onOpenFeed: () => void;
+  onSelectFromPosts: () => void;
+}) {
   return (
     <Card className="min-w-0 gap-4 overflow-hidden rounded-md py-6 shadow-sm">
       <CardHeader className="px-6">
         <CardTitle className="text-base leading-none font-bold text-card-foreground">{'Add from feed'}</CardTitle>
       </CardHeader>
-      <CardFooter className="justify-start px-6">
-        <Container overrideDefaults className="flex w-full flex-wrap items-center justify-start gap-2">
-          <ActionPill
-            icon={MessageCircle}
-            count={7}
-            onClick={onOpenFeed}
-            dataCy="add-content-feed-reply-pill"
-            ariaLabel={'Add from feed'}
-          />
-          <ActionPill
-            icon={Repeat}
-            count={3}
-            onClick={onOpenFeed}
-            dataCy="add-content-feed-repost-pill"
-            ariaLabel={'Add from feed'}
-          />
-          <ActionPill
-            icon={Library}
-            isHighlighted
-            onClick={onOpenFeed}
-            dataCy="add-content-feed-save-pill"
-            ariaLabel={'Add from feed'}
-          />
+      <CardFooter className="px-6">
+        <Container overrideDefaults className="flex w-full flex-wrap items-center justify-between gap-2">
+          <Container overrideDefaults className="flex items-center gap-2" data-cy="add-content-feed-pills">
+            <ActionPill
+              icon={MessageCircle}
+              label={7}
+              emphasis="muted"
+              onClick={onOpenFeed}
+              dataCy="add-content-feed-reply-pill"
+              ariaLabel={'Add from feed'}
+            />
+            <ActionPill
+              icon={Repeat}
+              label={3}
+              emphasis="muted"
+              onClick={onOpenFeed}
+              dataCy="add-content-feed-repost-pill"
+              ariaLabel={'Add from feed'}
+            />
+            <ActionPill
+              icon={Library}
+              emphasis="highlighted"
+              onClick={onOpenFeed}
+              dataCy="add-content-feed-save-pill"
+              ariaLabel={'Add from feed'}
+            />
+          </Container>
+          <Container overrideDefaults className="flex items-center gap-2">
+            <ActionPill icon={Activity} label={'Feed'} onClick={onOpenFeed} dataCy="add-content-feed-button" />
+            <ActionPill
+              icon={UserRound}
+              label={'My posts'}
+              onClick={onSelectFromPosts}
+              dataCy="add-content-my-posts-button"
+            />
+          </Container>
         </Container>
       </CardFooter>
     </Card>
@@ -204,7 +240,12 @@ function UrlPasteCard({ addContentForm }: { addContentForm: ReturnType<typeof us
           loading={addContentForm.isPending}
           loadingText={'Adding...'}
           onPaste={addContentForm.handlePaste}
-          className="mb-0 h-auto gap-2 border-input bg-background/10! px-6 py-4 font-medium shadow-xs has-[input[aria-invalid=true]]:border-red-500"
+          icon={<ClipboardPaste className="size-4" />}
+          iconPosition="right"
+          iconAriaLabel="Paste"
+          onClickIcon={() => void addContentForm.pasteFromClipboard()}
+          iconClassName="mr-0 size-6 shrink-0 rounded-full text-foreground hover:bg-accent/50 hover:text-accent-foreground"
+          className="mb-0 h-auto gap-3 border-input px-6 py-4 font-medium shadow-xs has-[input[aria-invalid=true]]:border-red-500"
           inputClassName="h-auto p-0 shadow-none"
           dataCy="add-content-url-input"
         />
@@ -229,17 +270,17 @@ function CreatePostCard({ onCreatePost }: { onCreatePost: () => void }) {
           type="button"
           onClick={onCreatePost}
           data-cy="add-content-create-post"
-          className="flex w-full cursor-pointer items-center gap-4 rounded-md border border-dashed border-input px-6 py-4 text-left outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="flex w-full cursor-pointer items-center gap-3 rounded-md border border-dashed border-input px-4 py-3 text-left outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           <AvatarWithFallback
             avatarUrl={avatarUrl}
             name={displayName}
             fallbackSeed={currentUserPubky ?? displayName}
-            size="default"
+            size="md"
             alt={displayName}
           />
           <Typography overrideDefaults className="min-w-0 flex-1 truncate text-base font-medium text-input">
-            {"What's on your mind?"}
+            {'Start writing'}
           </Typography>
         </Button>
       </CardFooter>
@@ -252,11 +293,13 @@ function DialogAddContentBody({
   onSuccess,
   onCreatePost,
   onOpenFeed,
+  onSelectFromPosts,
 }: {
   target: NonNullable<DialogAddContentProps['target']>;
   onSuccess: (postId: string) => Promise<void>;
   onCreatePost: () => void;
   onOpenFeed: () => void;
+  onSelectFromPosts: () => void;
 }) {
   const addContentForm = useAddContentForm({
     target,
@@ -273,11 +316,12 @@ function DialogAddContentBody({
       <DialogHeader className="pr-0">
         <DialogTitle>{'Add Post'}</DialogTitle>
         <DialogDescription className="text-muted-foreground">
-          {'There are several ways to add posts to your collection.'}
+          <span className="sm:hidden">{'Choose how to add posts to your collection.'}</span>
+          <span className="hidden sm:inline">{'There are several ways to add posts to your collection.'}</span>
         </DialogDescription>
       </DialogHeader>
-      <Container overrideDefaults className="flex w-full flex-col gap-3">
-        <FeedInstructionCard onOpenFeed={onOpenFeed} />
+      <Container overrideDefaults data-cy="add-content-options" className="flex w-full flex-col gap-3">
+        <FeedInstructionCard onOpenFeed={onOpenFeed} onSelectFromPosts={onSelectFromPosts} />
         <UrlPasteCard addContentForm={addContentForm} />
         <CreatePostCard onCreatePost={onCreatePost} />
       </Container>
@@ -292,6 +336,11 @@ export function DialogAddContent({
   triggerVariant = 'hero',
 }: DialogAddContentProps) {
   const [open, setOpen] = useState(false);
+  const { requireAuth } = useRequireAuth();
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) requireAuth(() => setOpen(true));
+    else setOpen(false);
+  };
   const [newPostOpen, setNewPostOpen] = useState(false);
   const router = useRouter();
   const timelineFeed = useTimelineFeedContext();
@@ -312,6 +361,11 @@ export function DialogAddContent({
     router.push(APP_ROUTES.HOME);
   };
 
+  const handleSelectFromPosts = () => {
+    setOpen(false);
+    router.push(PROFILE_ROUTES.POSTS);
+  };
+
   const handlePostCreated = async (createdPostId: string) => {
     await saveCreatedPostToTarget({
       target,
@@ -324,10 +378,10 @@ export function DialogAddContent({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogTrigger asChild>{trigger}</DialogTrigger>
         <DialogContent
-          className="flex w-xl flex-col overflow-hidden border-border bg-popover shadow-2xl outline-none focus:outline-none focus-visible:outline-none"
+          className="flex w-xl flex-col border-border bg-popover shadow-2xl outline-none focus:outline-none focus-visible:outline-none"
           hiddenTitle={'Add Post'}
         >
           <DialogAddContentBody
@@ -335,6 +389,7 @@ export function DialogAddContent({
             onSuccess={handleSuccess}
             onCreatePost={handleCreatePost}
             onOpenFeed={handleOpenFeed}
+            onSelectFromPosts={handleSelectFromPosts}
           />
         </DialogContent>
       </Dialog>

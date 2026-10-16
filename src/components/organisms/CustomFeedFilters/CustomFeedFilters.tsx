@@ -2,12 +2,14 @@
 import { PubkyAppFeedReach } from 'pubky-app-specs';
 import { Container } from '@/atoms/Container/Container';
 import { Label } from '@/atoms/Label/Label';
+import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
 import { useCustomFeed } from '@/hooks/useCustomFeed/useCustomFeed';
 import { FilterContent } from '@/molecules/Filters/FilterContent/FilterContent';
 import { FilterLayout } from '@/molecules/Filters/FilterLayout/FilterLayout';
-import { FilterReach, type ReachFilterValue, TAGGED_AS_FILTER_KEY } from '@/molecules/Filters/FilterReach/FilterReach';
+import { FilterReach } from '@/molecules/Filters/FilterReach/FilterReach';
 import { FilterSort } from '@/molecules/Filters/FilterSort/FilterSort';
 import { PostTag } from '@/molecules/PostTag/PostTag';
+import { type ReachFilterValue } from '@/stores/home/home.types';
 import { CONTENT } from '@/stores/home/home.types';
 import {
   pubkyLayoutToHomeLayout,
@@ -67,13 +69,13 @@ export function CustomFeedFilters({ variant }: CustomFeedFiltersProps) {
 
       {variant === 'sidebar' ? (
         <Container overrideDefaults className="sticky top-[100px] flex w-full flex-col gap-6 self-start">
-          <FilterLayout selectedTab={layout} defaultSelectedTab={undefined} disabled showVisual />
+          <FilterLayout selectedTab={layout} defaultSelectedTab={undefined} disabled showVisual showCards />
 
           <FilterContent selectedTab={content} defaultSelectedTab={undefined} disabled />
         </Container>
       ) : (
         <>
-          <FilterLayout selectedTab={layout} defaultSelectedTab={undefined} disabled showVisual />
+          <FilterLayout selectedTab={layout} defaultSelectedTab={undefined} disabled showVisual showCards />
 
           <FilterContent selectedTab={content} defaultSelectedTab={undefined} disabled />
         </>

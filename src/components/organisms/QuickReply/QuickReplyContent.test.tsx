@@ -115,6 +115,7 @@ function createProps(overrides: Partial<QuickReplyContentComponentProps> = {}): 
     onChange: vi.fn(),
     onFocus: vi.fn(),
     onKeyDown: vi.fn(),
+    onSelect: vi.fn(),
     onPaste: vi.fn(),
     mentionIsOpen: false,
     mentionUsers: [],
@@ -224,33 +225,5 @@ describe('QuickReplyContent', () => {
       visible: { filter: 'blur(0px)', transition: { duration: 0.14 } },
       exit: { opacity: 0.6, filter: 'blur(0px)', transition: { duration: 0.1 } },
     });
-  });
-});
-
-describe('QuickReplyContent - Snapshots', () => {
-  beforeEach(() => {
-    mockMotionVariants.length = 0;
-    mockShouldReduceMotion.value = false;
-  });
-
-  it('matches the collapsed snapshot', () => {
-    const { container } = render(<QuickReplyContent {...createProps()} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the expanded snapshot', () => {
-    const { container } = render(
-      <QuickReplyContent
-        {...createProps({ content: 'Expanded reply', isExpanded: true, characterLimit: { count: 14, max: 2000 } })}
-      />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the logged-out fallback snapshot', () => {
-    const { container } = render(
-      <QuickReplyContent {...createProps({ currentUserPubky: null, currentUserDetails: null })} />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

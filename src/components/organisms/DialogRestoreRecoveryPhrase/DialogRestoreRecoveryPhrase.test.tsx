@@ -4,6 +4,8 @@ import { AuthController } from '@/controllers/auth/auth';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import * as shopSignIn from '@/libs/shop-embed/sign-in';
+import { toast } from '@/molecules/Toaster/toast';
 import { DialogRestoreRecoveryPhrase } from './DialogRestoreRecoveryPhrase';
 
 vi.mock('@/atoms/Dialog/Dialog', () => {
@@ -123,14 +125,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 }));
 
 // Mock Molecules module
-const mockToast = vi.fn();
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    useToast: vi.fn(() => ({
-      toast: mockToast,
-    })),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/molecules/WordSlot/WordSlot', () => {
   return {
@@ -525,7 +520,7 @@ describe('DialogRestoreRecoveryPhrase', () => {
       fireEvent.click(restoreButton!);
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
+        expect(vi.mocked(toast)).toHaveBeenCalledWith({
           variant: 'error',
           description: 'Could not sign in. Try again.',
         });
@@ -552,7 +547,7 @@ describe('DialogRestoreRecoveryPhrase', () => {
       fireEvent.click(restoreButton);
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
+        expect(vi.mocked(toast)).toHaveBeenCalledWith({
           variant: 'error',
           description: 'This key is linked to a different homeserver. Use a staging account on this site.',
         });
@@ -810,5 +805,22 @@ describe('DialogRestoreRecoveryPhrase', () => {
       // Resolve the promise
       resolveRestore!();
     });
+  });
+  it('keeps the Shop reauthorization identity when using a recovery phrase', async () => {
+    const identity = vi.spyOn(shopSignIn, 'getShopReauthorizationIdentity').mockReturnValue({ expectedPubky: 'alice' });
+    try {
+      mockLoginWithMnemonic.mockResolvedValue(true);
+      render(<DialogRestoreRecoveryPhrase onRestore={mockOnRestore} />);
+      for (const input of screen.getAllByTestId('word-input')) fireEvent.change(input, { target: { value: 'word' } });
+      fireEvent.click(screen.getByText('Restore'));
+      await waitFor(() =>
+        expect(mockLoginWithMnemonic).toHaveBeenCalledWith({
+          mnemonic: Array(12).fill('word').join(' '),
+          expectedPubky: 'alice',
+        }),
+      );
+    } finally {
+      identity.mockRestore();
+    }
   });
 });

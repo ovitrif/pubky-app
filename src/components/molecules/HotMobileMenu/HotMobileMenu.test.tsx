@@ -33,7 +33,8 @@ describe('HotMobileMenu', () => {
   it('applies Hot-specific margin overrides via className passthrough', () => {
     const { container } = render(<HotMobileMenu activeSection={HotSection.TAGS} onSectionChange={() => {}} />);
     const rootElement = container.firstChild as HTMLElement;
-    expect(rootElement).toHaveClass('-mx-6');
+    expect(rootElement).toHaveClass('-mx-4');
+    expect(rootElement).not.toHaveClass('-mx-6');
     expect(rootElement).not.toHaveClass('-mt-6', 'mb-6');
   });
 
@@ -72,12 +73,5 @@ describe('HotMobileMenu', () => {
     expect(onSectionChange).toHaveBeenCalledWith(HotSection.TAGS);
 
     expect(onSectionChange).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe('HotMobileMenu - Snapshots', () => {
-  it('matches snapshot with default props', () => {
-    const { container } = render(<HotMobileMenu activeSection={HotSection.TAGS} onSectionChange={() => {}} />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

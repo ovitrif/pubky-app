@@ -16,8 +16,10 @@ import {
 } from '@/atoms/Dialog/Dialog';
 import { AuthController } from '@/controllers/auth/auth';
 import { useEnterSubmit } from '@/hooks/useEnterSubmit/useEnterSubmit';
+import { isAuthApprovalMismatchError } from '@/libs/error/auth-flow-canceled';
 import { isWrongEnvironmentHomeserverError } from '@/libs/error/error.utils';
-import { useToast } from '@/molecules/Toaster/use-toast';
+import { getShopReauthorizationIdentity } from '@/libs/shop-embed/sign-in';
+import { toast } from '@/molecules/Toaster/toast';
 import { WordSlot } from '@/molecules/WordSlot/WordSlot';
 
 interface DialogRestoreRecoveryPhraseProps {
@@ -28,7 +30,6 @@ export function DialogRestoreRecoveryPhrase({ onRestore }: DialogRestoreRecovery
   const [isRestoring, setIsRestoring] = useState(false);
   const [errors, setErrors] = useState<boolean[]>(Array(12).fill(false));
   const [touched, setTouched] = useState<boolean[]>(Array(12).fill(false));
-  const { toast } = useToast();
   const handleRestore = async () => {
     // Guard against double-submit race condition
     if (isRestoring) return;
@@ -46,6 +47,7 @@ export function DialogRestoreRecoveryPhrase({ onRestore }: DialogRestoreRecovery
       const allFilled = userWords.every((word) => word !== '');
       const mnemonic = userWords.join(' ');
       await AuthController.loginWithMnemonic({
+        ...getShopReauthorizationIdentity(),
         mnemonic,
       });
       if (!hasErrors && allFilled) {
@@ -56,7 +58,9 @@ export function DialogRestoreRecoveryPhrase({ onRestore }: DialogRestoreRecovery
         variant: 'error',
         description: isWrongEnvironmentHomeserverError(error)
           ? 'This key is linked to a different homeserver. Use a staging account on this site.'
-          : 'Could not sign in. Try again.',
+          : isAuthApprovalMismatchError(error)
+            ? 'Use the key you are already signed in with to enable Shop.'
+            : 'Could not sign in. Try again.',
       });
       setIsRestoring(false);
     }

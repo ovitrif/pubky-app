@@ -1,6 +1,6 @@
 import { APP_ROUTES, getCollectionRoute, POST_ROUTES, PROFILE_ROUTES } from '@/app/routes';
 import { Logger } from '@/libs/logger/logger';
-import { truncateString } from '@/libs/utils/utils';
+import { truncateByGraphemes } from '@/libs/utils/truncate';
 import { CompositeIdDomain } from '@/models/models.types';
 import { buildCompositeIdFromPubkyUri, parseCompositeId } from '@/models/models.utils';
 import { type FlatNotification, NotificationType } from '@/models/notification/notification.types';
@@ -26,6 +26,10 @@ const NOTIFICATION_ACTION_TEXT: Record<NotificationType, string> = {
 };
 
 type SpecificPostKind = 'collection' | 'long';
+
+/** The three post-kind variants the notification copy distinguishes. */
+export type NotificationKindBucket = SpecificPostKind | 'post';
+
 type KindSpecificNotificationAction = Partial<Record<NotificationType, Record<SpecificPostKind, string>>>;
 
 const KIND_SPECIFIC_NOTIFICATION_ACTION_TEXT: KindSpecificNotificationAction = {
@@ -38,15 +42,23 @@ const KIND_SPECIFIC_NOTIFICATION_ACTION_TEXT: KindSpecificNotificationAction = {
 };
 
 /**
+ * Buckets a notification's post kind into the three variants the copy distinguishes.
+ * Anything Nexus sends that is not a collection or an article reads as a plain post.
+ */
+export function getNotificationKindBucket(notification: FlatNotification): NotificationKindBucket {
+  const postKind = 'post_kind' in notification ? notification.post_kind : undefined;
+  if (postKind === 'collection' || postKind === 'long') return postKind;
+  return 'post';
+}
+
+/**
  * Get notification action text (without the username) based on type
  */
 export function getNotificationActionText(notification: FlatNotification): string {
-  if ('post_kind' in notification) {
-    const postKind = notification.post_kind;
-    if (postKind === 'collection' || postKind === 'long') {
-      const actionText = KIND_SPECIFIC_NOTIFICATION_ACTION_TEXT[notification.type]?.[postKind];
-      if (actionText) return actionText;
-    }
+  const kindBucket = getNotificationKindBucket(notification);
+  if (kindBucket !== 'post') {
+    const actionText = KIND_SPECIFIC_NOTIFICATION_ACTION_TEXT[notification.type]?.[kindBucket];
+    if (actionText) return actionText;
   }
 
   return NOTIFICATION_ACTION_TEXT[notification.type] ?? 'New notification';
@@ -145,8 +157,9 @@ function getPostLink(notification: FlatNotification): string | null {
       break;
 
     case NotificationType.PostDeleted:
-      uri = notification.linked_uri;
-      break;
+      // Deleted-post rows are informational by design — the deleted post has no
+      // destination, so the row offers no post link (matching the flat grouped row).
+      return null;
 
     case NotificationType.PostEdited:
       uri = notification.edited_uri;
@@ -179,7 +192,7 @@ function getPostLink(notification: FlatNotification): string | null {
 /**
  * Get the user profile link for the notification actor
  */
-function getUserProfileLink(userId: string): string {
+export function getUserProfileLink(userId: string): string {
   return `${APP_ROUTES.PROFILE}/${userId}`;
 }
 
@@ -269,7 +282,7 @@ export function pubkyUriToCompositeId(uri: string): string | null {
  */
 export function formatPreviewText(content: string | null | undefined): string | null {
   if (!content) return null;
-  const truncated = truncateString(content, 20);
+  const truncated = truncateByGraphemes(content, 20);
   return `'${truncated}'`;
 }
 

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from '@/molecules/Toaster/toast';
 import type { AttachmentConstructed } from '@/organisms/PostAttachments/PostAttachments.types';
 import { PostAttachmentsImagesAndVideos } from './PostAttachmentsImagesAndVideos';
 
@@ -82,8 +83,6 @@ vi.mock('@/atoms/Dialog/Dialog', () => {
   };
 });
 
-// Mock useToast
-const mockToast = vi.fn();
 vi.mock('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage')>();
@@ -105,11 +104,7 @@ vi.mock('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage',
   };
 });
 
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    useToast: () => ({ toast: mockToast }),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 
 // Track dialog open state for conditional rendering
 // When set to true by a test, it won't be overridden by the component
@@ -153,6 +148,13 @@ vi.mock('@/atoms/Button/Button', () => {
   };
 });
 
+// Controllable carousel API state so tests can drive embla events ('select',
+// 'reInit') and the selected snap position
+const carouselApiState: { handlers: Record<string, () => void>; selectedSnap: number } = {
+  handlers: {},
+  selectedSnap: 0,
+};
+
 vi.mock('@/atoms/Carousel/Carousel', () => {
   return {
     Carousel: ({
@@ -174,8 +176,10 @@ vi.mock('@/atoms/Carousel/Carousel', () => {
       useEffect(() => {
         if (setApi) {
           setApi({
-            selectedScrollSnap: () => 0,
-            on: vi.fn(),
+            selectedScrollSnap: () => carouselApiState.selectedSnap,
+            on: (event: string, handler: () => void) => {
+              carouselApiState.handlers[event] = handler;
+            },
             off: vi.fn(),
           });
         }
@@ -337,6 +341,8 @@ describe('PostAttachmentsImagesAndVideos', () => {
     vi.clearAllMocks();
     dialogOpenState = false;
     dialogOpenStateSetByTest = false;
+    carouselApiState.handlers = {};
+    carouselApiState.selectedSnap = 0;
     // Mock fullscreenEnabled
     Object.defineProperty(document, 'fullscreenEnabled', {
       value: true,
@@ -634,6 +640,25 @@ describe('PostAttachmentsImagesAndVideos', () => {
 
       expect(screen.queryByText('1/1')).not.toBeInTheDocument();
     });
+
+    it('resyncs the current index when the carousel re-initializes after the slide list shrinks', () => {
+      setDialogOpen(true);
+      const imagesAndVideos = [createMockImage(), createMockImage(), createMockImage()];
+      const { rerender } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
+
+      // User swipes to the last slide
+      carouselApiState.selectedSnap = 2;
+      act(() => carouselApiState.handlers['select']?.());
+      expect(screen.getByText('3/3')).toBeInTheDocument();
+
+      // An edit removes an attachment while the lightbox is open — embla clamps
+      // its internal index and emits only 'reInit', never 'select'
+      rerender(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos.slice(0, 2)} />);
+      carouselApiState.selectedSnap = 1;
+      act(() => carouselApiState.handlers['reInit']?.());
+
+      expect(screen.getByText('2/2')).toBeInTheDocument();
+    });
   });
 
   describe('Fullscreen functionality', () => {
@@ -718,7 +743,7 @@ describe('PostAttachmentsImagesAndVideos', () => {
 
       // Wait for the promise rejection to be handled
       await vi.waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
+        expect(vi.mocked(toast)).toHaveBeenCalledWith({
           variant: 'error',
           description: mockError.message,
         });
@@ -1032,214 +1057,5 @@ describe('PostAttachmentsImagesAndVideos', () => {
       expect(videos[4]).toHaveAttribute('data-pause-video', 'true'); // currentIndex !== 1
       expect(videos[5]).toHaveAttribute('data-pause-video', 'true'); // currentIndex !== 2
     });
-  });
-});
-
-describe('PostAttachmentsImagesAndVideos - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    dialogOpenState = false;
-    dialogOpenStateSetByTest = false;
-    Object.defineProperty(document, 'fullscreenEnabled', {
-      value: true,
-      writable: true,
-    });
-  });
-
-  it('matches snapshot with single image', () => {
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'snapshot-image.jpg',
-        urls: {
-          main: 'https://example.com/snapshot-main.jpg',
-          feed: 'https://example.com/snapshot-feed.jpg',
-        },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with multiple images', () => {
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'image1.jpg',
-        urls: { main: 'https://example.com/image1.jpg', feed: 'https://example.com/image1-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'image2.jpg',
-        urls: { main: 'https://example.com/image2.jpg', feed: 'https://example.com/image2-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'image3.jpg',
-        urls: { main: 'https://example.com/image3.jpg', feed: 'https://example.com/image3-feed.jpg' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with single video', () => {
-    const imagesAndVideos = [
-      createMockVideo({
-        name: 'snapshot-video.mp4',
-        urls: { main: 'https://example.com/snapshot-video.mp4' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with mixed images and videos', () => {
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'mixed-image.jpg',
-        urls: { main: 'https://example.com/mixed-main.jpg', feed: 'https://example.com/mixed-feed.jpg' },
-      }),
-      createMockVideo({
-        name: 'mixed-video.mp4',
-        urls: { main: 'https://example.com/mixed-video.mp4' },
-      }),
-      createMockGif({
-        name: 'mixed-gif.gif',
-        urls: { main: 'https://example.com/mixed-gif.gif', feed: 'https://example.com/mixed-gif-feed.jpg' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with empty array', () => {
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={[]} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with GIF image', () => {
-    const imagesAndVideos = [
-      createMockGif({
-        name: 'animated.gif',
-        urls: { main: 'https://example.com/animated.gif', feed: 'https://example.com/animated-thumb.jpg' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with four images (2x2 grid)', () => {
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'grid1.jpg',
-        urls: { main: 'https://example.com/grid1.jpg', feed: 'https://example.com/grid1-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'grid2.jpg',
-        urls: { main: 'https://example.com/grid2.jpg', feed: 'https://example.com/grid2-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'grid3.jpg',
-        urls: { main: 'https://example.com/grid3.jpg', feed: 'https://example.com/grid3-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'grid4.jpg',
-        urls: { main: 'https://example.com/grid4.jpg', feed: 'https://example.com/grid4-feed.jpg' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with multiple videos', () => {
-    const imagesAndVideos = [
-      createMockVideo({
-        name: 'video1.mp4',
-        urls: { main: 'https://example.com/video1.mp4' },
-      }),
-      createMockVideo({
-        name: 'video2.mp4',
-        urls: { main: 'https://example.com/video2.mp4' },
-      }),
-      createMockVideo({
-        name: 'video3.mp4',
-        urls: { main: 'https://example.com/video3.mp4' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with dialog open showing single image carousel', () => {
-    setDialogOpen(true);
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'dialog-image.jpg',
-        urls: { main: 'https://example.com/dialog-main.jpg', feed: 'https://example.com/dialog-feed.jpg' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with dialog open showing multiple images carousel', () => {
-    setDialogOpen(true);
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'carousel1.jpg',
-        urls: { main: 'https://example.com/carousel1.jpg', feed: 'https://example.com/carousel1-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'carousel2.jpg',
-        urls: { main: 'https://example.com/carousel2.jpg', feed: 'https://example.com/carousel2-feed.jpg' },
-      }),
-      createMockImage({
-        name: 'carousel3.jpg',
-        urls: { main: 'https://example.com/carousel3.jpg', feed: 'https://example.com/carousel3-feed.jpg' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with dialog open showing mixed media carousel', () => {
-    setDialogOpen(true);
-    const imagesAndVideos = [
-      createMockImage({
-        name: 'mixed-image.jpg',
-        urls: { main: 'https://example.com/mixed-main.jpg', feed: 'https://example.com/mixed-feed.jpg' },
-      }),
-      createMockVideo({
-        name: 'mixed-video.mp4',
-        urls: { main: 'https://example.com/mixed-video.mp4' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with dialog open showing videos carousel', () => {
-    setDialogOpen(true);
-    const imagesAndVideos = [
-      createMockVideo({
-        name: 'carousel-video1.mp4',
-        urls: { main: 'https://example.com/carousel-video1.mp4' },
-      }),
-      createMockVideo({
-        name: 'carousel-video2.mp4',
-        urls: { main: 'https://example.com/carousel-video2.mp4' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with dialog open showing single video carousel', () => {
-    setDialogOpen(true);
-    const imagesAndVideos = [
-      createMockVideo({
-        name: 'single-carousel-video.mp4',
-        urls: { main: 'https://example.com/single-carousel-video.mp4' },
-      }),
-    ];
-    const { container } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

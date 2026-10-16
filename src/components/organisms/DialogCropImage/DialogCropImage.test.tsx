@@ -37,11 +37,19 @@ const mockCroppedPixels: Area = { width: 120, height: 120, x: 10, y: 15 };
 vi.mock('react-easy-crop/react-easy-crop.css', () => ({}));
 
 let latestCropComplete: ((area: Area, croppedAreaPixels: Area) => void) | null = null;
+let latestCropperProps: { cropShape?: 'rect' | 'round' } | null = null;
 
 vi.mock('react-easy-crop', () => ({
   __esModule: true,
-  default: ({ onCropComplete }: { onCropComplete: (area: Area, croppedAreaPixels: Area) => void }) => {
+  default: ({
+    onCropComplete,
+    cropShape,
+  }: {
+    onCropComplete: (area: Area, croppedAreaPixels: Area) => void;
+    cropShape?: 'rect' | 'round';
+  }) => {
     latestCropComplete = onCropComplete;
+    latestCropperProps = { cropShape };
     return <div data-testid="cropper" />;
   },
 }));
@@ -100,24 +108,16 @@ const createDefaultProps = () => ({
 
 afterEach(() => {
   latestCropComplete = null;
+  latestCropperProps = null;
   vi.clearAllMocks();
 });
 
 describe('DialogCropImage', () => {
-  it('matches snapshot with image loaded', async () => {
-    const props = createDefaultProps();
-    const { container } = render(<DialogCropImage {...props} />);
+  it('crops with a round mask so the editor matches the round avatar', () => {
+    render(<DialogCropImage {...createDefaultProps()} />);
 
-    triggerCropComplete();
-
-    await waitFor(() => {
-      const doneButton = screen.getByRole('button', { name: 'Done' });
-      expect(doneButton).not.toBeDisabled();
-    });
-
-    expect(container.firstChild).toMatchSnapshot();
+    expect(latestCropperProps?.cropShape).toBe('round');
   });
-
   it('invokes crop callback when Done is clicked', async () => {
     const props = createDefaultProps();
     const blob = new Blob(['test'], { type: 'image/jpeg' });
@@ -168,5 +168,17 @@ describe('DialogCropImage', () => {
     fireEvent.click(cancelButton);
 
     expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('matches snapshot with image loaded', async () => {
+    const props = createDefaultProps();
+    render(<DialogCropImage {...props} />);
+
+    triggerCropComplete();
+
+    await waitFor(() => {
+      const doneButton = screen.getByRole('button', { name: 'Done' });
+      expect(doneButton).not.toBeDisabled();
+    });
   });
 });

@@ -1,20 +1,73 @@
 import React, { createRef } from 'react';
-import type { MDXEditorMethods } from '@mdxeditor/editor';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { imagePlugin, type MDXEditorMethods } from '@mdxeditor/editor';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { pubkyUriToCdnUrl } from '@/libs/file/pubkyFileCdnUrl';
 import { asOpaque } from '@/test-utils/type-assertions';
 import InitializedMDXEditor from './InitializedMDXEditor';
+import { inlineMediaPlugin } from './inlineMediaPlugin';
+import { MarkdownEditorMediaDialog } from './MarkdownEditorMediaDialog';
 
 // Mock config - use a smaller value for easier testing
 const MOCK_MAX_LENGTH = 1000;
-vi.mock('@/config/posts', () => ({
-  ARTICLE_MAX_CHARACTER_LENGTH: 1000,
+vi.mock('@/config/posts', () => {
+  const images = ['image/gif', 'image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
+  const nonImages = ['video/mp4', 'video/mpeg', 'audio/mpeg', 'audio/wav', 'application/pdf'];
+  return {
+    ARTICLE_MAX_CHARACTER_LENGTH: 1000,
+    ARTICLE_ATTACHMENT_ACCEPT_STRING: images.join(','),
+    ARTICLE_SUPPORTED_ATTACHMENT_MIME_TYPES: images,
+    ARTICLE_INLINE_SUPPORTED_MIME_TYPES: [...images, ...nonImages],
+    ARTICLE_INLINE_ACCEPT_STRING_BY_KIND: {
+      image: images.join(','),
+      video: 'video/mp4,video/mpeg',
+      audio: 'audio/mpeg,audio/wav',
+      pdf: 'application/pdf',
+    },
+  };
+});
+
+// The inline media plugin builds gurx cells at module scope; the host test only needs its surface
+vi.mock('./inlineMediaPlugin', () => ({
+  inlineMediaPlugin: vi.fn(() => ({ type: 'inline-media' })),
+  inlineMediaDialogState$: 'inlineMediaDialogState$',
+  inlineMediaPreviewResolver$: 'inlineMediaPreviewResolver$',
+  inlineMediaTypeResolver$: 'inlineMediaTypeResolver$',
+  openNewInlineMediaDialog$: 'openNewInlineMediaDialog$',
+  openEditInlineMediaDialog$: 'openEditInlineMediaDialog$',
+  closeInlineMediaDialog$: 'closeInlineMediaDialog$',
+  saveInlineMedia$: 'saveInlineMedia$',
+}));
+vi.mock('./InsertInlineMediaButton', () => ({
+  InsertInlineMediaButton: ({ mediaKind }: { mediaKind: string }) => (
+    <button data-testid={`insert-inline-${mediaKind}`}>{mediaKind}</button>
+  ),
+}));
+
+// Mock the CDN resolver used by the image preview handler (avoids the controller chain)
+vi.mock('@/libs/file/pubkyFileCdnUrl', () => ({
+  pubkyUriToCdnUrl: vi.fn(() => null),
+}));
+
+// Mock the realm hooks (the ImageDialogOpenReporter renders inside the mocked
+// toolbar, outside any real MDXEditor realm)
+const mockImageDialogState = { current: { type: 'inactive' } as { type: string } };
+const mockMediaDialogState = { current: { type: 'inactive' } as { type: string } };
+vi.mock('@mdxeditor/gurx', () => ({
+  useCellValues: vi.fn((...cells: string[]) =>
+    cells.map((cell) =>
+      cell === 'inlineMediaDialogState$' ? mockMediaDialogState.current : mockImageDialogState.current,
+    ),
+  ),
+  usePublisher: vi.fn(() => vi.fn()),
 }));
 
 // Store toolbar contents renderer to invoke it during tests
 let toolbarContentsRenderer: (() => React.ReactNode) | null = null;
 // Store onChange handler to invoke it during tests
 let capturedOnChange: ((markdown: string, initialMarkdownNormalize?: boolean) => void) | null = null;
+// Store overlayContainer prop to assert popups are hosted in-tree (inside dialog focus traps)
+let capturedOverlayContainer: HTMLElement | null | undefined;
 
 // Mock @mdxeditor/editor
 vi.mock('@mdxeditor/editor', () => {
@@ -26,11 +79,14 @@ vi.mock('@mdxeditor/editor', () => {
       plugins,
       onChange,
       readOnly,
+      overlayContainer,
       ref: _ref,
       ...props
     }: Record<string, unknown>) => {
       // Capture onChange handler for testing
       capturedOnChange = onChange as typeof capturedOnChange;
+      // Capture overlayContainer (an HTMLElement — must not be spread onto the DOM)
+      capturedOverlayContainer = overlayContainer as typeof capturedOverlayContainer;
 
       // Find and render toolbar contents if available
       const toolbarContent = toolbarContentsRenderer ? toolbarContentsRenderer() : null;
@@ -93,6 +149,9 @@ vi.mock('@mdxeditor/editor', () => {
       </button>
     ),
     CreateLink: () => <button data-testid="create-link">Create Link</button>,
+    imagePlugin: vi.fn((config: Record<string, unknown>) => ({ type: 'image', config })),
+    imageDialogState$: 'imageDialogState$',
+    InsertImage: () => <button data-testid="insert-image">Insert Image</button>,
     CodeToggle: () => <button data-testid="code-toggle">Code</button>,
     InsertCodeBlock: () => <button data-testid="insert-code-block">Insert Code Block</button>,
     InsertThematicBreak: () => <button data-testid="insert-thematic-break">Insert Break</button>,
@@ -248,6 +307,7 @@ describe('InitializedMDXEditor', () => {
     toolbarContentsRenderer = null;
     capturedOnEmojiSelect = null;
     capturedOnChange = null;
+    capturedOverlayContainer = undefined;
     mockHandleMarkdownEmojiSelect.mockClear();
   });
 
@@ -277,7 +337,7 @@ describe('InitializedMDXEditor', () => {
       render(<InitializedMDXEditor editorRef={null} markdown="" />);
 
       const editor = screen.getByTestId('mdx-editor');
-      expect(editor.className).not.toContain('hidden');
+      expect(editor.parentElement).not.toHaveClass('hidden');
     });
 
     it('applies contentEditableClassName with prose styles', () => {
@@ -296,6 +356,15 @@ describe('InitializedMDXEditor', () => {
       const editor = screen.getByTestId('mdx-editor');
       // The editor should have 10 plugins configured
       expect(editor).toHaveAttribute('data-plugins-count', '10');
+    });
+
+    it('hosts MDXEditor popups in-tree via overlayContainer so focus-trapping dialogs keep focus on popup inputs', () => {
+      render(<InitializedMDXEditor editorRef={null} markdown="" />);
+
+      // Without an overlayContainer, MDXEditor portals popups (e.g. the link dialog) to
+      // document.body, where the article dialog's focus trap reverts focus to the editor.
+      const host = screen.getByTestId('mdx-editor-overlay-container');
+      expect(capturedOverlayContainer).toBe(host);
     });
 
     it('passes additional props to MDXEditor', () => {
@@ -346,7 +415,7 @@ describe('InitializedMDXEditor', () => {
     it('renders smile icons in emoji buttons', () => {
       const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" />);
 
-      const smileIcons = container.querySelectorAll('.lucide-smile');
+      const smileIcons = container.querySelectorAll('.lucide-face-slightly-smiling');
       // One in the markdown toolbar, one in the rich text toolbar
       expect(smileIcons).toHaveLength(2);
       smileIcons.forEach((icon) => {
@@ -358,8 +427,9 @@ describe('InitializedMDXEditor', () => {
       render(<InitializedMDXEditor editorRef={null} markdown="" />);
 
       const markdownButton = screen.getByTestId('button-with-tooltip-markdown');
-      const markdownIcon = markdownButton.querySelector('svg[viewBox="0 0 208 128"]');
+      const markdownIcon = markdownButton.querySelector('svg');
       expect(markdownIcon).toBeInTheDocument();
+      expect(markdownIcon).toHaveAttribute('viewBox', '0 0 208 128');
       expect(markdownIcon).toHaveClass('size-6');
     });
 
@@ -489,9 +559,9 @@ describe('InitializedMDXEditor', () => {
       const markdownButton = screen.getByTestId('button-with-tooltip-markdown');
       fireEvent.click(markdownButton);
 
-      // MDXEditor should now have hidden class
+      // MDXEditor's wrapper should now carry the hidden class
       const mdxEditor = screen.getByTestId('mdx-editor');
-      expect(mdxEditor.className).toContain('hidden');
+      expect(mdxEditor.parentElement).toHaveClass('hidden');
 
       // Markdown toolbar should be visible (parent wrapper should not have hidden)
       const markdownToolbar = screen.getByTestId('markdown-toolbar');
@@ -511,9 +581,9 @@ describe('InitializedMDXEditor', () => {
       expect(markdownButton).not.toBeDisabled();
       fireEvent.click(markdownButton);
 
-      // MDXEditor should have hidden class (switched to markdown mode)
+      // MDXEditor's wrapper should carry the hidden class (switched to markdown mode)
       const mdxEditor = screen.getByTestId('mdx-editor');
-      expect(mdxEditor.className).toContain('hidden');
+      expect(mdxEditor.parentElement).toHaveClass('hidden');
 
       // Markdown textarea should have the content from editor ref's getMarkdown()
       const textarea = screen.getByTestId('markdown-textarea');
@@ -920,74 +990,427 @@ describe('InitializedMDXEditor', () => {
     });
   });
 });
+describe('Inline images', () => {
+  const FILE_URI = 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/files/img1';
+  const imageFile = (name = 'pic.png') => new File(['x'], name, { type: 'image/png' });
 
-describe('InitializedMDXEditor - Snapshots', () => {
+  const setupInlineImages = (upload = vi.fn().mockResolvedValue(FILE_URI)) => {
+    const inlineMedia = {
+      upload,
+      getPreviewUrl: vi.fn(() => null),
+      getMediaType: vi.fn(() => null),
+      getMediaName: vi.fn(() => null),
+    };
+    const utils = render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={inlineMedia} />);
+    return { ...utils, upload };
+  };
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    toolbarContentsRenderer = null;
-    capturedOnEmojiSelect = null;
-    capturedOnChange = null;
-    mockHandleMarkdownEmojiSelect.mockClear();
+    vi.mocked(imagePlugin).mockClear();
   });
 
-  it('matches snapshot with default props', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" />);
-    expect(container.firstChild).toMatchSnapshot();
+  it('does not register the image plugin or buttons without the inlineMedia prop', () => {
+    render(<InitializedMDXEditor editorRef={null} markdown="" />);
+
+    expect(imagePlugin).not.toHaveBeenCalled();
+    expect(inlineMediaPlugin).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('insert-image')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('insert-inline-video')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('markdown-image-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('markdown-video-button')).not.toBeInTheDocument();
   });
 
-  it('matches snapshot with markdown content', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="# Test Content" />);
-    expect(container.firstChild).toMatchSnapshot();
+  it('registers the inline media plugin with the type resolver and the shared preview chain', () => {
+    const upload = vi.fn().mockResolvedValue(FILE_URI);
+    const getMediaType = vi.fn(() => 'video/mp4');
+    const getMediaName = vi.fn(() => 'clip.mp4');
+    const getPreviewUrl = vi.fn((uri: string) => (uri === FILE_URI ? 'blob:session' : null));
+    render(
+      <InitializedMDXEditor
+        editorRef={null}
+        markdown=""
+        inlineMedia={{ upload, getPreviewUrl, getMediaType, getMediaName }}
+      />,
+    );
+
+    expect(inlineMediaPlugin).toHaveBeenCalledWith({ getMediaType, getMediaName, getPreviewUrl: expect.any(Function) });
+    const { getPreviewUrl: resolvePreview } = vi.mocked(inlineMediaPlugin).mock.calls[0][0]!;
+    // Session object URL first, then the CDN for any other file URI, then an external URL as is
+    expect(resolvePreview(FILE_URI)).toBe('blob:session');
+    vi.mocked(pubkyUriToCdnUrl).mockReturnValueOnce('cdn://other-file');
+    expect(resolvePreview('pubky://other/pub/pubky.app/files/x')).toBe('cdn://other-file');
+    expect(resolvePreview('https://example.com/clip.mp4')).toBe('https://example.com/clip.mp4');
   });
 
-  it('matches snapshot with emoji picker open', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" />);
+  it('adds a video, audio and PDF button next to the image button in both toolbars', () => {
+    setupInlineImages();
 
-    const emojiButton = screen.getByTestId('button-with-tooltip-emoji');
-    fireEvent.click(emojiButton);
-
-    expect(container.firstChild).toMatchSnapshot();
+    for (const kind of ['video', 'audio', 'pdf']) {
+      expect(screen.getByTestId(`insert-inline-${kind}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`markdown-${kind}-button`)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId('markdown-video-input')).toHaveAttribute('accept', 'video/mp4,video/mpeg');
+    expect(screen.getByTestId('markdown-audio-input')).toHaveAttribute('accept', 'audio/mpeg,audio/wav');
+    expect(screen.getByTestId('markdown-pdf-input')).toHaveAttribute('accept', 'application/pdf');
+    expect(screen.getByTestId('markdown-image-input')).toHaveAttribute(
+      'accept',
+      'image/gif,image/jpeg,image/png,image/svg+xml,image/webp',
+    );
   });
 
-  it('matches snapshot with custom className', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" className="custom-editor-class" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with approaching max length warning', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" />);
-
-    // Trigger approaching warning
-    act(() => {
-      capturedOnChange?.('a'.repeat(MOCK_MAX_LENGTH - 50));
-    });
-
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with reached max length warning', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" />);
-
-    // Trigger reached warning
-    act(() => {
-      capturedOnChange?.('a'.repeat(MOCK_MAX_LENGTH));
-    });
-
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot in markdown mode', () => {
-    const mockRef = createMockEditorRef();
-    const { container } = render(<InitializedMDXEditor editorRef={mockRef} markdown="" />);
-
-    // Switch to markdown mode
+  it('inserts a dropped video through the markdown placeholder flow, like an image', async () => {
+    const VIDEO_URI = 'pubky://o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo/pub/pubky.app/files/clip1';
+    const { upload } = setupInlineImages(vi.fn().mockResolvedValue(VIDEO_URI));
     fireEvent.click(screen.getByTestId('button-with-tooltip-markdown'));
 
-    expect(container.firstChild).toMatchSnapshot();
+    const clip = new File(['x'], 'clip.mp4', { type: 'video/mp4' });
+    fireEvent.drop(screen.getByTestId('markdown-textarea'), { dataTransfer: { files: [clip] } });
+
+    expect(screen.getByTestId('markdown-textarea')).toHaveValue('![Uploading clip.mp4…]()');
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${VIDEO_URI})`);
+    });
+    expect(upload).toHaveBeenCalledWith(clip);
   });
 
-  it('matches snapshot with readOnly prop', () => {
-    const { container } = render(<InitializedMDXEditor editorRef={null} markdown="" readOnly />);
-    expect(container.firstChild).toMatchSnapshot();
+  it('registers the image plugin with resize disabled and the upload handler', () => {
+    const { upload } = setupInlineImages();
+
+    expect(imagePlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageUploadHandler: upload,
+        disableImageResize: true,
+        imagePreviewHandler: expect.any(Function),
+        ImageDialog: MarkdownEditorMediaDialog,
+      }),
+    );
+    expect(screen.getByTestId('insert-image')).toBeInTheDocument();
+  });
+
+  it('prefers the session preview URL in the image preview handler', async () => {
+    const inlineMedia = {
+      upload: vi.fn(),
+      getPreviewUrl: vi.fn((): string | null => 'blob:session-preview'),
+      getMediaType: vi.fn(() => null),
+      getMediaName: vi.fn(() => null),
+    };
+    render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={inlineMedia} />);
+
+    const { imagePreviewHandler } = vi.mocked(imagePlugin).mock.calls[0][0] as {
+      imagePreviewHandler: (src: string) => Promise<string>;
+    };
+
+    await expect(imagePreviewHandler(FILE_URI)).resolves.toBe('blob:session-preview');
+
+    inlineMedia.getPreviewUrl.mockReturnValue(null);
+    await expect(imagePreviewHandler('https://example.com/a.png')).resolves.toBe('https://example.com/a.png');
+  });
+
+  it('uploads and inserts markdown from the markdown-mode image button', async () => {
+    const { upload } = setupInlineImages();
+
+    fireEvent.change(screen.getByTestId('markdown-image-input'), { target: { files: [imageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${FILE_URI})`);
+    });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('uploads and inserts markdown on a files-only paste into the textarea', async () => {
+    const { upload } = setupInlineImages();
+
+    fireEvent.paste(screen.getByTestId('markdown-textarea'), {
+      clipboardData: { items: [{ kind: 'file', getAsFile: () => imageFile() }] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${FILE_URI})`);
+    });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('extracts image files from mixed clipboard payloads (file-first, like GitHub)', async () => {
+    const { upload } = setupInlineImages();
+
+    // Screenshots and copied images typically bundle a text/html flavor with the file
+    fireEvent.paste(screen.getByTestId('markdown-textarea'), {
+      clipboardData: {
+        items: [
+          { kind: 'string', getAsFile: () => null },
+          { kind: 'file', getAsFile: () => imageFile() },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${FILE_URI})`);
+    });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves text-only clipboard payloads to the normal text paste', () => {
+    const { upload } = setupInlineImages();
+
+    fireEvent.paste(screen.getByTestId('markdown-textarea'), {
+      clipboardData: {
+        items: [{ kind: 'string', getAsFile: () => null }],
+      },
+    });
+
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('shows an uploading placeholder until the upload resolves', async () => {
+    let resolveUpload!: (uri: string) => void;
+    const upload = vi.fn(() => new Promise<string>((resolve) => (resolveUpload = resolve)));
+    setupInlineImages(upload);
+
+    fireEvent.change(screen.getByTestId('markdown-image-input'), { target: { files: [imageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue('![Uploading pic.png…]()');
+    });
+
+    resolveUpload(FILE_URI);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${FILE_URI})`);
+    });
+  });
+
+  it('cancels the insertion when the user deletes the placeholder mid-upload', async () => {
+    let resolveUpload!: (uri: string) => void;
+    const upload = vi.fn(() => new Promise<string>((resolve) => (resolveUpload = resolve)));
+    setupInlineImages(upload);
+
+    fireEvent.change(screen.getByTestId('markdown-image-input'), { target: { files: [imageFile()] } });
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue('![Uploading pic.png…]()');
+    });
+
+    fireEvent.change(screen.getByTestId('markdown-textarea'), { target: { value: 'kept text' } });
+    resolveUpload(FILE_URI);
+
+    // The finished upload must not resurface anywhere in the body
+    await waitFor(() => expect(upload).toHaveBeenCalled());
+    expect(screen.getByTestId('markdown-textarea')).toHaveValue('kept text');
+  });
+
+  it('uploads and inserts markdown on a file drop into the textarea', async () => {
+    const { upload } = setupInlineImages();
+
+    fireEvent.drop(screen.getByTestId('markdown-textarea'), {
+      dataTransfer: { files: [imageFile()] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${FILE_URI})`);
+    });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the placeholder and inserts nothing when the upload fails', async () => {
+    const upload = vi.fn().mockRejectedValue(new Error('rejected'));
+    setupInlineImages(upload);
+
+    fireEvent.change(screen.getByTestId('markdown-image-input'), { target: { files: [imageFile()] } });
+
+    await waitFor(() => expect(upload).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue('');
+    });
+  });
+
+  it('inserts one image markdown per uploaded file', async () => {
+    const upload = vi.fn().mockResolvedValueOnce(`${FILE_URI}a`).mockResolvedValueOnce(`${FILE_URI}b`);
+    setupInlineImages(upload);
+
+    fireEvent.change(screen.getByTestId('markdown-image-input'), {
+      target: { files: [imageFile('a.png'), imageFile('b.png')] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-textarea')).toHaveValue(`![](${FILE_URI}a)\n![](${FILE_URI}b)`);
+    });
+  });
+});
+
+describe('Rich-text uploading indicator', () => {
+  const withUploads = (uploadingCount: number) => ({
+    upload: vi.fn(),
+    getPreviewUrl: vi.fn(() => null),
+    getMediaType: vi.fn(() => null),
+    getMediaName: vi.fn(() => null),
+    uploadingCount,
+  });
+
+  it('shows the pill while uploads are in flight in rich-text mode', () => {
+    render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={withUploads(1)} />);
+
+    expect(screen.getByTestId('richtext-uploading-indicator')).toHaveTextContent('Uploading file…');
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+  });
+
+  it('pluralizes for multiple in-flight uploads', () => {
+    render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={withUploads(3)} />);
+
+    expect(screen.getByTestId('richtext-uploading-indicator')).toHaveTextContent('Uploading 3 files…');
+  });
+
+  it('hides the pill when nothing is uploading or the count is absent', () => {
+    const { rerender } = render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={withUploads(0)} />);
+    expect(screen.queryByTestId('richtext-uploading-indicator')).not.toBeInTheDocument();
+
+    rerender(
+      <InitializedMDXEditor
+        editorRef={null}
+        markdown=""
+        inlineMedia={{ upload: vi.fn(), getPreviewUrl: () => null, getMediaType: () => null, getMediaName: () => null }}
+      />,
+    );
+    expect(screen.queryByTestId('richtext-uploading-indicator')).not.toBeInTheDocument();
+  });
+
+  it('hides the pill while the image dialog is open (the dialog shows its own spinner)', () => {
+    mockImageDialogState.current = { type: 'new' };
+    try {
+      render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={withUploads(1)} />);
+
+      expect(screen.queryByTestId('richtext-uploading-indicator')).not.toBeInTheDocument();
+    } finally {
+      mockImageDialogState.current = { type: 'inactive' };
+    }
+  });
+
+  it('does not show the pill in markdown mode (placeholders cover it there)', () => {
+    const editorRef = createRef<MDXEditorMethods>();
+    Object.defineProperty(editorRef, 'current', {
+      value: { getMarkdown: vi.fn(() => ''), setMarkdown: vi.fn(), focus: vi.fn(), insertMarkdown: vi.fn() },
+      writable: true,
+    });
+    // Switch modes while idle (the toggle is disabled during uploads), then
+    // start an upload in markdown mode
+    const { rerender } = render(
+      <InitializedMDXEditor editorRef={editorRef} markdown="" inlineMedia={withUploads(0)} />,
+    );
+
+    fireEvent.click(screen.getByTestId('button-with-tooltip-markdown'));
+    rerender(<InitializedMDXEditor editorRef={editorRef} markdown="" inlineMedia={withUploads(1)} />);
+
+    expect(screen.queryByTestId('richtext-uploading-indicator')).not.toBeInTheDocument();
+  });
+});
+
+describe('Upload-in-flight guards', () => {
+  const withUploads = (uploadingCount: number) => ({
+    upload: vi.fn(),
+    getPreviewUrl: vi.fn(() => null),
+    getMediaType: vi.fn(() => null),
+    getMediaName: vi.fn(() => null),
+    uploadingCount,
+  });
+
+  it('disables both mode-toggle buttons while uploads are in flight', () => {
+    render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={withUploads(1)} />);
+
+    expect(screen.getByTestId('button-with-tooltip-markdown')).toBeDisabled();
+    expect(screen.getByTestId('markdown-richtext-button')).toBeDisabled();
+  });
+
+  it('keeps the mode-toggle buttons enabled when nothing is uploading', () => {
+    render(<InitializedMDXEditor editorRef={null} markdown="" inlineMedia={withUploads(0)} />);
+
+    expect(screen.getByTestId('button-with-tooltip-markdown')).toBeEnabled();
+    expect(screen.getByTestId('markdown-richtext-button')).toBeEnabled();
+  });
+
+  it('ignores unsupported files dropped on the markdown textarea (no placeholder, no upload)', () => {
+    const upload = vi.fn();
+    render(
+      <InitializedMDXEditor
+        editorRef={null}
+        markdown=""
+        inlineMedia={{
+          upload,
+          getPreviewUrl: vi.fn(() => null),
+          getMediaType: vi.fn(() => null),
+          getMediaName: vi.fn(() => null),
+        }}
+      />,
+    );
+
+    fireEvent.drop(screen.getByTestId('markdown-textarea'), {
+      dataTransfer: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] },
+    });
+
+    expect(upload).not.toHaveBeenCalled();
+    expect(screen.getByTestId('markdown-textarea')).toHaveValue('');
+  });
+});
+
+describe('Over-cap recovery in markdown mode', () => {
+  const setupOverCap = () => {
+    const overCapText = 'x'.repeat(1010); // MOCK_MAX_LENGTH is 1000
+    const editorRef = createRef<MDXEditorMethods>();
+    Object.defineProperty(editorRef, 'current', {
+      value: { getMarkdown: vi.fn(() => overCapText), setMarkdown: vi.fn(), focus: vi.fn(), insertMarkdown: vi.fn() },
+      writable: true,
+    });
+    render(<InitializedMDXEditor editorRef={editorRef} markdown="" />);
+    // Import the over-cap text by switching to markdown mode
+    fireEvent.click(screen.getByTestId('button-with-tooltip-markdown'));
+    return overCapText;
+  };
+
+  it('shows the reached warning for bodies over the cap, not only exactly at it', () => {
+    setupOverCap();
+
+    expect(screen.getByTestId('max-length-warning')).toHaveTextContent("You've reached the maximum character limit.");
+  });
+
+  it('accepts shrinking edits while over the cap so the user can recover', () => {
+    const overCapText = setupOverCap();
+    const textarea = screen.getByTestId('markdown-textarea');
+
+    // Deleting characters must work even though the result is still over cap
+    const shrunk = overCapText.slice(0, 1005);
+    fireEvent.change(textarea, { target: { value: shrunk } });
+    expect(textarea).toHaveValue(shrunk);
+
+    // Growing while over cap stays refused
+    fireEvent.change(textarea, { target: { value: shrunk + 'yy' } });
+    expect(textarea).toHaveValue(shrunk);
+  });
+});
+
+describe('Unsupported image types in markdown mode', () => {
+  it('ignores image types outside the supported whitelist (no placeholder, no upload)', () => {
+    const upload = vi.fn();
+    render(
+      <InitializedMDXEditor
+        editorRef={null}
+        markdown=""
+        inlineMedia={{
+          upload,
+          getPreviewUrl: vi.fn(() => null),
+          getMediaType: vi.fn(() => null),
+          getMediaName: vi.fn(() => null),
+        }}
+      />,
+    );
+
+    // HEIC matches image/* but not the supported set
+    fireEvent.drop(screen.getByTestId('markdown-textarea'), {
+      dataTransfer: { files: [new File(['x'], 'photo.heic', { type: 'image/heic' })] },
+    });
+    fireEvent.paste(screen.getByTestId('markdown-textarea'), {
+      clipboardData: {
+        items: [{ kind: 'file', getAsFile: () => new File(['x'], 'photo.heic', { type: 'image/heic' }) }],
+      },
+    });
+
+    expect(upload).not.toHaveBeenCalled();
+    expect(screen.getByTestId('markdown-textarea')).toHaveValue('');
   });
 });

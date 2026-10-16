@@ -1,14 +1,17 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { AUTH_ROUTES, SETTINGS_ROUTES } from '@/app/routes';
-import { AuthController } from '@/controllers/auth/auth';
+import { SETTINGS_ROUTES } from '@/app/routes';
 import { ProfileController } from '@/controllers/profile/profile';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard/useCopyToClipboard';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { useSignOut } from '@/hooks/useSignOut/useSignOut';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { isAppError } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { withPubkyPrefix } from '@/libs/utils/utils';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export interface ProfileActions {
@@ -36,8 +39,11 @@ export interface UseProfileActionsProps {
 export function useProfileActions({ publicKey, link }: UseProfileActionsProps): ProfileActions {
   const router = useRouter();
   const { copyToClipboard } = useCopyToClipboard();
-  const authStore = useAuthStore();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { copyToClipboard: copyProfileLinkToClipboard } = useCopyToClipboard({
+    successTitle: 'Profile link copied to clipboard',
+  });
+  const { waitForAuth } = useRequireAuth();
+  const { handleSignOut: onSignOut, isLoading: isLoggingOut } = useSignOut();
 
   const onEdit = useCallback(() => {
     router.push(SETTINGS_ROUTES.EDIT);
@@ -48,39 +54,31 @@ export function useProfileActions({ publicKey, link }: UseProfileActionsProps): 
   }, [publicKey, copyToClipboard]);
 
   const onCopyLink = useCallback(() => {
-    void copyToClipboard(link);
-  }, [link, copyToClipboard]);
+    void copyProfileLinkToClipboard(link);
+  }, [link, copyProfileLinkToClipboard]);
 
-  const onSignOut = useCallback(async () => {
-    setIsLoggingOut(true);
-    try {
-      await AuthController.logout();
-      router.push(AUTH_ROUTES.LOGOUT);
-    } catch (error) {
-      Logger.error('Failed to logout:', error);
-      toast({ variant: 'error', description: 'Could not log out. Try again.' });
-      setIsLoggingOut(false);
+  const onStatusChange = async (status: string) => {
+    if (!(await waitForAuth())) return;
+    const currentUserPubky = useAuthStore.getState().currentUserPubky;
+    if (!currentUserPubky) {
+      Logger.error('No authenticated user found');
+      toast({ variant: 'error', description: 'Could not load profile. Try again.' });
+      return;
     }
-  }, [router]);
 
-  const onStatusChange = useCallback(
-    async (status: string) => {
-      const currentUserPubky = authStore.currentUserPubky;
-      if (!currentUserPubky) {
-        Logger.error('No authenticated user found');
-        toast({ variant: 'error', description: 'Could not load profile. Try again.' });
-        return;
-      }
-
-      try {
-        await ProfileController.commitUpdateStatus({ pubky: currentUserPubky, status });
-      } catch (error) {
-        Logger.error('Failed to update status:', error);
-        toast({ variant: 'error', description: 'Could not update status. Try again.' });
-      }
-    },
-    [authStore],
-  );
+    try {
+      await ProfileController.commitUpdateStatus({ pubky: currentUserPubky, status });
+    } catch (error) {
+      Logger.error('Failed to update status:', error);
+      // A missing homeserver profile maps to GONE before the PUT. Explain why the status
+      // cannot be saved; other failures keep the generic retry message.
+      const isDeletedProfile = isAppError(error) && error.code === ClientErrorCode.GONE;
+      toast({
+        variant: 'error',
+        description: isDeletedProfile ? error.message : 'Could not update status. Try again.',
+      });
+    }
+  };
 
   return {
     onEdit,

@@ -26,7 +26,6 @@ vi.mock('@/atoms/Input/Input', () => {
       onChange,
       onKeyDown,
       onFocus,
-      readOnly,
       className,
       ...props
     }: React.InputHTMLAttributes<HTMLInputElement>) => (
@@ -37,7 +36,6 @@ vi.mock('@/atoms/Input/Input', () => {
         onChange={onChange}
         onKeyDown={onKeyDown}
         onFocus={onFocus}
-        readOnly={readOnly}
         className={className}
         {...props}
       />
@@ -84,13 +82,13 @@ describe('SearchInputBar', () => {
     activeTags: [],
     inputValue: '',
     isFocused: false,
-    isReadOnly: false,
     isExpanded: false,
     suggestionsId: undefined,
     onTagRemove: vi.fn(),
     onInputChange: vi.fn(),
     onKeyDown: vi.fn(),
     onFocus: vi.fn(),
+    onCloseSearch: vi.fn(),
   };
 
   beforeEach(() => {
@@ -110,6 +108,15 @@ describe('SearchInputBar', () => {
       // Real icon implementation renders as SVG with lucide-search class
       const svg = container.querySelector('svg.lucide-search');
       expect(svg).toBeInTheDocument();
+    });
+
+    it('replaces the search icon with an accessible close action while focused', () => {
+      const onCloseSearch = vi.fn();
+      const { container } = render(<SearchInputBar {...defaultProps} isFocused onCloseSearch={onCloseSearch} />);
+
+      expect(container.querySelector('svg.lucide-search')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Clear and close search' }));
+      expect(onCloseSearch).toHaveBeenCalledOnce();
     });
 
     it('renders input with Search placeholder when no active tags', () => {
@@ -211,13 +218,6 @@ describe('SearchInputBar', () => {
       expect(onFocus).toHaveBeenCalled();
     });
 
-    it('sets input to readOnly when isReadOnly is true', () => {
-      render(<SearchInputBar {...defaultProps} isReadOnly />);
-
-      const input = screen.getByRole('textbox');
-      expect(input).toHaveAttribute('readOnly');
-    });
-
     it('displays current inputValue', () => {
       render(<SearchInputBar {...defaultProps} inputValue="search query" />);
 
@@ -264,28 +264,6 @@ describe('SearchInputBar', () => {
       expect(container).toHaveStyle({
         background: 'linear-gradient(180deg, var(--background) 0%, var(--background) 100%)',
       });
-    });
-  });
-
-  describe('SearchInputBar - Snapshots', () => {
-    it('matches snapshot - default state', () => {
-      const { container } = render(<SearchInputBar {...defaultProps} />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches snapshot - with active tags', () => {
-      const { container } = render(<SearchInputBar {...defaultProps} activeTags={['bitcoin', 'pubky']} />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches snapshot - focused state', () => {
-      const { container } = render(<SearchInputBar {...defaultProps} isFocused />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches snapshot - with input value', () => {
-      const { container } = render(<SearchInputBar {...defaultProps} inputValue="test query" />);
-      expect(container.firstChild).toMatchSnapshot();
     });
   });
 });

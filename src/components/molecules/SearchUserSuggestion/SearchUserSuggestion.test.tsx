@@ -74,7 +74,8 @@ describe('SearchUserSuggestion', () => {
 
     const avatar = screen.getByTestId('avatar');
     expect(avatar).toHaveAttribute('data-name', 'John Doe');
-    expect(avatar).toHaveAttribute('data-size', 'default');
+    // 32px avatars in search results per #1840
+    expect(avatar).toHaveAttribute('data-size', 'md');
   });
 
   it('calls onClick when clicked', () => {
@@ -115,21 +116,5 @@ describe('SearchUserSuggestion', () => {
     expect(ariaLabel).toContain('John Doe');
     // Real formatPublicKey formats as abc1...f456 (length 8)
     expect(ariaLabel).toMatch(/[a-z0-9]+\.\.\.[a-z0-9]+/);
-  });
-
-  describe('SearchUserSuggestion - Snapshots', () => {
-    it('matches snapshot with full user data', () => {
-      const { container } = render(<SearchUserSuggestion user={mockUser} onClick={vi.fn()} />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches snapshot without avatar', () => {
-      const userWithoutAvatar = {
-        id: 'pk:xyz789' as Pubky,
-        name: 'Jane Doe',
-      };
-      const { container } = render(<SearchUserSuggestion user={userWithoutAvatar} />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
   });
 });

@@ -1,10 +1,12 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCanceledError } from '@/libs/error/auth-flow-canceled';
+import { toast } from '@/molecules/Toaster/toast';
+import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { useSignOut } from './useSignOut';
 
 const mockPush = vi.fn();
 const mockLogout = vi.fn();
-const mockToast = vi.fn();
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -16,11 +18,7 @@ vi.mock('@/controllers/auth/auth', () => ({
   AuthController: { logout: (...args: unknown[]) => mockLogout(...args) },
 }));
 
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    useToast: () => ({ toast: mockToast }),
-  };
-});
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/app/routes', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/app/routes')>();
@@ -32,6 +30,7 @@ vi.mock('@/app/routes', async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useOnboardingStore.getState().reset();
 });
 
 describe('useSignOut', () => {
@@ -64,7 +63,7 @@ describe('useSignOut', () => {
       await result.current.handleSignOut();
     });
 
-    expect(mockToast).toHaveBeenCalledWith(
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
       expect.objectContaining({
         description: 'Could not sign out. Try again.',
       }),
@@ -94,4 +93,21 @@ describe('useSignOut', () => {
       await signOutPromise!;
     });
   });
+});
+
+it('routes an unbacked browser key through backup confirmation before logout', async () => {
+  useOnboardingStore.setState({ secretKey: 'unbacked' });
+  const { result } = renderHook(() => useSignOut());
+  await act(() => result.current.handleSignOut());
+  expect(mockLogout).not.toHaveBeenCalled();
+  expect(mockPush).toHaveBeenCalledWith('/logout');
+  expect(useOnboardingStore.getState().secretKey).toBe('unbacked');
+});
+it('keeps the current page when another login supersedes signout', async () => {
+  mockLogout.mockRejectedValue(createCanceledError());
+  const { result } = renderHook(() => useSignOut());
+  await act(() => result.current.handleSignOut());
+  expect(mockPush).not.toHaveBeenCalled();
+  expect(toast).not.toHaveBeenCalled();
+  expect(result.current.isLoading).toBe(false);
 });

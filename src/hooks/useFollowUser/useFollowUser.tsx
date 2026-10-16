@@ -1,14 +1,16 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { UserController } from '@/controllers/user/user';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import type { Pubky } from '@/models/models.types';
-import { toast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import type { UseFollowUserResult } from './useFollowUser.types';
-import { resolveFollowToastDisplayName } from './useFollowUser.utils';
+import { FOLLOW_ACTIONS, type FollowAction, type UseFollowUserResult } from './useFollowUser.types';
+
+const EMPTY_PENDING_ACTIONS: ReadonlyMap<Pubky, FollowAction> = new Map();
 
 /**
  * useFollowUser
@@ -23,24 +25,27 @@ import { resolveFollowToastDisplayName } from './useFollowUser.utils';
  * ```tsx
  * const { toggleFollow, isLoading, isUserLoading, error } = useFollowUser();
  *
- * const handleFollow = async (userId: Pubky, isFollowing: boolean, displayName: string) => {
- *   await toggleFollow(userId, isFollowing, displayName);
+ * const handleFollow = async (userId: Pubky, isFollowing: boolean) => {
+ *   await toggleFollow(userId, isFollowing);
  * };
  *
  * // Check if a specific user is loading
  * const showSpinner = isUserLoading(userId);
  * ```
  */
-export function useFollowUser(): UseFollowUserResult {
+export function useFollowUser(active = true): UseFollowUserResult {
+  const { waitForAuth } = useRequireAuth(active);
+  const inFlight = useRef(new Set<Pubky>());
   const { currentUserPubky } = useAuthStore();
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingAction, setLoadingAction] = useState<UseFollowUserResult['loadingAction']>(null);
-  const [loadingUserId, setLoadingUserId] = useState<Pubky | null>(null);
+  // Every in-flight toggle keyed by user, so concurrent clicks on different users each keep their
+  // own loading state instead of the last click overwriting a single `loadingUserId`.
+  const [pendingActions, setPendingActions] = useState<ReadonlyMap<Pubky, FollowAction>>(EMPTY_PENDING_ACTIONS);
   const [error, setError] = useState<string | null>(null);
 
   const toggleFollow = useCallback(
-    async (userId: Pubky, isCurrentlyFollowing: boolean, displayName?: string) => {
+    async (userId: Pubky, isCurrentlyFollowing: boolean) => {
       if (!currentUserPubky) {
+        await waitForAuth(userId);
         setError('User not authenticated');
         return false;
       }
@@ -50,15 +55,14 @@ export function useFollowUser(): UseFollowUserResult {
         return false;
       }
 
-      setLoadingAction(isCurrentlyFollowing ? 'unfollow' : 'follow');
-      setIsLoading(true);
-      setLoadingUserId(userId);
+      if (inFlight.current.has(userId)) return false;
+      inFlight.current.add(userId);
+      const pendingAction: FollowAction = isCurrentlyFollowing ? FOLLOW_ACTIONS.UNFOLLOW : FOLLOW_ACTIONS.FOLLOW;
+      setPendingActions((prev) => new Map(prev).set(userId, pendingAction));
       setError(null);
 
-      // Resolved up front so the failure toast can name the user too.
-      const username = await resolveFollowToastDisplayName(userId, displayName);
-
       try {
+        if (!(await waitForAuth(userId))) return false;
         const action = isCurrentlyFollowing ? HttpMethod.DELETE : HttpMethod.PUT;
 
         await UserController.commitFollow(action, {
@@ -67,7 +71,7 @@ export function useFollowUser(): UseFollowUserResult {
         });
 
         toast({
-          title: isCurrentlyFollowing ? `Unfollowed ${username}` : `Following ${username}`,
+          title: isCurrentlyFollowing ? 'User unfollowed' : 'User followed',
         });
 
         Logger.debug(`[useFollowUser] Successfully ${isCurrentlyFollowing ? 'unfollowed' : 'followed'} user`, {
@@ -76,8 +80,10 @@ export function useFollowUser(): UseFollowUserResult {
 
         return true;
       } catch (err) {
-        // Always a friendly, named message — raw transport/server text never reaches the user.
-        const message = isCurrentlyFollowing ? `Failed to unfollow ${username}` : `Failed to follow ${username}`;
+        // Always a friendly, static message — raw transport/server text never reaches the user.
+        const message = isCurrentlyFollowing
+          ? 'Could not unfollow user. Try again.'
+          : 'Could not follow user. Try again.';
         setError(message);
         toast({
           variant: 'error',
@@ -86,24 +92,28 @@ export function useFollowUser(): UseFollowUserResult {
         Logger.error('[useFollowUser] Failed to toggle follow:', err);
         return false;
       } finally {
-        setIsLoading(false);
-        setLoadingAction(null);
-        setLoadingUserId(null);
+        inFlight.current.delete(userId);
+        setPendingActions((prev) => {
+          if (!prev.has(userId)) return prev;
+          const next = new Map(prev);
+          next.delete(userId);
+          return next.size === 0 ? EMPTY_PENDING_ACTIONS : next;
+        });
       }
     },
-    [currentUserPubky],
+    [currentUserPubky, waitForAuth],
   );
 
-  const isUserLoading = useCallback(
-    (userId: Pubky) => isLoading && loadingUserId === userId,
-    [isLoading, loadingUserId],
-  );
+  const isUserLoading = useCallback((userId: Pubky) => pendingActions.has(userId), [pendingActions]);
+
+  // Single-target consumers (profile pages) read the most recent in-flight toggle.
+  const latestPending = [...pendingActions.entries()].at(-1);
 
   return {
     toggleFollow,
-    isLoading,
-    loadingAction,
-    loadingUserId,
+    isLoading: pendingActions.size > 0,
+    loadingAction: latestPending?.[1] ?? null,
+    loadingUserId: latestPending?.[0] ?? null,
     isUserLoading,
     error,
   };

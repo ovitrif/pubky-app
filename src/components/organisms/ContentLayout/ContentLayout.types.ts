@@ -7,8 +7,9 @@ export interface ContentLayoutProps {
   rightSidebarContent?: React.ReactNode;
   leftDrawerContent?: React.ReactNode;
   rightDrawerContent?: React.ReactNode;
-  leftDrawerContentMobile?: React.ReactNode;
+  /** Right drawer content for phone viewports (< md); falls back to rightDrawerContent. */
   rightDrawerContentMobile?: React.ReactNode;
+  leftDrawerContentMobile?: React.ReactNode;
   showLeftSidebar?: boolean;
   showRightSidebar?: boolean;
   showLeftMobileButton?: boolean;
@@ -20,6 +21,7 @@ export interface ContentLayoutProps {
   className?: string;
   classNameWrapperContent?: string;
   classNameMobileHeader?: string;
+  classNameRightDrawer?: string;
   feedVariant?: TimelineFeedVariant;
   /** Temporary page-level layout that takes precedence over persisted feed preferences. */
   layoutOverride?: LayoutType;

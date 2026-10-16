@@ -12,7 +12,6 @@ import { cn } from '@/libs/utils/utils';
 import { TaggedList } from '@/molecules/TaggedList/TaggedList';
 import { TagInput } from '@/molecules/TagInput/TagInput';
 import type { TagInputHandle } from '@/molecules/TagInput/TagInput.types';
-import { useAuthStore } from '@/stores/auth/auth.store';
 import { PostTagsPanelSkeleton } from './PostTagsPanel.skeleton';
 import type { PostTagsPanelHandle, PostTagsPanelProps } from './PostTagsPanel.types';
 
@@ -38,9 +37,13 @@ export const PostTagsPanel = forwardRef<PostTagsPanelHandle, PostTagsPanelProps>
   ref,
 ) {
   const tagInputRef = useRef<TagInputHandle>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(widthMode !== 'full');
   useImperativeHandle(ref, () => ({
     focus: () => tagInputRef.current?.focus(),
+    // `nearest` keeps the reveal quiet when the panel is already on screen, and scrolls the
+    // minimum needed when it is not.
+    reveal: () => containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
   }));
   const { tags, isLoading, handleTagAdd, handleTagToggle, hasMore, isLoadingMore, loadMore } = usePostTags(postId);
 
@@ -49,20 +52,19 @@ export const PostTagsPanel = forwardRef<PostTagsPanelHandle, PostTagsPanelProps>
 
   // Auth requirement for tag actions
   const { isAuthenticated, requireAuth } = useRequireAuth();
-  const setShowSignInDialog = useAuthStore((state) => state.setShowSignInDialog);
 
   // Wrap tag toggle with auth requirement
   const handleTagToggleWithAuth = (tag: Parameters<typeof handleTagToggle>[0]) => {
-    requireAuth(() => handleTagToggle(tag));
+    void handleTagToggle(tag);
   };
 
   // Wrap tag add with auth requirement
   const handleTagAddWithAuth = (label: string) => {
-    return requireAuth(() => handleTagAdd(label));
+    return handleTagAdd(label);
   };
 
   // For unauthenticated users, clicking input opens sign-in dialog
-  const handleInputClick = !isAuthenticated ? () => setShowSignInDialog(true) : undefined;
+  const handleInputClick = !isAuthenticated ? () => requireAuth(() => undefined) : undefined;
 
   // Show skeleton while fetching initial data
   if (isLoading && enableLoadingSkeleton) {
@@ -78,7 +80,7 @@ export const PostTagsPanel = forwardRef<PostTagsPanelHandle, PostTagsPanelProps>
     tags.length > 0 &&
     (tags.length > INITIAL_VISIBLE_TAGS || (hasMore && tags.length >= INITIAL_VISIBLE_TAGS));
   return (
-    <Container data-cy="post-tags-panel" className={cn('gap-2', className)}>
+    <Container ref={containerRef} data-cy="post-tags-panel" className={cn('gap-2', className)}>
       <Container
         overrideDefaults
         className={cn('flex flex-col gap-2', widthMode === 'fit' ? 'w-fit max-w-full' : 'w-full')}

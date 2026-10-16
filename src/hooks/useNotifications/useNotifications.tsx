@@ -23,6 +23,13 @@ export function useNotifications(): UseNotificationsResult {
 
   const olderThanRef = useRef<number | undefined>(undefined);
   const loadingRef = useRef(false);
+  // Mirrors `notifications` so `refresh` can diff against the loaded list without
+  // subscribing to it (its identity changes on every merge).
+  const notificationsRef = useRef<FlatNotification[]>([]);
+
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
 
   const { currentUserPubky } = useAuthStore();
   const notificationPreferences = useSettingsStore((s) => s.notifications);
@@ -35,14 +42,18 @@ export function useNotifications(): UseNotificationsResult {
   const { mutedUserIdSet } = useMutedUsers();
   const lastRead = useNotificationStore((s) => s.lastRead);
   const unread = useNotificationStore((s) => s.unread);
-  const lastReadRef = useRef(lastRead);
+  // `lastRead` is frozen at the first non-zero value this hook instance sees, so
+  // marking notifications as read mid-session does not immediately clear the
+  // unread highlight. Held in state rather than a ref because it is read during
+  // render (`unreadNotifications`), which the React Compiler `refs` rule forbids.
+  const [frozenLastRead, setFrozenLastRead] = useState(lastRead);
   const previousUnreadRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (lastReadRef.current === 0 && lastRead > 0) {
-      lastReadRef.current = lastRead;
+    if (frozenLastRead === 0 && lastRead > 0) {
+      setFrozenLastRead(lastRead);
     }
-  }, [lastRead]);
+  }, [lastRead, frozenLastRead]);
 
   /**
    * Extracts the actor (initiator) user ID from a notification.
@@ -160,28 +171,47 @@ export function useNotifications(): UseNotificationsResult {
   }, [hasMore, currentUserPubky, filterMutedNotifications]);
 
   /**
-   * Refresh notifications - resets pagination and fetches from start
+   * Refresh notifications - fetches the newest page and merges it in place.
+   *
+   * Runs silently (no `isLoading` flip): the poll fires it whenever anything new
+   * arrives, and swapping the mounted list for a skeleton would collapse expanded
+   * group rows and throw away scroll position every few seconds on active accounts.
+   * New notifications are prepended onto what is already loaded; the list is replaced
+   * (and pagination restarted) only when there is nothing to prepend onto, or when the
+   * fresh page shares nothing with the loaded list — more than a page arrived at once,
+   * so prepending would leave an invisible gap.
    */
   const refresh = useCallback(async () => {
     if (!currentUserPubky || loadingRef.current) return;
 
     loadingRef.current = true;
-    setIsLoading(true);
     setError(null);
-    olderThanRef.current = undefined;
-    setHasMore(true);
 
     try {
-      const { flatNotifications: notifications, olderThan } = await NotificationController.getOrFetchNotifications({});
+      const { flatNotifications: fetched, olderThan } = await NotificationController.getOrFetchNotifications({});
 
-      setNotifications(filterMutedNotifications(notifications));
-      olderThanRef.current = olderThan;
-      setHasMore(olderThan !== undefined);
+      const fresh = filterMutedNotifications(fetched);
+      const existingIds = new Set(notificationsRef.current.map((n) => n.id));
+      const newNotifications = fresh.filter((n) => !existingIds.has(n.id));
+
+      // Nothing loaded yet — the first load failed and the user retried, so this call
+      // stands in for it and has to establish the pagination cursor too.
+      const isEmptyList = notificationsRef.current.length === 0;
+      // An empty page proves nothing about overlap (every actor on it may be muted), so
+      // it must never be mistaken for a gap and wipe the loaded list.
+      const hasGap = !isEmptyList && fresh.length > 0 && newNotifications.length === fresh.length;
+
+      if (isEmptyList || hasGap) {
+        setNotifications(fresh);
+        olderThanRef.current = olderThan;
+        setHasMore(olderThan !== undefined);
+      } else if (newNotifications.length > 0) {
+        setNotifications((prev) => [...newNotifications, ...prev]);
+      }
     } catch {
       setError('Failed to refresh notifications');
     } finally {
       loadingRef.current = false;
-      setIsLoading(false);
     }
   }, [currentUserPubky, filterMutedNotifications]);
 
@@ -195,16 +225,19 @@ export function useNotifications(): UseNotificationsResult {
   /**
    * Check if a notification is unread
    */
-  const isNotificationUnread = useCallback((n: FlatNotification) => {
-    return n.timestamp > lastReadRef.current;
-  }, []);
+  const isNotificationUnread = useCallback(
+    (n: FlatNotification) => {
+      return n.timestamp > frozenLastRead;
+    },
+    [frozenLastRead],
+  );
 
   /**
    * List of unread notifications
    */
   const unreadNotifications = useMemo(() => {
-    return notifications.filter((n) => n.timestamp > lastReadRef.current);
-  }, [notifications]);
+    return notifications.filter((n) => n.timestamp > frozenLastRead);
+  }, [notifications, frozenLastRead]);
 
   /**
    * Initial load - fetch first page when component mounts
@@ -218,6 +251,8 @@ export function useNotifications(): UseNotificationsResult {
    * Reset pagination when notification filter preferences change.
    * Preference changes create a new query context, so we must restart from
    * the first page instead of continuing with the previous olderThan cursor.
+   * This is a full reload (not the silent merge `refresh`), because the already
+   * loaded list was built under the old filter and cannot be patched in place.
    */
   useEffect(() => {
     if (!currentUserPubky) return;
@@ -227,8 +262,8 @@ export function useNotifications(): UseNotificationsResult {
 
     if (!hasPreferencesChanged) return;
 
-    refresh();
-  }, [currentUserPubky, notificationPreferences, refresh]);
+    performInitialLoad();
+  }, [currentUserPubky, notificationPreferences, performInitialLoad]);
 
   /**
    * Reactively filter notifications when mute state changes.

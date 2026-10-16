@@ -65,8 +65,23 @@ vi.mock('@/organisms/AvatarWithFallback/AvatarWithFallback', () => {
 // Mock WhoTaggedExpandedList
 vi.mock('@/molecules/WhoTaggedExpandedList/WhoTaggedExpandedList', () => {
   return {
-    WhoTaggedExpandedList: ({ taggerIds }: { taggerIds: Array<string> }) => (
-      <div data-testid="who-tagged-expanded-list">Expanded List ({taggerIds.length} users)</div>
+    WhoTaggedExpandedList: ({
+      taggerIds,
+      hasMore,
+      isLoadingMore,
+      onLoadMore,
+    }: {
+      taggerIds: Array<string>;
+      hasMore?: boolean;
+      isLoadingMore?: boolean;
+      onLoadMore?: () => void;
+    }) => (
+      <div data-testid="who-tagged-expanded-list" data-has-more={hasMore} data-loading-more={isLoadingMore}>
+        Expanded List ({taggerIds.length} users)
+        <button data-testid="who-tagged-load-more" onClick={onLoadMore}>
+          more
+        </button>
+      </div>
     ),
   };
 });
@@ -75,6 +90,7 @@ vi.mock('@/molecules/WhoTaggedExpandedList/WhoTaggedExpandedList', () => {
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: vi.fn(() => ({
     isAuthenticated: true,
+    waitForAuth: async () => true,
     requireAuth: vi.fn((action: () => void) => action()),
   })),
 }));
@@ -131,11 +147,6 @@ describe('TaggedItem', () => {
     render(<TaggedItem tag={mockTag} onTagClick={mockOnTagClick} hideAvatars />);
     expect(screen.getByText('bitcoin (3)')).toBeInTheDocument();
   });
-
-  it('matches snapshot', () => {
-    const { container } = render(<TaggedItem tag={mockTag} onTagClick={mockOnTagClick} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
 });
 
 describe('TaggedItem - Expand/Collapse (Controlled)', () => {
@@ -164,6 +175,29 @@ describe('TaggedItem - Expand/Collapse (Controlled)', () => {
     expect(mockOnExpandToggle).toHaveBeenCalledWith('bitcoin');
   });
 
+  it('forwards paging props to the expanded list', () => {
+    const onLoadMoreTaggers = vi.fn();
+    render(
+      <TaggedItem
+        tag={mockTag}
+        onTagClick={mockOnTagClick}
+        isExpanded={true}
+        expandedTaggerIds={['user1', 'user2', 'user3', 'user4']}
+        hasMoreTaggers
+        isLoadingMoreTaggers
+        onLoadMoreTaggers={onLoadMoreTaggers}
+      />,
+    );
+
+    const list = screen.getByTestId('who-tagged-expanded-list');
+    expect(list).toHaveTextContent('Expanded List (4 users)');
+    expect(list).toHaveAttribute('data-has-more', 'true');
+    expect(list).toHaveAttribute('data-loading-more', 'true');
+
+    fireEvent.click(screen.getByTestId('who-tagged-load-more'));
+    expect(onLoadMoreTaggers).toHaveBeenCalledTimes(1);
+  });
+
   it('does not render avatar group button when hideAvatars is true', () => {
     render(<TaggedItem tag={mockTag} onTagClick={mockOnTagClick} hideAvatars />);
     expect(screen.queryByTestId('avatar-group-button')).not.toBeInTheDocument();
@@ -176,22 +210,5 @@ describe('TaggedItem - Expand/Collapse (Controlled)', () => {
 
     rerender(<TaggedItem tag={mockTag} onTagClick={mockOnTagClick} isExpanded={true} />);
     expect(avatarGroupButton).toHaveAttribute('aria-expanded', 'true');
-  });
-});
-
-describe('TaggedItem - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockPush.mockClear();
-  });
-
-  it('matches snapshot with hideAvatars', () => {
-    const { container } = render(<TaggedItem tag={mockTag} onTagClick={mockOnTagClick} hideAvatars />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when expanded', () => {
-    const { container } = render(<TaggedItem tag={mockTag} onTagClick={mockOnTagClick} isExpanded={true} />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

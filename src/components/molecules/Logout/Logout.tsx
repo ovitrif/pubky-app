@@ -12,7 +12,7 @@ import { PageTitle } from '../Page/Page';
 
 export const LogoutContent = () => {
   return (
-    <Container size="container" className="mb-6">
+    <Container size="container">
       <LogoutHeader />
       <Card data-testid="logout-image-card" className="w-full items-center justify-center rounded-md p-6 lg:p-12">
         <Image src="/images/tag.webp" alt="Pubky tag" width={192} height={192} className="size-48" priority />
@@ -28,12 +28,12 @@ export const LogoutHeader = () => {
         {'See you '}
         <span className="text-brand">{'soon!'}</span>
       </PageTitle>
-      <PageSubtitle>{'You have securely signed out.'}</PageSubtitle>
+      <PageSubtitle>{'You have signed out.'}</PageSubtitle>
     </PageHeader>
   );
 };
 
-export const LogoutNavigation = () => {
+export const LogoutNavigation = ({ className }: { className?: string }) => {
   const router = useRouter();
   const onHandleBackButton = () => {
     router.push(ROOT_ROUTES);
@@ -46,6 +46,7 @@ export const LogoutNavigation = () => {
   return (
     <ButtonsNavigation
       id="logout-navigation"
+      className={className}
       backText={'Homepage'}
       continueText={'Sign back in'}
       onHandleContinueButton={onHandleContinueButton}

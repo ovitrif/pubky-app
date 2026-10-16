@@ -1,7 +1,8 @@
 import { createRef } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST_ATTACHMENT_ACCEPT_STRING } from '@/config/posts';
+import type { ExistingAttachment } from '@/hooks/usePost/usePost.types';
 import { PostInputAttachments } from './PostInputAttachments';
 
 // Mock URL.createObjectURL and URL.revokeObjectURL
@@ -62,37 +63,6 @@ vi.mock('@/atoms/Button/Button', () => {
       >
         {children}
       </button>
-    ),
-  };
-});
-
-vi.mock('@/atoms/Card/Card', () => {
-  return {
-    Card: ({
-      children,
-      className,
-      'data-testid': dataTestId,
-    }: {
-      children: React.ReactNode;
-      className?: string;
-      'data-testid'?: string;
-    }) => (
-      <div data-testid={dataTestId || 'card'} className={className}>
-        {children}
-      </div>
-    ),
-    CardContent: ({
-      children,
-      className,
-      'data-testid': dataTestId,
-    }: {
-      children: React.ReactNode;
-      className?: string;
-      'data-testid'?: string;
-    }) => (
-      <div data-testid={dataTestId || 'card-content'} className={className}>
-        {children}
-      </div>
     ),
   };
 });
@@ -219,6 +189,14 @@ const createMockPdfFile = (name = 'test-document.pdf'): File => {
   return createMockFile(name, 'application/pdf');
 };
 
+const createExistingAttachment = (overrides: Partial<ExistingAttachment> = {}): ExistingAttachment => ({
+  uri: 'pubky://author/pub/pubky.app/files/file-1',
+  type: 'image/jpeg',
+  name: 'existing-image.jpg',
+  urls: { main: 'https://cdn.example.com/main/file-1' },
+  ...overrides,
+});
+
 const defaultProps = {
   attachments: [] as File[],
   setAttachments: vi.fn(),
@@ -284,17 +262,19 @@ describe('PostInputAttachments', () => {
   });
 
   describe('Article mode placeholder', () => {
-    it('renders placeholder card when isArticle is true and no attachments', () => {
+    it('renders the cover frame with the add control when isArticle is true and no attachments', () => {
       render(<PostInputAttachments {...defaultProps} isArticle={true} />);
 
-      expect(screen.getByTestId('card')).toBeInTheDocument();
-      expect(screen.getByTestId('card-content')).toBeInTheDocument();
+      const placeholder = screen.getByTestId('article-cover-placeholder');
+      expect(placeholder).toHaveClass('bg-card', 'h-32', 'md:h-64');
+      expect(placeholder).toContainElement(screen.getByText('Add image'));
     });
 
-    it('renders ImagePlus icon in placeholder', () => {
-      const { container } = render(<PostInputAttachments {...defaultProps} isArticle={true} />);
+    it('renders the image icon in the Add image button', () => {
+      render(<PostInputAttachments {...defaultProps} isArticle={true} />);
 
-      expect(container.querySelector('.lucide-image-plus')).toBeInTheDocument();
+      const addImageButton = screen.getAllByTestId('button').find((btn) => btn.textContent?.includes('Add image'));
+      expect(addImageButton?.querySelector('.lucide-image')).toBeInTheDocument();
     });
 
     it('renders Add image button in placeholder', () => {
@@ -337,13 +317,89 @@ describe('PostInputAttachments', () => {
       const attachments = [createMockImageFile()];
       render(<PostInputAttachments {...defaultProps} isArticle={true} attachments={attachments} />);
 
-      expect(screen.queryByTestId('card')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('article-cover-placeholder')).not.toBeInTheDocument();
     });
 
     it('does not render placeholder when isArticle is false', () => {
       render(<PostInputAttachments {...defaultProps} isArticle={false} />);
 
-      expect(screen.queryByTestId('card')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('article-cover-placeholder')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Article cover', () => {
+    it('renders the picked image in a 16:9 frame with a centred Remove image control', () => {
+      const attachments = [createMockImageFile('cover.jpg')];
+      render(<PostInputAttachments {...defaultProps} isArticle={true} attachments={attachments} />);
+
+      const cover = screen.getByTestId('article-cover');
+      expect(cover).toHaveClass('aspect-video', 'overflow-hidden', 'rounded-md');
+      expect(within(cover).getByTestId('image')).toHaveAttribute('src', 'blob:mock-url-cover.jpg');
+      expect(within(cover).getByTestId('image')).toHaveClass('object-cover');
+      const removeButton = within(cover).getByTestId('button');
+      expect(removeButton).toHaveTextContent('Remove image');
+      expect(removeButton).toHaveAttribute('data-variant', 'secondary');
+      expect(removeButton).toHaveAttribute('data-size', 'sm');
+      expect(removeButton.querySelector('.lucide-trash-2')).toBeInTheDocument();
+    });
+
+    it('removes the cover from the Remove image control', () => {
+      const mockSetAttachments = vi.fn();
+      const file = createMockImageFile('cover.jpg');
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          isArticle={true}
+          attachments={[file]}
+          setAttachments={mockSetAttachments}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('Remove image'));
+
+      const setAttachmentsCallback = mockSetAttachments.mock.calls[0][0];
+      expect(setAttachmentsCallback([file])).toEqual([]);
+    });
+
+    it('disables the Remove image control while submitting', () => {
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          isArticle={true}
+          attachments={[createMockImageFile('cover.jpg')]}
+          isSubmitting={true}
+        />,
+      );
+
+      expect(screen.getByText('Remove image').closest('button')).toBeDisabled();
+    });
+
+    it('renders a still-resolving existing cover as a skeleton in the cover frame', () => {
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          isArticle={true}
+          existingAttachments={[createExistingAttachment({ urls: null })]}
+        />,
+      );
+
+      const cover = screen.getByTestId('article-cover');
+      expect(cover.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+      expect(screen.queryByText('Remove image')).not.toBeInTheDocument();
+    });
+
+    it('keeps the post attachment layout for a non-image article attachment', () => {
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          isArticle={true}
+          existingAttachments={[createExistingAttachment({ urls: null, resolutionFailed: true })]}
+        />,
+      );
+
+      expect(screen.queryByTestId('article-cover')).not.toBeInTheDocument();
+      expect(document.querySelector('.lucide-file-text')).toBeInTheDocument();
+      expect(document.querySelector('.lucide-trash-2')).toBeInTheDocument();
     });
   });
 
@@ -681,6 +737,210 @@ describe('PostInputAttachments', () => {
     });
   });
 
+  describe('Existing attachments (edit mode)', () => {
+    it('renders existing attachments before new file previews', () => {
+      const existing = createExistingAttachment();
+      const attachments = [createMockImageFile('new-image.jpg')];
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existing]} attachments={attachments} />);
+
+      const images = screen.getAllByTestId('image');
+      expect(images).toHaveLength(2);
+      expect(images[0]).toHaveAttribute('src', 'https://cdn.example.com/main/file-1');
+      expect(images[1]).toHaveAttribute('src', 'blob:mock-url-new-image.jpg');
+    });
+
+    it('prefers the FEED variant for existing image previews (already cached by the feed render)', () => {
+      const existing = createExistingAttachment({
+        urls: { main: 'https://cdn.example.com/main/file-1', feed: 'https://cdn.example.com/feed/file-1' },
+      });
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existing]} />);
+
+      expect(screen.getByTestId('image')).toHaveAttribute('src', 'https://cdn.example.com/feed/file-1');
+    });
+
+    it('uses the MAIN variant for existing GIFs (mirrors the feed rule — Nexus FEED processing degrades GIFs)', () => {
+      const existing = createExistingAttachment({
+        type: 'image/gif',
+        name: 'existing-animation.gif',
+        urls: { main: 'https://cdn.example.com/main/gif-1', feed: 'https://cdn.example.com/feed/gif-1' },
+      });
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existing]} />);
+
+      expect(screen.getByTestId('image')).toHaveAttribute('src', 'https://cdn.example.com/main/gif-1');
+    });
+
+    it('renders media previews for resolved existing video and audio attachments', () => {
+      const existingVideo = createExistingAttachment({
+        uri: 'pubky://author/pub/pubky.app/files/video-1',
+        type: 'video/mp4',
+        name: 'existing-video.mp4',
+        urls: { main: 'https://cdn.example.com/main/video-1' },
+      });
+      const existingAudio = createExistingAttachment({
+        uri: 'pubky://author/pub/pubky.app/files/audio-1',
+        type: 'audio/mpeg',
+        name: 'existing-audio.mp3',
+        urls: { main: 'https://cdn.example.com/main/audio-1' },
+      });
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existingVideo, existingAudio]} />);
+
+      expect(screen.getByTestId('video')).toHaveAttribute('src', 'https://cdn.example.com/main/video-1');
+      expect(screen.getByTestId('audio')).toHaveAttribute('src', 'https://cdn.example.com/main/audio-1');
+    });
+
+    it('calls onRemoveExisting with the attachment uri when its trash button is clicked', () => {
+      const mockOnRemoveExisting = vi.fn();
+      const existing = createExistingAttachment();
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          existingAttachments={[existing]}
+          onRemoveExisting={mockOnRemoveExisting}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('button'));
+
+      expect(mockOnRemoveExisting).toHaveBeenCalledTimes(1);
+      expect(mockOnRemoveExisting).toHaveBeenCalledWith('pubky://author/pub/pubky.app/files/file-1');
+    });
+
+    it('does not call setAttachments when removing an existing attachment', () => {
+      const mockSetAttachments = vi.fn();
+      const existing = createExistingAttachment();
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          existingAttachments={[existing]}
+          setAttachments={mockSetAttachments}
+          onRemoveExisting={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('button'));
+
+      expect(mockSetAttachments).not.toHaveBeenCalled();
+    });
+
+    it('removes the correct new File when existing attachments precede it in the list', () => {
+      const mockSetAttachments = vi.fn();
+      const mockOnRemoveExisting = vi.fn();
+      const existingAttachments = [
+        createExistingAttachment(),
+        createExistingAttachment({
+          uri: 'pubky://author/pub/pubky.app/files/file-2',
+          name: 'existing-image-2.jpg',
+          urls: { main: 'https://cdn.example.com/main/file-2' },
+        }),
+      ];
+      const newFile1 = createMockImageFile('new-image-1.jpg');
+      const newFile2 = createMockImageFile('new-image-2.jpg');
+      const attachments = [newFile1, newFile2];
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          existingAttachments={existingAttachments}
+          attachments={attachments}
+          setAttachments={mockSetAttachments}
+          onRemoveExisting={mockOnRemoveExisting}
+        />,
+      );
+
+      // Buttons render in list order: 2 existing first, then 2 new files.
+      const deleteButtons = screen.getAllByTestId('button');
+      expect(deleteButtons).toHaveLength(4);
+      fireEvent.click(deleteButtons[2]);
+
+      expect(mockOnRemoveExisting).not.toHaveBeenCalled();
+      const setAttachmentsCallback = mockSetAttachments.mock.calls[0][0];
+      const result = setAttachmentsCallback(attachments);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBe(newFile2);
+    });
+
+    it('renders a loading skeleton without actions for an existing attachment whose metadata is still resolving (urls null)', () => {
+      const existing = createExistingAttachment({ urls: null });
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existing]} />);
+
+      expect(screen.queryByTestId('image')).not.toBeInTheDocument();
+      // Still resolving → skeleton, not a (wrong) generic file card
+      expect(document.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+      expect(document.querySelector('.lucide-file-text')).not.toBeInTheDocument();
+      // Skeletons carry no actions — the trash button appears once resolved
+      expect(document.querySelector('.lucide-trash-2')).not.toBeInTheDocument();
+    });
+
+    it('renders a generic file card with the name for a terminally unresolvable existing attachment', () => {
+      const existing = createExistingAttachment({ urls: null, resolutionFailed: true });
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existing]} />);
+
+      expect(screen.queryByTestId('image')).not.toBeInTheDocument();
+      expect(document.querySelector('[data-slot="skeleton"]')).not.toBeInTheDocument();
+      expect(document.querySelector('.lucide-file-text')).toBeInTheDocument();
+      expect(screen.getByText('existing-image.jpg')).toBeInTheDocument();
+    });
+
+    it('renders a generic file card for an existing attachment with an unknown MIME type', () => {
+      const existing = createExistingAttachment({
+        type: 'application/octet-stream',
+        name: 'existing-archive.zip',
+        urls: { main: 'https://cdn.example.com/main/file-1' },
+      });
+      render(<PostInputAttachments {...defaultProps} existingAttachments={[existing]} />);
+
+      expect(screen.queryByTestId('image')).not.toBeInTheDocument();
+      expect(document.querySelector('.lucide-file-text')).toBeInTheDocument();
+      expect(screen.getByText('existing-archive.zip')).toBeInTheDocument();
+    });
+
+    it('keeps the trash button enabled on a terminally unresolvable existing attachment', () => {
+      const mockOnRemoveExisting = vi.fn();
+      const existing = createExistingAttachment({ urls: null, resolutionFailed: true });
+      render(
+        <PostInputAttachments
+          {...defaultProps}
+          existingAttachments={[existing]}
+          onRemoveExisting={mockOnRemoveExisting}
+        />,
+      );
+
+      const deleteButton = screen.getByTestId('button');
+      expect(deleteButton).not.toBeDisabled();
+      fireEvent.click(deleteButton);
+      expect(mockOnRemoveExisting).toHaveBeenCalledWith('pubky://author/pub/pubky.app/files/file-1');
+    });
+
+    it('hides the article placeholder when only existing attachments are present', () => {
+      render(
+        <PostInputAttachments {...defaultProps} isArticle={true} existingAttachments={[createExistingAttachment()]} />,
+      );
+
+      expect(screen.queryByTestId('card')).not.toBeInTheDocument();
+    });
+
+    it('shows the article placeholder when both existing and new attachment lists are empty', () => {
+      render(<PostInputAttachments {...defaultProps} isArticle={true} existingAttachments={[]} attachments={[]} />);
+
+      expect(screen.getByTestId('article-cover-placeholder')).toBeInTheDocument();
+    });
+
+    it('does not revoke existing attachment URLs on unmount', () => {
+      const existing = createExistingAttachment();
+      const { unmount } = render(
+        <PostInputAttachments
+          {...defaultProps}
+          existingAttachments={[existing]}
+          attachments={[createMockImageFile()]}
+        />,
+      );
+
+      unmount();
+
+      expect(mockRevokeObjectURL).toHaveBeenCalledTimes(1);
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:mock-url-test-image.jpg');
+    });
+  });
+
   describe('Display name', () => {
     it('has correct display name', () => {
       expect(PostInputAttachments.displayName).toBe('PostInputAttachments');
@@ -705,87 +965,5 @@ describe('PostInputAttachments', () => {
       expect(screen.queryByTestId('audio')).not.toBeInTheDocument();
       expect(document.querySelector('.lucide-file-text')).not.toBeInTheDocument();
     });
-  });
-});
-
-describe('PostInputAttachments - Snapshots', () => {
-  it('matches snapshot with no attachments', () => {
-    const { container } = render(<PostInputAttachments {...defaultProps} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with single image attachment', () => {
-    const attachments = [createMockImageFile('photo.jpg')];
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with single video attachment', () => {
-    const attachments = [createMockVideoFile('video.mp4')];
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with single audio attachment', () => {
-    const attachments = [createMockAudioFile('audio.mp3')];
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with single PDF attachment', () => {
-    const attachments = [createMockPdfFile('document.pdf')];
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with multiple images', () => {
-    const attachments = [
-      createMockImageFile('image1.jpg'),
-      createMockImageFile('image2.png'),
-      createMockImageFile('image3.gif'),
-    ];
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with mixed attachment types', () => {
-    const attachments = [
-      createMockImageFile('photo.jpg'),
-      createMockVideoFile('video.mp4'),
-      createMockAudioFile('audio.mp3'),
-      createMockPdfFile('document.pdf'),
-    ];
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot when submitting', () => {
-    const attachments = [createMockImageFile('photo.jpg')];
-    const { container } = render(
-      <PostInputAttachments {...defaultProps} attachments={attachments} isSubmitting={true} />,
-    );
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with maximum attachments (3)', () => {
-    const attachments = Array.from({ length: 3 }, (_, i) => createMockImageFile(`image${i}.jpg`));
-    const { container } = render(<PostInputAttachments {...defaultProps} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot in article mode with no attachments (placeholder)', () => {
-    const { container } = render(<PostInputAttachments {...defaultProps} isArticle={true} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot in article mode with image attachment', () => {
-    const attachments = [createMockImageFile('article-image.jpg')];
-    const { container } = render(<PostInputAttachments {...defaultProps} isArticle={true} attachments={attachments} />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot in article mode when submitting', () => {
-    const { container } = render(<PostInputAttachments {...defaultProps} isArticle={true} isSubmitting={true} />);
-    expect(container).toMatchSnapshot();
   });
 });

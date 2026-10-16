@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PostController } from '@/controllers/post/post';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Logger } from '@/libs/logger/logger';
 import { isPostDeleted } from '@/libs/utils/utils';
 import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
-import { useToast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { useTimelineFeedContext } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext';
+import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import type { UseDeletePostOptions, UseDeletePostResult } from './useDeletePost.types';
 
 /**
@@ -31,8 +33,9 @@ import type { UseDeletePostOptions, UseDeletePostResult } from './useDeletePost.
  */
 export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResult {
   const [isDeleting, setIsDeleting] = useState(false);
-  const { toast } = useToast();
+  const inFlight = useRef(false);
   const timelineFeed = useTimelineFeedContext();
+  const { waitForAuth } = useRequireAuth(options?.active ?? true, { outlivesOwner: options?.outlivesOwner });
 
   // Resolve toast copy with caller overrides so callers like CollectionCard /
   // CollectionHero can swap in collection-specific copy without forking the hook.
@@ -41,9 +44,9 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
   const deleteFailedDesc = options?.toastMessages?.deleteFailed ?? 'Could not delete post. Try again.';
 
   const deletePost = async (postId: string) => {
-    if (isDeleting) {
+    if (inFlight.current) {
       Logger.warn('[useDeletePost] Delete already in progress, ignoring request', { postId });
-      return;
+      return false;
     }
 
     if (!postId || !postId.trim()) {
@@ -52,21 +55,38 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         variant: 'error',
         description: 'Invalid post. Try again.',
       });
-      return;
+      return false;
     }
 
+    inFlight.current = true;
     setIsDeleting(true);
+    if (!(await waitForAuth())) {
+      inFlight.current = false;
+      setIsDeleting(false);
+      return false;
+    }
 
-    // Optimistically remove post from timeline feed
-    timelineFeed?.removePosts(postId);
+    // Optimistically remove the post as a transaction: the commit path also decrements
+    // skip-stream offsets (content search, engagement, collections), so the next page
+    // doesn't skip one live row once Nexus drops the deleted post. The plain removePosts
+    // fallback covers providers that don't expose the transactional API.
+    const removal = timelineFeed?.removePostsOptimistically?.(postId);
+    if (!removal) {
+      timelineFeed?.removePosts(postId);
+    }
 
     try {
       await PostController.commitDelete({ compositePostId: postId });
+      // Clear the optimistic attachment cache so its blob URLs are revoked and
+      // don't shadow the tombstone for the rest of the session
+      useLocalFilesStore.getState().setPostAttachments(postId, []);
+      removal?.commit();
       Logger.info('[useDeletePost] Post deleted successfully', { postId });
       toast({
         title: deletedTitle,
         dismissButton: true,
       });
+      return true;
     } catch (error) {
       Logger.error('[useDeletePost] Failed to delete post', {
         postId,
@@ -76,10 +96,11 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
 
       // Decide whether to restore the optimistic removal. After the
       // `LocalPostService.delete` tombstone refactor, a successful local-first
-      // write leaves a row with `content === '[DELETED]'` rather than removing
-      // the row, so an existence check alone can no longer distinguish
-      // "local-first succeeded, homeserver sync failed" from "local-first
-      // never committed." We have to look at the content too:
+      // write leaves a tombstoned row (the `deleted` flag, or the legacy
+      // `content === '[DELETED]'`) rather than removing the row, so an
+      // existence check alone can no longer distinguish "local-first
+      // succeeded, homeserver sync failed" from "local-first never
+      // committed." We have to look at the row's deleted state too:
       //   - row gone (null)           → local hard-delete committed (legacy)  → don't restore
       //   - row exists, tombstoned    → local soft-delete committed           → don't restore
       //   - row exists, live content  → local-first never committed           → restore
@@ -93,7 +114,7 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         Logger.debug('[useDeletePost] Post existence check completed', {
           postId,
           exists: postStillExists !== null,
-          tombstoned: postStillExists !== null && isPostDeleted(postStillExists.content),
+          tombstoned: postStillExists !== null && isPostDeleted(postStillExists),
         });
       } catch (detailsError) {
         Logger.warn('[useDeletePost] Failed to verify post existence after delete failure', {
@@ -105,11 +126,15 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
       }
 
       const localWriteCommitted =
-        postStillExists === null || (postStillExists !== 'unknown' && isPostDeleted(postStillExists.content));
+        postStillExists === null || (postStillExists !== 'unknown' && isPostDeleted(postStillExists));
 
       if (localWriteCommitted) {
-        // Local-first write succeeded (row gone or tombstoned). Leave the
-        // optimistic removal in place — homeserver retry can resync.
+        // Local-first write succeeded (row gone or tombstoned). Keep the removal —
+        // committing also applies the cursor decrement, matching local state; the
+        // homeserver retry can resync later. Clear the optimistic attachment cache
+        // too, because the post renders as deleted and its blob URLs are dead weight.
+        useLocalFilesStore.getState().setPostAttachments(postId, []);
+        removal?.commit();
         Logger.warn('[useDeletePost] Local write committed; not restoring to timeline', {
           postId,
           state: postStillExists === null ? 'row_removed' : 'tombstoned',
@@ -117,8 +142,13 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         });
       } else {
         // Either we couldn't verify, or the row exists with original content
-        // (local-first never committed). Put the card back.
-        timelineFeed?.prependPosts(postId);
+        // (local-first never committed). Put the card back: rollback reveals it in
+        // place; the prepend fallback re-inserts it for non-transactional providers.
+        if (removal) {
+          removal.rollback();
+        } else {
+          timelineFeed?.prependPosts(postId);
+        }
         Logger.info('[useDeletePost] Post restored to timeline after failed deletion', {
           postId,
           reason: postStillExists === 'unknown' ? 'could_not_verify' : 'local_write_did_not_commit',
@@ -129,7 +159,9 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         variant: 'error',
         description: deleteFailedDesc,
       });
+      return false;
     } finally {
+      inFlight.current = false;
       setIsDeleting(false);
     }
   };

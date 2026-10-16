@@ -1,5 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from '@/molecules/Toaster/toast';
+import type { AuthStore } from '@/stores/auth/auth.types';
+import { mockSession } from '@/test-utils/pubky';
+import { mockAuthStore } from '@/test-utils/stores';
 import { DialogAddContent } from './DialogAddContent';
 
 const AUTHOR = 'a'.repeat(52);
@@ -11,6 +15,8 @@ const POST_URL = `https://pubky.app/post/${AUTHOR}/${POST_ID}`;
 
 const mocks = vi.hoisted(() => ({
   currentUserPubky: 'v'.repeat(52) as string | null,
+  restoreStatus: 'ready' as 'ready' | 'reauth-required',
+  showSignIn: vi.fn(),
   bookmarkExists: vi.fn(),
   commitCreateBookmark: vi.fn(),
   getOrFetchPost: vi.fn(),
@@ -19,11 +25,11 @@ const mocks = vi.hoisted(() => ({
   prependPosts: vi.fn(),
   prependOptimisticPosts: vi.fn(),
   routerPush: vi.fn(),
-  toast: vi.fn(),
 }));
 
 const COLLECTION_ID = `${VIEWER}:collection-1`;
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/test',
   useRouter: () => ({
     push: mocks.routerPush,
   }),
@@ -44,10 +50,18 @@ vi.mock('@/controllers/post/post', () => ({
   },
 }));
 
-vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string | null }) => unknown) =>
-    selector({ currentUserPubky: mocks.currentUserPubky }),
-}));
+vi.mock('@/stores/auth/auth.store', () => {
+  const getState = () =>
+    mockAuthStore({
+      currentUserPubky: mocks.currentUserPubky,
+      session: mocks.restoreStatus === 'ready' ? mockSession() : null,
+      restoreStatus: mocks.restoreStatus,
+      setShowSignInDialog: mocks.showSignIn,
+    });
+  return {
+    useAuthStore: Object.assign((selector: (state: AuthStore) => unknown) => selector(getState()), { getState }),
+  };
+});
 
 vi.mock('@/hooks/useCurrentUserProfile/useCurrentUserProfile', () => ({
   useCurrentUserProfile: () => ({
@@ -70,9 +84,7 @@ vi.mock('@/hooks/useAvatarUrl/useAvatarUrl', () => ({
   useAvatarUrl: () => undefined,
 }));
 
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  useToast: () => ({ toast: mocks.toast }),
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/organisms/DialogNewPost/DialogNewPost', () => ({
   DialogNewPost: ({
@@ -143,6 +155,7 @@ describe('DialogAddContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.currentUserPubky = VIEWER;
+    mocks.restoreStatus = 'ready';
     mocks.bookmarkExists.mockResolvedValue(false);
     mocks.commitCreateBookmark.mockResolvedValue(undefined);
     mocks.getOrFetchPost.mockResolvedValue(livePost());
@@ -150,6 +163,18 @@ describe('DialogAddContent', () => {
     mocks.commitUpdateCollectionItem.mockResolvedValue(undefined);
     mocks.prependPosts.mockResolvedValue(undefined);
     mocks.prependOptimisticPosts.mockReturnValue(undefined);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  it('requests sign-in instead of opening Add Post for a retained recovery identity', () => {
+    mocks.restoreStatus = 'reauth-required';
+    render(<DialogAddContent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.showSignIn).toHaveBeenCalledWith(true);
   });
 
   it('renders the Content trigger', () => {
@@ -202,37 +227,101 @@ describe('DialogAddContent', () => {
     expect(trigger).not.toHaveClass('h-16');
   });
 
-  it('opens the desktop dialog with feed, URL, and create-post options', () => {
+  it('opens the dialog with the three add-post options stacked in order', () => {
     render(<DialogAddContent />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
 
-    expect(screen.getByRole('dialog')).toHaveClass('outline-none', 'focus:outline-none', 'focus-visible:outline-none');
+    expect(screen.getByRole('dialog')).toHaveClass(
+      'overflow-y-auto',
+      'outline-none',
+      'focus:outline-none',
+      'focus-visible:outline-none',
+    );
+    expect(screen.getByRole('dialog')).not.toHaveClass('overflow-hidden');
     expect(screen.getByTestId('dialog-title')).toHaveTextContent('Add Post');
+    expect(screen.getByText('Choose how to add posts to your collection.')).toHaveClass('sm:hidden');
+    expect(screen.getByText('There are several ways to add posts to your collection.')).toHaveClass(
+      'hidden',
+      'sm:inline',
+    );
     expect(screen.getByText('Add from feed')).toBeInTheDocument();
+    expect(screen.queryByText('Select from posts')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Feed' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'My posts' })).toBeInTheDocument();
     expect(screen.getByText('Paste post url')).toBeInTheDocument();
     expect(screen.getByText('Create new post')).toBeInTheDocument();
-    expect(screen.getByText("What's on your mind?")).toBeInTheDocument();
+    expect(screen.getByText('Start writing')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('https://')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Paste' })).toBeInTheDocument();
+
+    const options = document.querySelector('[data-cy="add-content-options"]');
+    expect(options).toHaveClass('flex', 'flex-col', 'gap-3');
+    expect(options).not.toHaveClass('sm:grid-cols-2');
+
+    const cards = options?.querySelectorAll('[data-slot="card"]');
+    expect(Array.from(cards ?? []).map((card) => card.querySelector('[data-slot="card-title"]')?.textContent)).toEqual([
+      'Add from feed',
+      'Paste post url',
+      'Create new post',
+    ]);
   });
 
-  it.each(['add-content-feed-reply-pill', 'add-content-feed-repost-pill', 'add-content-feed-save-pill'])(
-    'closes the dialog and navigates home when clicking %s',
-    async (dataCy) => {
-      render(<DialogAddContent />);
+  it('renders the Feed and My posts pills beside the illustrative feed pills', () => {
+    render(<DialogAddContent />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
-      const feedPill = document.querySelector(`[data-cy="${dataCy}"]`);
-      if (!(feedPill instanceof HTMLElement)) {
-        throw new Error(`Expected ${dataCy} to render`);
-      }
+    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
 
-      fireEvent.click(feedPill);
+    const feedButton = screen.getByRole('button', { name: 'Feed' });
+    const myPostsButton = screen.getByRole('button', { name: 'My posts' });
+    expect(feedButton).toHaveAttribute('data-cy', 'add-content-feed-button');
+    expect(myPostsButton).toHaveAttribute('data-cy', 'add-content-my-posts-button');
+    expect(feedButton).toHaveClass('rounded-full', 'bg-secondary', 'text-secondary-foreground');
+    expect(feedButton).not.toHaveClass('opacity-30');
+    expect(myPostsButton).toHaveClass('rounded-full', 'bg-secondary', 'text-secondary-foreground');
+    expect(myPostsButton).not.toHaveClass('opacity-30');
 
-      expect(mocks.routerPush).toHaveBeenCalledWith('/home');
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    },
-  );
+    const pillRow = feedButton.closest('[data-slot="card-footer"]')?.firstElementChild;
+    expect(pillRow).toHaveClass('flex', 'flex-wrap', 'justify-between');
+    expect(pillRow?.querySelector('[data-cy="add-content-feed-pills"]')).toBeInTheDocument();
+  });
+
+  it('closes the dialog and navigates to profile posts without mutating content when My posts is clicked', async () => {
+    render(<DialogAddContent target={{ type: 'collection', collectionId: COLLECTION_ID }} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'My posts' }));
+
+    expect(mocks.routerPush).toHaveBeenCalledWith('/profile/posts');
+    expect(mocks.getOrFetchPost).not.toHaveBeenCalled();
+    expect(mocks.bookmarkExists).not.toHaveBeenCalled();
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(mocks.getCollectionDetails).not.toHaveBeenCalled();
+    expect(mocks.commitUpdateCollectionItem).not.toHaveBeenCalled();
+    expect(mocks.prependOptimisticPosts).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it.each([
+    'add-content-feed-reply-pill',
+    'add-content-feed-repost-pill',
+    'add-content-feed-save-pill',
+    'add-content-feed-button',
+  ])('closes the dialog and navigates home when clicking %s', async (dataCy) => {
+    render(<DialogAddContent />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
+    const feedPill = document.querySelector(`[data-cy="${dataCy}"]`);
+    if (!(feedPill instanceof HTMLElement)) {
+      throw new Error(`Expected ${dataCy} to render`);
+    }
+
+    fireEvent.click(feedPill);
+
+    expect(mocks.routerPush).toHaveBeenCalledWith('/home');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
 
   it('stacks URL validation messages below the input', () => {
     render(<DialogAddContent />);
@@ -314,6 +403,45 @@ describe('DialogAddContent', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('adds clipboard content when the paste button is clicked', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn().mockResolvedValue(POST_URL) },
+    });
+
+    render(<DialogAddContent />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Paste' }));
+
+    await waitFor(() =>
+      expect(mocks.commitCreateBookmark).toHaveBeenCalledWith({ postId: COMPOSITE_ID, userId: VIEWER }),
+    );
+    expect(mocks.prependOptimisticPosts).toHaveBeenCalledWith(COMPOSITE_ID);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('shows an error toast when the paste button cannot read the clipboard', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+
+    render(<DialogAddContent />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Paste' }));
+
+    await waitFor(() =>
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'Could not read clipboard.',
+      }),
+    );
+    expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('disables the input and shows loading text while paste processing is pending', async () => {
     let resolvePost!: (value: ReturnType<typeof livePost>) => void;
     mocks.getOrFetchPost.mockReturnValue(new Promise((resolve) => (resolvePost = resolve)));
@@ -330,7 +458,8 @@ describe('DialogAddContent', () => {
     await waitFor(() => {
       const input = screen.getByDisplayValue('Adding...');
       expect(input).toBeDisabled();
-      expect(input.closest('[data-testid="container"]')).toHaveClass('gap-2');
+      expect(input.closest('[data-testid="container"]')).toHaveClass('gap-3');
+      expect(screen.getByRole('button', { name: 'Paste' })).toHaveAttribute('aria-disabled', 'true');
     });
 
     resolvePost(livePost());
@@ -363,7 +492,7 @@ describe('DialogAddContent', () => {
     render(<DialogAddContent target={{ type: 'collection', collectionId: COLLECTION_ID }} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
-    fireEvent.click(screen.getByRole('button', { name: /What's on your mind?/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start writing/ }));
 
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'new post' })).toBeInTheDocument();
@@ -375,7 +504,7 @@ describe('DialogAddContent', () => {
     render(<DialogAddContent target={{ type: 'collection', collectionId: COLLECTION_ID }} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
-    fireEvent.click(screen.getByRole('button', { name: /What's on your mind?/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start writing/ }));
     fireEvent.click(screen.getByRole('button', { name: 'create post success' }));
 
     await waitFor(() =>
@@ -387,7 +516,7 @@ describe('DialogAddContent', () => {
     );
     expect(mocks.commitCreateBookmark).not.toHaveBeenCalled();
     expect(mocks.prependOptimisticPosts).toHaveBeenCalledWith('author:new-post');
-    expect(mocks.toast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       title: 'Success',
       description: 'Post added to collection.',
     });
@@ -397,7 +526,7 @@ describe('DialogAddContent', () => {
     render(<DialogAddContent />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
-    fireEvent.click(screen.getByRole('button', { name: /What's on your mind?/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start writing/ }));
     fireEvent.click(screen.getByRole('button', { name: 'create post success' }));
 
     await waitFor(() =>
@@ -405,40 +534,6 @@ describe('DialogAddContent', () => {
     );
     expect(mocks.commitUpdateCollectionItem).not.toHaveBeenCalled();
     expect(mocks.prependOptimisticPosts).toHaveBeenCalledWith('author:new-post');
-    expect(mocks.toast).toHaveBeenCalledWith({ title: 'Post saved to bookmarks' });
-  });
-});
-
-describe('DialogAddContent - Snapshots', () => {
-  it('matches the closed trigger snapshot', () => {
-    const { container } = render(<DialogAddContent />);
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the closed grid trigger snapshot', () => {
-    const { container } = render(<DialogAddContent triggerVariant="grid" />);
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the closed list trigger snapshot', () => {
-    const { container } = render(<DialogAddContent triggerVariant="list" />);
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the closed visual trigger snapshot', () => {
-    const { container } = render(<DialogAddContent triggerVariant="visual" dataCy="collection-add-content-visual" />);
-
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the opened desktop dialog snapshot', () => {
-    render(<DialogAddContent />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add Post' }));
-
-    expect(document.body).toMatchSnapshot();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({ title: 'Post saved to bookmarks' });
   });
 });

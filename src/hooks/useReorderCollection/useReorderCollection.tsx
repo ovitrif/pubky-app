@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { arrayMove } from '@dnd-kit/sortable';
 import { PostController } from '@/controllers/post/post';
 import { StreamPostsController } from '@/controllers/stream/posts/posts';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Logger } from '@/libs/logger/logger';
 import { CompositeIdDomain } from '@/models/models.types';
 import { buildCompositeIdFromPubkyUri } from '@/models/models.utils';
-import { useToast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { useCollectionReorderStore } from '@/stores/collectionReorder/collectionReorder.store';
 import type {
   ReorderDraftEntry,
@@ -38,9 +39,9 @@ export function useReorderCollection({
   // The (deduped) order as it was when reorder mode was entered — the baseline
   // for "did the user actually change anything" at save time.
   const enterSnapshotRef = useRef<string[]>([]);
-  const { toast } = useToast();
 
   const isReorderMode = draftItems !== null;
+  const { waitForAuth } = useRequireAuth(isReorderMode);
 
   // Clear the global FAB flag if the page unmounts mid-reorder (navigation).
   useEffect(() => () => useCollectionReorderStore.getState().exit(), []);
@@ -93,6 +94,7 @@ export function useReorderCollection({
 
     setIsSaving(true);
     try {
+      if (!(await waitForAuth())) return;
       await PostController.commitReorderCollectionItems({ collectionId: compositeCollectionId, items: draftItems });
       toast({ title: 'Collection order saved', dismissButton: true });
       exitReorderMode();

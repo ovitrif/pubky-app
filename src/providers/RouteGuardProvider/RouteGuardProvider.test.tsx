@@ -5,6 +5,7 @@ import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
+import { toast } from '@/molecules/Toaster/toast';
 import { RouteGuardProvider } from './RouteGuardProvider';
 
 // Hoisted mocks
@@ -13,7 +14,6 @@ const mocks = vi.hoisted(() => {
   const mockRouterRefresh = vi.fn();
   const mockResync = vi.fn();
   const resetMigrationStore = vi.fn();
-  const mockToast = vi.fn();
   const restorePersistedSession = vi.fn().mockResolvedValue(true);
 
   return {
@@ -21,12 +21,15 @@ const mocks = vi.hoisted(() => {
     mockRouterRefresh,
     mockResync,
     resetMigrationStore,
-    mockToast,
     restorePersistedSession,
+    retireLegacyCookieSessions: vi.fn().mockResolvedValue(undefined),
     // Auth store state defaults
     hasHydrated: true,
+    generation: 'initial',
     session: {} as unknown,
-    sessionExport: null as unknown,
+    sessionReference: null as unknown,
+    restoreStatus: 'ready',
+    syncRemovedSession: vi.fn().mockResolvedValue(undefined),
     currentUserPubky: 'test-pubky-z32' as string | null,
     wasDbReset: false,
     // Auth status defaults
@@ -41,6 +44,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.mockRouterPush, refresh: mocks.mockRouterRefresh }),
   usePathname: () => mocks.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock('@/hooks/useAuthStatus/useAuthStatus', () => ({
@@ -48,8 +52,9 @@ vi.mock('@/hooks/useAuthStatus/useAuthStatus', () => ({
 }));
 
 // Mock @/app
-vi.mock('@/app/routes', () => ({
-  PUBLIC_ROUTES: ['/landing'],
+vi.mock('@/app/routes', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/routes')>()),
+  PUBLIC_ROUTES: ['/landing', '/logout'],
   isDynamicPublicRoute: (path: string) => {
     const segments = path.split('/').filter(Boolean);
     return (
@@ -78,6 +83,8 @@ vi.mock('@/providers/RouteGuardProvider/RouteGuardProvider.constants', () => ({
   },
 }));
 
+vi.mock('@/hooks/useRestoreLocksAuth/useRestoreLocksAuth', () => ({ useRestoreLocksAuth: () => {} }));
+
 // Mock @/atoms
 vi.mock('@/atoms/Spinner/Spinner', () => {
   return {
@@ -89,20 +96,25 @@ vi.mock('@/libs/logger/logger', () => ({
   Logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
 
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  toast: mocks.mockToast,
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 // Mock auth store
-vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      hasHydrated: mocks.hasHydrated,
-      session: mocks.session,
-      sessionExport: mocks.sessionExport,
-      currentUserPubky: mocks.currentUserPubky,
+vi.mock('@/stores/auth/auth.store', () => {
+  const getState = () => ({
+    hasHydrated: mocks.hasHydrated,
+    generation: mocks.generation,
+    session: mocks.session,
+    sessionReference: mocks.sessionReference,
+    restoreStatus: mocks.restoreStatus,
+    currentUserPubky: mocks.currentUserPubky,
+  });
+  return {
+    useAuthStore: Object.assign((selector: (state: Record<string, unknown>) => unknown) => selector(getState()), {
+      getState,
+      subscribe: () => () => {},
     }),
-}));
+  };
+});
 vi.mock('@/stores/migration/migration.store', () => ({
   useMigrationStore: Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) => selector({ wasDbReset: mocks.wasDbReset }),
@@ -113,7 +125,12 @@ vi.mock('@/stores/migration/migration.store', () => ({
 }));
 vi.mock('@/controllers/auth/auth', () => ({
   AuthController: {
+    subscribeSessionFailures: vi.fn(() => vi.fn()),
+    retryShopCleanup: vi.fn().mockResolvedValue(undefined),
+    retrySessionRetirement: vi.fn().mockResolvedValue(undefined),
     restorePersistedSession: mocks.restorePersistedSession,
+    retireLegacyCookieSessions: mocks.retireLegacyCookieSessions,
+    syncRemovedSession: mocks.syncRemovedSession,
   },
 }));
 vi.mock('@/controllers/migration/migration', () => ({
@@ -130,7 +147,8 @@ describe('RouteGuardProvider — migration resync', () => {
     // Reset defaults
     mocks.hasHydrated = true;
     mocks.session = {};
-    mocks.sessionExport = null;
+    mocks.sessionReference = null;
+    mocks.restoreStatus = 'ready';
     mocks.currentUserPubky = 'test-pubky-z32';
     mocks.wasDbReset = false;
     mocks.status = 'AUTHENTICATED';
@@ -139,13 +157,88 @@ describe('RouteGuardProvider — migration resync', () => {
     mocks.mockResync.mockReset();
     mocks.mockRouterRefresh.mockReset();
     mocks.resetMigrationStore.mockReset();
-    mocks.mockToast.mockReset();
+    vi.mocked(toast).mockReset();
     mocks.restorePersistedSession.mockReset();
     mocks.restorePersistedSession.mockResolvedValue(true);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each([
+    ['/shop/marketplace/listing/abc?checkout=1#payment', '/shop/marketplace/listing/abc?checkout=1#payment'],
+    ['https://attacker.test/shop', '/feed'],
+    ['/settings', '/feed'],
+  ])('returns a completed App login only to a safe Shop wrapper: %s', (returnTo, destination) => {
+    window.history.replaceState(null, '', `/sign-in?${new URLSearchParams({ returnTo })}`);
+    mocks.pathname = '/sign-in';
+    try {
+      render(
+        <RouteGuardProvider>
+          <div>Sign in</div>
+        </RouteGuardProvider>,
+      );
+      expect(mocks.mockRouterPush).toHaveBeenCalledWith(destination);
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it.each(['reauth-required', 'temporary-error'])(
+    'allows logout and public browsing while resync awaits %s',
+    (status) => {
+      mocks.restoreStatus = status;
+      mocks.status = 'UNAUTHENTICATED';
+      mocks.session = null;
+      mocks.wasDbReset = true;
+      mocks.pathname = '/logout';
+      const { rerender } = render(
+        <RouteGuardProvider>
+          <div>Logout page</div>
+        </RouteGuardProvider>,
+      );
+      expect(screen.getByText('Logout page')).toBeInTheDocument();
+      expect(mocks.mockResync).not.toHaveBeenCalled();
+      expect(mocks.resetMigrationStore).not.toHaveBeenCalled();
+      mocks.pathname = '/post/author/post';
+      rerender(
+        <RouteGuardProvider>
+          <div>Public post</div>
+        </RouteGuardProvider>,
+      );
+      expect(screen.getByText('Public post')).toBeInTheDocument();
+      mocks.pathname = '/settings';
+      rerender(
+        <RouteGuardProvider>
+          <div>Settings</div>
+        </RouteGuardProvider>,
+      );
+      expect(mocks.mockRouterPush).toHaveBeenCalledWith('/login');
+      expect(screen.queryByText('Settings')).not.toBeInTheDocument();
+    },
+  );
+
+  it('waits for account preparation and restore before starting database resync', async () => {
+    mocks.wasDbReset = true;
+    mocks.restoreStatus = 'restoring';
+    mocks.mockResync.mockResolvedValue(undefined);
+    const { rerender } = render(
+      <RouteGuardProvider>
+        <div>Content</div>
+      </RouteGuardProvider>,
+    );
+    expect(mocks.mockResync).not.toHaveBeenCalled();
+    mocks.restoreStatus = 'ready';
+    rerender(
+      <RouteGuardProvider>
+        <div>Content</div>
+      </RouteGuardProvider>,
+    );
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mocks.mockResync).toHaveBeenCalledOnce();
   });
 
   it('calls MigrationController.resync when wasDbReset is true and user is authenticated', async () => {
@@ -163,6 +256,20 @@ describe('RouteGuardProvider — migration resync', () => {
     });
 
     expect(mocks.mockResync).toHaveBeenCalledWith('test-pubky-z32');
+  });
+
+  it('still waits for an active account resync on public pages', () => {
+    mocks.wasDbReset = true;
+    mocks.restoreStatus = 'ready';
+    mocks.pathname = '/post/author/post';
+    mocks.mockResync.mockReturnValue(new Promise(() => {}));
+    render(
+      <RouteGuardProvider>
+        <div>Public post</div>
+      </RouteGuardProvider>,
+    );
+    expect(screen.queryByText('Public post')).not.toBeInTheDocument();
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
   });
 
   it('shows loading spinner while wasDbReset is true', () => {
@@ -251,9 +358,12 @@ describe('RouteGuardProvider — migration resync', () => {
     expect(mocks.resetMigrationStore).toHaveBeenCalled();
   });
 
-  it('does NOT call resync when currentUserPubky is falsy', async () => {
+  it('clears the fresh database loading gate for a guest without a session', async () => {
     mocks.wasDbReset = true;
     mocks.currentUserPubky = null;
+    mocks.session = null;
+    mocks.sessionReference = null;
+    mocks.restoreStatus = 'idle';
 
     render(
       <RouteGuardProvider>
@@ -363,6 +473,32 @@ describe('RouteGuardProvider — migration resync', () => {
     );
 
     expect(screen.getByText('Redirecting...')).toBeInTheDocument();
+  });
+
+  // #2373: the upgrade swaps the stored session in place while the user stays signed in. The guard
+  // must not read that as an auth change and move them off the page they were on.
+  it('keeps the user in place when the session object is replaced', () => {
+    mocks.status = 'AUTHENTICATED';
+    mocks.isLoading = false;
+    mocks.currentUserPubky = 'test-pubky-z32';
+    mocks.pathname = '/feed';
+
+    const { rerender } = render(
+      <RouteGuardProvider>
+        <div>Page Content</div>
+      </RouteGuardProvider>,
+    );
+
+    mocks.session = { swapped: true };
+    rerender(
+      <RouteGuardProvider>
+        <div>Page Content</div>
+      </RouteGuardProvider>,
+    );
+
+    expect(screen.getByText('Page Content')).toBeInTheDocument();
+    expect(mocks.mockRouterPush).not.toHaveBeenCalled();
+    expect(mocks.restorePersistedSession).not.toHaveBeenCalled();
   });
 
   it('allows unauthenticated users to render core explore routes after auth loading resolves', () => {
@@ -481,15 +617,16 @@ describe('RouteGuardProvider — migration resync', () => {
 describe('RouteGuardProvider — session restore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.restoreStatus = 'idle';
     mocks.hasHydrated = true;
     mocks.session = null;
-    mocks.sessionExport = 'session-export';
+    mocks.sessionReference = { kind: 'grant', sessionStoreId: 'grant' };
     mocks.currentUserPubky = null;
     mocks.wasDbReset = false;
     mocks.status = 'UNAUTHENTICATED';
     mocks.isLoading = false;
     mocks.pathname = '/home';
-    mocks.mockToast.mockReset();
+    vi.mocked(toast).mockReset();
     mocks.restorePersistedSession.mockReset();
     mocks.restorePersistedSession.mockResolvedValue(true);
   });
@@ -512,10 +649,64 @@ describe('RouteGuardProvider — session restore', () => {
       await Promise.resolve();
     });
 
-    expect(mocks.mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'This key is linked to a different homeserver. Use a staging account on this site.',
     });
     expect(Logger.error).not.toHaveBeenCalled();
   });
+});
+
+describe('RouteGuardProvider — SDK session notifications', () => {
+  it('forwards removals, ignores unrelated changes and removes its listener on unmount', async () => {
+    mocks.syncRemovedSession.mockClear();
+    const { unmount } = render(
+      <RouteGuardProvider>
+        <div>App</div>
+      </RouteGuardProvider>,
+    );
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('pubky-session-changed', { detail: { action: 'removed', id: 'record' } }));
+      window.dispatchEvent(new CustomEvent('pubky-session-changed', { detail: { action: 'cleared', id: null } }));
+      window.dispatchEvent(new CustomEvent('pubky-session-changed', { detail: { action: 'saved', id: 'record' } }));
+      window.dispatchEvent(new CustomEvent('pubky-session-changed', { detail: { action: 'removed' } }));
+    });
+    expect(mocks.syncRemovedSession.mock.calls).toEqual([['record'], [null]]);
+    unmount();
+    window.dispatchEvent(new CustomEvent('pubky-session-changed', { detail: { action: 'removed', id: 'record' } }));
+    expect(mocks.syncRemovedSession).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('RouteGuardProvider — legacy revocation retry', () => {
+  it.each(['idle', 'reauth-required'])(
+    'retries cleanup on public hydration and reconnect without restoring cookie auth (%s)',
+    async (restoreStatus) => {
+      vi.clearAllMocks();
+      mocks.hasHydrated = true;
+      mocks.session = null;
+      mocks.sessionReference = null;
+      mocks.restoreStatus = restoreStatus;
+      mocks.currentUserPubky = restoreStatus === 'idle' ? null : 'alice';
+      mocks.wasDbReset = false;
+      mocks.status = 'UNAUTHENTICATED';
+      mocks.isLoading = false;
+      mocks.pathname = '/profile/' + 'a'.repeat(52);
+      const { unmount } = render(
+        <RouteGuardProvider>
+          <div>Public profile</div>
+        </RouteGuardProvider>,
+      );
+      expect(mocks.retireLegacyCookieSessions).toHaveBeenCalledOnce();
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+      expect(mocks.retireLegacyCookieSessions).toHaveBeenCalledTimes(2);
+      expect(mocks.restorePersistedSession).not.toHaveBeenCalled();
+      expect(screen.getByText('Public profile')).toBeInTheDocument();
+      unmount();
+      window.dispatchEvent(new Event('online'));
+      expect(mocks.retireLegacyCookieSessions).toHaveBeenCalledTimes(2);
+    },
+  );
 });

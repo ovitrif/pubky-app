@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ScreenshotMatcherOptions } from '@vitest/browser/context';
 import type { ReactNode } from 'react';
+import { expect, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-react';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
@@ -12,6 +14,71 @@ export interface RenderForVRTOptions {
 }
 
 export const VRT_ROOT_TESTID = 'vrt-root';
+
+/**
+ * Park the pointer at `(0, 0)` so the screenshot is free of `:hover` styles.
+ *
+ * Playwright leaves the cursor in the centre of the body by default. On a
+ * small mobile viewport that can land on an action button, so the
+ * screenshot captures the `:hover` state (e.g. `bg-brand/30` instead of
+ * `bg-brand/16`). `page.unhover()` is not enough — it moves the cursor to
+ * the body, which can still sit over a centre-screen button.
+ *
+ * Hover a throwaway 8×8 target at the corner, then remove it. Do not click
+ * or move keyboard focus: click-outside handlers (QuickReply) would collapse
+ * the card, and tests that need a focused field (expanded QuickReply) would
+ * lose `:focus-within`.
+ *
+ * Without an explicit `timeout`, Vitest hands Playwright the time left on the
+ * test budget, so a `hover()` stuck in its actionability retries (visible,
+ * stable, receives events) only gives up ~100ms before the test does and the
+ * `.catch` below cannot save the capture. `force` skips those checks and
+ * still moves the pointer to the same point. The bound is generous on
+ * purpose: a slow-but-working park must still land, or a mobile capture can
+ * keep a `:hover` state from the previous pointer position.
+ */
+const CURSOR_PARK_TIMEOUT_MS = 5_000;
+
+async function moveCursorToTopLeftCorner() {
+  document.querySelectorAll('[data-vrt-cursor-target="true"]').forEach((el) => el.remove());
+  const target = document.createElement('div');
+  target.setAttribute('data-vrt-cursor-target', 'true');
+  target.setAttribute('aria-hidden', 'true');
+  target.style.position = 'fixed';
+  target.style.left = '0';
+  target.style.top = '0';
+  target.style.width = '8px';
+  target.style.height = '8px';
+  target.style.opacity = '0.01';
+  target.style.backgroundColor = 'transparent';
+  target.style.pointerEvents = 'auto';
+  target.style.zIndex = '10000';
+  document.body.appendChild(target);
+  try {
+    await page
+      .elementLocator(target)
+      .hover({ force: true, timeout: CURSOR_PARK_TIMEOUT_MS })
+      .catch(() => undefined);
+  } finally {
+    target.remove();
+  }
+}
+
+/**
+ * Screenshot the iframe document so Radix Dialog portals on `document.body`
+ * are included. Do not reparent those nodes into `vrt-root`: React still
+ * thinks they live on `body`, and `removeChild` then throws NotFoundError
+ * (and can leave the Vitest browser process hanging).
+ *
+ * Do not `vi.mock('radix-ui')` to retarget the portal either —
+ * `importOriginal()` of that barrel can shift `oklch` brand green on
+ * unrelated screenshots.
+ */
+export async function matchVrtFrameScreenshot(name: string, options?: ScreenshotMatcherOptions) {
+  await moveCursorToTopLeftCorner();
+  await waitForImagesReady(document.documentElement);
+  await expect(page.elementLocator(document.documentElement)).toMatchScreenshot(name, options);
+}
 
 interface VRTProvidersProps {
   children: ReactNode;
@@ -41,8 +108,17 @@ function VRTProviders({ children, viewport, queryClient }: VRTProvidersProps) {
   );
 }
 
+/** The iframe resize ack has no timeout of its own. A lost `viewport:done` must not consume the test. */
+const VIEWPORT_READY_TIMEOUT_MS = 5_000;
+
 export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) {
-  await page.viewport(options.viewport.width, options.viewport.height);
+  await withTimeout(
+    page.viewport(options.viewport.width, options.viewport.height),
+    VIEWPORT_READY_TIMEOUT_MS,
+    () =>
+      `VRT viewport timed out after ${VIEWPORT_READY_TIMEOUT_MS}ms (${options.viewport.width}x${options.viewport.height})`,
+  );
+  await moveCursorToTopLeftCorner();
   freezeNow();
   mockMathRandom(0xdeadbeef);
   // Fresh QueryClient per test keeps cache state isolated; instantiating here
@@ -58,10 +134,11 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
       {ui}
     </VRTProviders>,
   );
-  // Wait for Inter Tight (loaded in vrt.setup.ts via Google Fonts) to be
-  // ready so the screenshot is never taken while the browser is still
-  // showing the fallback face.
-  await document.fonts.ready;
+  // Inter Tight is loaded in vrt.setup.ts before any test. This only covers a
+  // face that starts loading with the render (font-display: block). An
+  // unbounded `document.fonts.ready` can sit for the whole 30s test budget
+  // on the first capture in a file; later captures find the font resident.
+  await waitForFontsReady();
   // Images (mocked next/image → plain <img>, including SVGs like the header
   // logo) load asynchronously. `decode()` alone is not enough: it can reject
   // before the request finishes (we used to ignore that), or resolve before
@@ -72,11 +149,58 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
   const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
   if (root) {
     await waitForImagesReady(root);
+    await waitForDynamicIconsReady(root);
   }
   return screen;
 }
 
-async function waitForImagesReady(root: Element) {
+/** Faces are preloaded in setup; this only catches a load that starts with the render. */
+const FONT_READY_TIMEOUT_MS = 5_000;
+
+async function waitForFontsReady() {
+  if (document.fonts.status === 'loaded') return;
+  await withTimeout(
+    document.fonts.ready,
+    FONT_READY_TIMEOUT_MS,
+    () => `VRT fonts timed out after ${FONT_READY_TIMEOUT_MS}ms (status=${document.fonts.status})`,
+  );
+}
+
+/** Per-capture budget for lazily-loaded Lucide icon chunks. */
+const DYNAMIC_ICON_READY_TIMEOUT_MS = 8_000;
+
+/**
+ * DynamicLucideIcon renders an empty, size-preserving `svg.lucide` while its
+ * chunk loads. Capturing that frame would bake a blank icon box into the
+ * baseline nondeterministically (whichever state the race happened to be in),
+ * so wait until no icon under the root is still empty — a hung chunk fails the
+ * test instead of becoming a blank baseline, matching the image policy above.
+ */
+async function waitForDynamicIconsReady(root: Element) {
+  const hasPendingIcon = () => root.querySelector('svg.lucide:not(:has(*))') !== null;
+  if (!hasPendingIcon()) return;
+
+  let frame = 0;
+  try {
+    await withTimeout(
+      new Promise<void>((resolve) => {
+        const check = () => {
+          if (!hasPendingIcon()) resolve();
+          else frame = requestAnimationFrame(check);
+        };
+        check();
+      }),
+      DYNAMIC_ICON_READY_TIMEOUT_MS,
+      () => `VRT dynamic icon timed out after ${DYNAMIC_ICON_READY_TIMEOUT_MS}ms (empty svg.lucide in capture root)`,
+    );
+  } finally {
+    // The poll must stop on timeout too, or it keeps burning frames for the
+    // rest of the page's life and slows every later capture in the file.
+    cancelAnimationFrame(frame);
+  }
+}
+
+export async function waitForImagesReady(root: Element) {
   const images = Array.from(root.querySelectorAll('img'));
   await Promise.all(images.map((img) => waitForHtmlImage(img)));
   await new Promise<void>((resolve) => {
@@ -149,19 +273,93 @@ async function waitForHtmlImageReady(img: HTMLImageElement, src: string): Promis
  * instead of only reacting to it after the fact.
  */
 export async function preloadImages(urls: readonly string[]) {
-  await Promise.all(
-    urls.map(async (url) => {
-      const image = new Image();
-      await new Promise<void>((resolve, reject) => {
-        image.addEventListener('load', () => resolve(), { once: true });
-        image.addEventListener('error', () => reject(new Error(`Failed to preload VRT image: ${url}`)), {
-          once: true,
-        });
-        image.src = url;
-      });
-      await image.decode();
-    }),
+  await Promise.all(urls.map((url) => preloadImage(url)));
+}
+
+/**
+ * Warm one URL into the image cache.
+ *
+ * The element is attached before `decode()`. Chromium can leave
+ * `HTMLImageElement.decode()` pending on a detached SVG (the header logo), and
+ * this helper had no timeout, so a stall became a generic 30s test timeout on
+ * the first capture in a file. Later captures hit the cache. In-DOM `<img>`
+ * nodes are still decoded strictly by `waitForImagesReady`.
+ */
+async function preloadImage(url: string) {
+  const image = new Image();
+  image.alt = '';
+  image.setAttribute('data-vrt-preload', 'true');
+  // Off-screen and removed before the caller renders, so it cannot affect the capture.
+  image.style.position = 'fixed';
+  image.style.left = '-10000px';
+  image.style.top = '0';
+  image.style.width = '1px';
+  image.style.height = '1px';
+  image.style.opacity = '0.01';
+  image.style.pointerEvents = 'none';
+  document.body.appendChild(image);
+  try {
+    await withTimeout(waitForPreloadImage(image, url), IMAGE_READY_TIMEOUT_MS, () => {
+      const state = `complete=${image.complete} naturalWidth=${image.naturalWidth}`;
+      return `VRT image preload timed out after ${IMAGE_READY_TIMEOUT_MS}ms (${state}): ${url}`;
+    });
+  } finally {
+    image.remove();
+  }
+}
+
+async function waitForPreloadImage(image: HTMLImageElement, url: string) {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (image.naturalWidth > 0) resolve();
+      else reject(new Error(`Failed to preload VRT image: ${url}`));
+    };
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`Failed to preload VRT image: ${url}`));
+    };
+    const cleanup = () => {
+      image.removeEventListener('load', finish);
+      image.removeEventListener('error', fail);
+    };
+    image.addEventListener('load', finish);
+    image.addEventListener('error', fail);
+    image.src = url;
+    if (image.complete) finish();
+  });
+  try {
+    await image.decode();
+  } catch {
+    throw new Error(`Failed to decode preloaded VRT image: ${url}`);
+  }
+}
+
+/** `next/dynamic` can take several seconds on CI. */
+const MARKDOWN_EDITOR_READY_TIMEOUT_MS = 15_000;
+
+/** Wait until the article editor chunk has mounted (textarea is in the DOM). */
+export async function waitForMarkdownEditorReady(root: ParentNode = document) {
+  await vi.waitFor(
+    () => {
+      const editor = root.querySelector('[data-testid="markdown-textarea"]');
+      if (!editor) {
+        throw new Error('Markdown editor did not hydrate');
+      }
+    },
+    { timeout: MARKDOWN_EDITOR_READY_TIMEOUT_MS },
   );
+}
+
+/** Opens one of the article composer's tabs; the panels stay mounted, so the switch is immediate. */
+export async function selectArticleComposerTab(name: 'Content' | 'Title' | 'Header' | 'Preview') {
+  await page.getByRole('tab', { name }).click();
+  await expect.element(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true');
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: () => string): Promise<T> {

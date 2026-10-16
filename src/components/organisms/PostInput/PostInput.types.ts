@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { ExistingAttachment } from '@/hooks/usePost/usePost.types';
 import type { TagsLayout } from '@/organisms/PostMain/PostMain.types';
 import { POST_INPUT_VARIANT } from './PostInput.constants';
 
@@ -8,7 +9,13 @@ export type PostInputVariant =
   | typeof POST_INPUT_VARIANT.REPOST
   | typeof POST_INPUT_VARIANT.EDIT;
 
+export type EditLock = {
+  lockUrl: string;
+  title: string;
+};
+
 interface PostInputBaseProps {
+  active?: boolean;
   /** Callback after successful post, receives the created post ID */
   onSuccess?: (createdPostId: string) => void;
   /** Custom placeholder text (default depends on variant) */
@@ -22,6 +29,8 @@ interface PostInputBaseProps {
    * shared repost flow read as a different action, e.g. sharing a collection.
    */
   successToastTitle?: string;
+  /** Use collection-share wording for the repost toast's Undo action. */
+  isCollectionShare?: boolean;
   /** Show the thread connector (for replies, default: false) */
   showThreadConnector?: boolean;
   /**
@@ -31,10 +40,18 @@ interface PostInputBaseProps {
    * @default false
    */
   expanded?: boolean;
-  /** Callback when content, tags, attachments, or article title change, receives content, tags, attachments, and article title */
-  onContentChange?: (content: string, tags: string[], attachments: File[], articleTitle: string) => void;
+  /** Callback when content, tags, attachments, article title, or existing attachments (edit variant) change */
+  onContentChange?: (
+    content: string,
+    tags: string[],
+    attachments: File[],
+    articleTitle: string,
+    existingAttachments?: ExistingAttachment[],
+  ) => void;
   /** Callback when article mode changes */
   onArticleModeChange?: (isArticle: boolean) => void;
+  /** Fires when the lock switch flips, so the compose dialog can retitle itself. */
+  onLockModeChange?: (isLockEnabled: boolean) => void;
   /** Data Cy for the post input */
   dataCy?: string;
   /** ID to access the post input */
@@ -73,6 +90,8 @@ export type PostInputProps =
       editPostId?: never;
       editContent?: never;
       editIsArticle?: never;
+      editAttachments?: never;
+      editLock?: never;
     })
   | (PostInputBaseProps & {
       /** Variant: repost */
@@ -83,6 +102,8 @@ export type PostInputProps =
       editPostId?: never;
       editContent?: never;
       editIsArticle?: never;
+      editAttachments?: never;
+      editLock?: never;
     })
   | (PostInputBaseProps & {
       /** Variant: new root post */
@@ -92,6 +113,8 @@ export type PostInputProps =
       editPostId?: never;
       editContent?: never;
       editIsArticle?: never;
+      editAttachments?: never;
+      editLock?: never;
     })
   | (PostInputBaseProps & {
       /** Variant: edit post */
@@ -104,4 +127,13 @@ export type PostInputProps =
       editContent: string;
       /** Editable article mode (required for edit) */
       editIsArticle: boolean;
+      /**
+       * The post's current attachment URIs, in display order (required for
+       * edit — pass `[]` for a post without attachments). Omitting it would
+       * make an attachment-adding edit silently drop the post's existing
+       * attachments, so the type forces every edit surface to provide it.
+       */
+      editAttachments: string[];
+      /** Existing lock announcement metadata. Omitted for normal post edits. */
+      editLock?: EditLock;
     });

@@ -2,34 +2,124 @@
 // Vitest `__vi_import_N__` aliases; reordering causes a TDZ crash in
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.
 /* eslint-disable simple-import-sort/imports */
-import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import type { UseEntityTaggersResult } from '@/hooks/useEntityTaggers/useEntityTaggers';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { page } from 'vitest/browser';
+import {
+  matchVrtFrameScreenshot,
+  preloadImages,
+  renderForVRT,
+  selectArticleComposerTab,
+  waitForMarkdownEditorReady,
+} from '@/test-utils/vrt';
 import { formatStableRelative } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { createZustandLikeHook } from '@/test-utils/stores';
+import { COMPOSER_EXPAND_DURATION } from '@/libs/motion/composerMotion';
 import { Header } from '@/organisms/Header/Header';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { tryResolveFeedsShellConfig } from '@/app/(feeds)/_shell/configs';
 import { Home } from '@/templates/Feed/Home/Home';
+import { Fab } from '@/molecules/Fab/Fab';
+import { PostMain } from '@/organisms/PostMain/PostMain';
+import { PostMainLayoutProvider } from '@/organisms/PostMain/PostMainLayoutContext';
+import { APP_ROUTES } from '@/app/routes';
+import { CONTENT, type HomeState, LAYOUT, type LayoutType } from '@/stores/home/home.types';
+import { useState } from 'react';
 
 // Browser-mode vi.mock factories run before top-level imports resolve and have
 // no synchronous require(), so each factory loads its fixture via async import
 // the first time the mocked module is consumed. The fixture modules are pure
 // data so the per-factory cost is negligible.
+//
+// Default Home screenshots keep `VRT_FEED_POSTS` only. Article-in-feed tests
+// prepend `VRT_ARTICLE` and the Visual layout swaps in `VRT_IMAGE_ONLY_POSTS`
+// via this flag so existing baselines stay put. The Collections content
+// filter is not a mode: it changes the real stream id, which the pagination
+// mock keys on.
+const feedState = vi.hoisted(() => ({
+  mode: 'default' as 'default' | 'article' | 'imageOnly',
+  keyboardVisible: false,
+  populatedHotTags: false,
+}));
+const mockRouterPush = vi.hoisted(() => vi.fn());
+
 const fixtures = vi.hoisted(async () => {
-  const [postsModule, profilesModule, whoToFollowModule, navModule, mockApp] = await Promise.all([
+  const [
+    postsModule,
+    articleModule,
+    profilesModule,
+    whoToFollowModule,
+    navModule,
+    mockApp,
+    repostsModule,
+    imagePostsModule,
+    collectionsModule,
+  ] = await Promise.all([
     import('@/test/fixtures/feed/posts'),
+    import('@/test/fixtures/post/article'),
     import('@/test/fixtures/feed/profiles'),
     import('@/test/fixtures/feed/whoToFollow'),
     import('@/test/fixtures/feed/feedNavigation'),
     import('@/test/mocks/feedApplication'),
+    import('@/test/fixtures/feed/reposts'),
+    import('@/test/fixtures/feed/imagePosts'),
+    import('@/test/fixtures/feed/collections'),
   ]);
   const postsByCompositeId = new Map(postsModule.VRT_FEED_POSTS.map((post) => [post.compositeId, post]));
+  postsByCompositeId.set(articleModule.VRT_ARTICLE.compositeId, articleModule.VRT_ARTICLE);
+  postsByCompositeId.set(repostsModule.VRT_PLAIN_REPOST.compositeId, repostsModule.VRT_PLAIN_REPOST);
+  postsByCompositeId.set(repostsModule.VRT_QUOTE_REPOST.compositeId, repostsModule.VRT_QUOTE_REPOST);
+  for (const post of imagePostsModule.VRT_IMAGE_ONLY_POSTS) {
+    postsByCompositeId.set(post.compositeId, post);
+  }
+  // The Collections content filter streams only `kind: 'collection'` posts,
+  // each rendered as a standalone `CollectionCard`. Collection fixtures carry
+  // no relationships; give them the root-post shape the repost mock reads.
+  const feedCollections = [
+    ...collectionsModule.VRT_FOLLOWED_COLLECTIONS,
+    ...collectionsModule.VRT_DISCOVER_COLLECTIONS,
+  ];
+  for (const collection of feedCollections) {
+    postsByCompositeId.set(collection.compositeId, {
+      ...collection,
+      relationships: { replied: null, reposted: null, mentioned: [] },
+    });
+  }
   const orderedCompositeIds = postsModule.VRT_FEED_POSTS.map((post) => post.compositeId);
+  const articleFeedPostIds = [articleModule.VRT_ARTICLE.compositeId, ...orderedCompositeIds];
+  const collectionFeedPostIds = feedCollections.map((collection) => collection.compositeId);
+  const feedCollectionNames = feedCollections.map(
+    (collection) => (JSON.parse(collection.details.content) as { name: string }).name,
+  );
   const viewerPubky = profilesModule.VRT_AUTHOR_PUBKYS.alice;
   return {
     postsByCompositeId,
+    plainRepostId: repostsModule.VRT_PLAIN_REPOST.compositeId,
+    quoteRepostId: repostsModule.VRT_QUOTE_REPOST.compositeId,
+    repostOriginal: postsModule.VRT_SINGLE_POST,
     orderedCompositeIds,
+    articleFeedPostIds,
+    collectionFeedPostIds,
+    feedCollectionNames,
+    imageOnlyPostIds: imagePostsModule.VRT_IMAGE_ONLY_POST_IDS,
+    imageOnlyImageUrls: imagePostsModule.VRT_IMAGE_ONLY_IMAGE_URLS,
+    imageOnlyVisualRows: imagePostsModule.VRT_IMAGE_ONLY_VISUAL_ROWS,
+    articleTitle: articleModule.VRT_ARTICLE_TITLE,
+    articleCoverUrl: articleModule.VRT_ARTICLE_COVER_URL,
+    articleCoverName: articleModule.VRT_ARTICLE_COVER_NAME,
+    // Attachment URI → file metadata and file id → asset URL, shared by the
+    // article cover, the image-only posts and the collection cover.
+    fileMetadataByUri: new Map<string, { id: string; name: string; content_type: string; uri: string }>([
+      [articleModule.VRT_ARTICLE_COVER_URI, articleModule.VRT_ARTICLE_COVER_METADATA],
+      ...imagePostsModule.VRT_IMAGE_ONLY_FILE_METADATA_BY_URI,
+    ]),
+    fileUrls: {
+      [articleModule.VRT_ARTICLE_COVER_FILE_ID]: articleModule.VRT_ARTICLE_COVER_URL,
+      ...imagePostsModule.VRT_IMAGE_ONLY_FILE_URLS,
+      ...collectionsModule.VRT_COLLECTION_COVER_URLS,
+    },
+    collectionCoverUrls: Object.values(collectionsModule.VRT_COLLECTION_COVER_URLS),
     profiles: profilesModule.VRT_AUTHOR_PROFILES,
     viewerPubky,
     whoToFollow: whoToFollowModule.VRT_WHO_TO_FOLLOW,
@@ -40,7 +130,7 @@ const fixtures = vi.hoisted(async () => {
 
 vi.mock('next/navigation', () => {
   const router = {
-    push: vi.fn(),
+    push: mockRouterPush,
     replace: vi.fn(),
     back: vi.fn(),
     prefetch: vi.fn(),
@@ -88,13 +178,17 @@ vi.mock('@/stores/home/home.store', async () => {
 
 vi.mock('@/stores/auth/auth.store', async () => {
   const f = await fixtures;
+  const { mockRingSession } = await import('@/test-utils/pubky');
   return {
     useAuthStore: createZustandLikeHook({
       currentUserPubky: f.viewerPubky,
+      session: mockRingSession(['/:rw'], f.viewerPubky),
+      restoreStatus: 'ready',
       sessionExport: null,
       hasProfile: true,
       hasHydrated: true,
       isRestoringSession: false,
+      setShowSignInDialog: vi.fn(),
       selectCurrentUserPubky: () => f.viewerPubky,
     }),
   };
@@ -128,11 +222,12 @@ vi.mock('@/stores/localFiles/localFiles.store', () => ({
   useLocalFilesStore: createZustandLikeHook({
     profile: null,
     posts: {} as Record<string, never>,
+    collections: {} as Record<string, never>,
   }),
 }));
 
-vi.mock('@/hooks/useKeyboardOffset/useKeyboardOffset', () => ({
-  useKeyboardOffset: () => ({ isKeyboardVisible: false, keyboardOffset: 0 }),
+vi.mock('@/hooks/useKeyboardVisible/useKeyboardVisible', () => ({
+  useKeyboardVisible: () => feedState.keyboardVisible,
 }));
 
 vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
@@ -141,8 +236,7 @@ vi.mock('@/hooks/usePublicRoute/usePublicRoute', () => ({
 
 vi.mock('@/hooks/useStreamPagination/useStreamPagination', async () => {
   const f = await fixtures;
-  const result = {
-    postIds: f.orderedCompositeIds,
+  const shared = {
     loading: false,
     loadingMore: false,
     error: null,
@@ -152,7 +246,21 @@ vi.mock('@/hooks/useStreamPagination/useStreamPagination', async () => {
     prependPosts: async () => {},
     removePosts: () => {},
   };
-  return { useStreamPagination: () => result };
+  // One stable object per mode; a fresh `postIds` identity on every call would
+  // cascade into effect deps and re-render loops.
+  const results = {
+    default: { ...shared, postIds: f.orderedCompositeIds },
+    article: { ...shared, postIds: f.articleFeedPostIds },
+    imageOnly: { ...shared, postIds: f.imageOnlyPostIds },
+  };
+  // The Collections content filter resolves (through the real home store and
+  // `useStreamIdFromFilters`) to the collection-kind timeline stream.
+  const collectionsResult = { ...shared, postIds: f.collectionFeedPostIds };
+  const { PostStreamTypes } = await import('@/models/stream/post/postStream.types');
+  return {
+    useStreamPagination: ({ streamId }: { streamId: string }) =>
+      streamId === PostStreamTypes.TIMELINE_ALL_COLLECTION ? collectionsResult : results[feedState.mode],
+  };
 });
 
 vi.mock('@/hooks/useUserStream/useUserStream', async () => {
@@ -299,16 +407,27 @@ vi.mock('@/hooks/useTtlSubscription/useTtlSubscription', () => {
 // hardcoded connector height stretches the card to match (e.g., the
 // `QuickReply` "Do you agree?" card visibly oversized at >200px).
 
-vi.mock('@/hooks/usePostHeaderVisibility/usePostHeaderVisibility', async () => {
+// Keep the real header-visibility logic and PostContent/preview composition.
+// Mock only repost data so these screenshots catch accidental nested cards.
+vi.mock('@/hooks/useRepostInfo/useRepostInfo', async () => {
   const f = await fixtures;
-  const cache = new Map<string, { showRepostHeader: boolean; shouldShowPostHeader: boolean }>();
+  const { buildCompositeIdFromPubkyUri } = await import('@/models/models.utils');
+  const { CompositeIdDomain } = await import('@/models/models.types');
+  const cache = new Map();
   return {
-    usePostHeaderVisibility: (compositeId: string) => {
+    useRepostInfo: (compositeId: string) => {
       const cached = cache.get(compositeId);
       if (cached) return cached;
+      const fixture = f.postsByCompositeId.get(compositeId);
+      const uri = fixture?.relationships.reposted;
       const result = {
-        showRepostHeader: !!f.postsByCompositeId.get(compositeId)?.relationships.reposted,
-        shouldShowPostHeader: true,
+        isRepost: !!uri,
+        isReply: false,
+        isCurrentUserRepost: !!uri && fixture?.details.author === f.viewerPubky,
+        repostAuthorId: uri ? fixture?.details.author : null,
+        originalPostId: uri ? buildCompositeIdFromPubkyUri({ uri, domain: CompositeIdDomain.POSTS }) : null,
+        isLoading: false,
+        hasError: false,
       };
       cache.set(compositeId, result);
       return result;
@@ -342,13 +461,46 @@ vi.mock('@/hooks/useEntityTags/useEntityTags', async () => {
   };
 });
 
-vi.mock('@/hooks/usePostTaggers/usePostTaggers', () => {
-  const result = {
-    taggersByLabel: new Map<string, string[]>(),
-    taggerStates: new Map<string, { isLoading: boolean; error: string | null }>(),
-    fetchAllTaggers: async () => {},
+vi.mock('@/hooks/useEnrichedTags/useEnrichedTags', () => ({
+  useEnrichedTags: (tags: unknown[]) => ({ enrichedTags: tags, isLoading: false }),
+}));
+
+vi.mock('@/hooks/usePostTags/usePostTags', async () => {
+  const f = await fixtures;
+  const empty = {
+    tags: [] as unknown[],
+    count: 0,
+    isLoading: false,
+    isLoadingMore: false,
+    hasMore: false,
+    loadMore: async () => {},
+    handleTagAdd: async () => ({ success: true }),
+    handleTagToggle: async () => {},
   };
-  return { usePostTaggers: () => result };
+  const cache = new Map<string, typeof empty>();
+  return {
+    usePostTags: (postId: string) => {
+      const cached = cache.get(postId);
+      if (cached) return cached;
+      const tags = (f.postsByCompositeId.get(postId)?.tags ?? []).map((tag) => ({
+        ...tag,
+        taggers: (tag.taggers ?? []).map((id) => ({ id, name: f.profiles[id]?.name, avatarUrl: undefined })),
+      }));
+      const result = { ...empty, tags, count: tags.length };
+      cache.set(postId, result);
+      return result;
+    },
+  };
+});
+
+vi.mock('@/hooks/useEntityTaggers/useEntityTaggers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useEntityTaggers/useEntityTaggers')>();
+  const result: UseEntityTaggersResult = {
+    taggerStates: new Map(),
+    loadTaggers: async () => {},
+    loadMoreTaggers: async () => {},
+  };
+  return { ...actual, useEntityTaggers: () => result };
 });
 
 vi.mock('@/hooks/useThreadReplies/useThreadReplies', () => {
@@ -380,17 +532,19 @@ vi.mock('@/hooks/useCurrentUserProfile/useCurrentUserProfile', async () => {
 });
 
 vi.mock('@/hooks/useCustomFeed/useCustomFeed', () => {
-  const result = { feed: null, isLoading: false };
-  return { useCustomFeed: () => result };
+  return { useCustomFeed: () => undefined };
 });
 
 // Header (and its descendants) hooks. Header → HeaderSignIn → SearchInput pulls
 // in fetch-and-cache data hooks that would otherwise hit the network/IndexedDB.
-// Each mock returns the closed/empty state since the screenshot shows the
-// header in its default unfocused form.
-vi.mock('@/hooks/useHotTags/useHotTags', () => {
-  const result = { tags: [], rawTags: [], isLoading: false, error: null, refetch: async () => {} };
-  return { useHotTags: () => result };
+// Default screenshots keep these hooks closed/empty; drawer cases opt into
+// populated hot tags to cover the narrow content area.
+vi.mock('@/hooks/useHotTags/useHotTags', async () => {
+  const { VRT_HOT_TAGS } = await import('@/test/fixtures/feed/hotTags');
+  const empty = { tags: [], rawTags: [], isLoading: false, error: null, refetch: async () => {} };
+  const rawTags = [{ ...VRT_HOT_TAGS[0], label: 'decentralizedsocial', tagged_count: 1234 }, ...VRT_HOT_TAGS.slice(1)];
+  const populated = { ...empty, rawTags, tags: rawTags.map((tag) => ({ name: tag.label, count: tag.tagged_count })) };
+  return { useHotTags: () => (feedState.populatedHotTags ? populated : empty) };
 });
 
 vi.mock('@/hooks/useSearchAutocomplete/useSearchAutocomplete', () => {
@@ -403,9 +557,87 @@ vi.mock('@/application/feed/feed', async () => {
   return { FeedApplication: f.mockFeedApplication };
 });
 
-vi.mock('@/controllers/file/file', () => ({
-  FileController: {
-    getAvatarUrl: (userDetails: { image: string | null } | null | undefined) => userDetails?.image ?? null,
+vi.mock('@/hooks/useAttachmentsMetadata/useAttachmentsMetadata', async () => {
+  const f = await fixtures;
+  return {
+    useAttachmentsMetadata: ({ fileUris }: { fileUris: readonly string[] }) => ({
+      files: fileUris.flatMap((uri) => {
+        const metadata = f.fileMetadataByUri.get(uri);
+        return metadata ? [metadata] : [];
+      }),
+      isLoading: false,
+    }),
+  };
+});
+
+vi.mock('@/controllers/file/file', async () => {
+  const f = await fixtures;
+  return {
+    FileController: {
+      getAvatarUrl: (userDetails: { image: string | null } | null | undefined) => userDetails?.image ?? null,
+      getFileUrl: ({ fileId }: { fileId: string }) => f.fileUrls[fileId] ?? null,
+      getMetadata: async ({ fileAttachments }: { fileAttachments: string[] }) =>
+        fileAttachments.flatMap((uri) => {
+          const meta = f.fileMetadataByUri.get(uri);
+          return meta ? [meta] : [];
+        }),
+      fetchFiles: async () => [],
+    },
+  };
+});
+
+// `CollectionCard` (collection-in-feed) reads the owner through this hook.
+vi.mock('@/hooks/useUserProfile/useUserProfile', async () => {
+  const f = await fixtures;
+  const cache = new Map<string, { profile: unknown; isLoading: false }>();
+  return {
+    useUserProfile: (userId: string) => {
+      const cached = cache.get(userId);
+      if (cached) return cached;
+      const details = f.profiles[userId];
+      const result = {
+        profile: details
+          ? {
+              name: details.name ?? '',
+              bio: details.bio ?? '',
+              publicKey: `pk:${userId}`,
+              emoji: '🌴',
+              status: details.status ?? '',
+              avatarUrl: undefined,
+              link: `/profile/${userId}`,
+              links: details.links,
+            }
+          : null,
+        isLoading: false as const,
+      };
+      cache.set(userId, result);
+      return result;
+    },
+  };
+});
+
+// Pre-composed image-only rows keep the Visual mosaic free of media
+// metadata/probe timing (same approach as the Collections VRT).
+vi.mock('@/organisms/Timeline/Feed/TimelineFeed/useVisualFeedTiles', async () => {
+  const f = await fixtures;
+  const result = {
+    rows: f.imageOnlyVisualRows,
+    tail: [] as never[],
+    tiles: f.imageOnlyVisualRows.flatMap((row) => row.cells.flatMap((cell) => (cell.tile ? [cell.tile] : []))),
+    hasPendingSnapshot: false,
+    hasPendingTiles: false,
+    hasPendingFiles: false,
+    hasPendingPostDetails: false,
+    hiddenPostCount: 0,
+  };
+  return { useVisualFeedTiles: () => result };
+});
+
+vi.mock('@/controllers/search/search', () => ({
+  SearchController: {
+    fetchUsersById: async () => [],
+    getUsersByName: async () => [],
+    getTagsByPrefix: async () => [],
   },
 }));
 
@@ -424,43 +656,460 @@ function HomeWithLayout() {
   );
 }
 
+function HomeWithFab() {
+  return (
+    <>
+      <HomeWithLayout />
+      <Fab />
+    </>
+  );
+}
+
 async function waitForComposerMotion() {
+  // Expand tween is 280ms plus a 100ms settle in `useComposerHeightAnimation`.
+  // A shorter wait can screenshot while the card still clips the textarea.
   await new Promise<void>((resolve) => {
-    setTimeout(resolve, 350);
+    setTimeout(resolve, Math.ceil(COMPOSER_EXPAND_DURATION * 1000) + 150);
   });
 }
 
+async function expandFirstQuickReply(screen: Awaited<ReturnType<typeof renderForVRT>>) {
+  const textarea = screen.getByTestId('quick-reply-textarea').first();
+  await textarea.click();
+  await expect(screen.getByTestId('quick-reply-expanded-content')).toBeVisible();
+  await waitForComposerMotion();
+  // Re-click after the expand tween so `:focus-within` hides the prompt.
+  // `matchVrtFrameScreenshot` parks the pointer only — it must not steal focus.
+  await textarea.click();
+  await expect.element(textarea).toHaveFocus();
+}
+
+async function waitForArticleComposer() {
+  await expect.element(page.getByRole('tablist', { name: 'Article sections' })).toBeVisible();
+  await expect.element(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true');
+  await expect.element(page.getByText('Publish')).toBeVisible();
+  await waitForMarkdownEditorReady();
+}
+
 describe('Home (global feed) — visual regression', () => {
+  beforeEach(() => {
+    feedState.mode = 'default';
+  });
+
   it('renders the global feed at desktop viewport', async () => {
-    const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
-    // The VRT root is the viewport-clamped wrapper added by `renderForVRT`,
-    // so the screenshot is exactly the viewport size. Without it, the body
-    // locator captures the full scrollable document height.
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-desktop');
+    await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await matchVrtFrameScreenshot('home-feed-desktop');
   });
 
   it('renders the global feed at mobile viewport', async () => {
-    const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_MOBILE });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-mobile');
+    await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_MOBILE });
+    await matchVrtFrameScreenshot('home-feed-mobile');
   });
 
   it('renders an expanded QuickReply at desktop viewport', async () => {
     const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
-
-    await screen.getByTestId('quick-reply-textarea').first().click();
-    await expect(screen.getByTestId('quick-reply-expanded-content')).toBeVisible();
-    await waitForComposerMotion();
-
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-desktop');
+    await expandFirstQuickReply(screen);
+    await matchVrtFrameScreenshot('home-feed-quick-reply-expanded-desktop');
   });
 
   it('renders an expanded QuickReply at mobile viewport', async () => {
     const screen = await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expandFirstQuickReply(screen);
+    await matchVrtFrameScreenshot('home-feed-quick-reply-expanded-mobile');
+  });
+});
 
-    await screen.getByTestId('quick-reply-textarea').first().click();
-    await expect(screen.getByTestId('quick-reply-expanded-content')).toBeVisible();
+// Keep ContentLayout mounted while a real HotTags click changes the route config.
+function FeedDrawerNavigation({ initialPathname }: { initialPathname: string }) {
+  const [pathname, setPathname] = useState(initialPathname);
+  mockRouterPush.mockImplementation((href: string) => setPathname(href.split('?')[0]));
+  return (
+    <ContentLayout {...tryResolveFeedsShellConfig(pathname)!}>
+      <input aria-label="Feed draft" defaultValue="" />
+      <button onClick={() => setPathname(initialPathname)}>Return to feed</button>
+    </ContentLayout>
+  );
+}
+
+describe('Feed right drawer', () => {
+  beforeEach(() => {
+    feedState.populatedHotTags = true;
+    mockRouterPush.mockReset();
+  });
+
+  afterEach(() => {
+    feedState.populatedHotTags = false;
+    mockRouterPush.mockReset();
+  });
+
+  const cases = [
+    { name: 'home-phone', pathname: APP_ROUTES.HOME, viewport: VRT_VIEWPORT_MOBILE },
+    { name: 'custom-feed-phone', pathname: `${APP_ROUTES.FEED}/test-feed`, viewport: VRT_VIEWPORT_MOBILE },
+    { name: 'home-wide-phone', pathname: APP_ROUTES.HOME, viewport: { width: 700, height: 420 } },
+    { name: 'home-tablet', pathname: APP_ROUTES.HOME, viewport: { width: 768, height: 1024 } },
+  ];
+
+  it.each(cases)('preserves the expected layout and actions on $name', async ({ name, pathname, viewport }) => {
+    const config = tryResolveFeedsShellConfig(pathname)!;
+    await renderForVRT(<ContentLayout {...config}>Feed content</ContentLayout>, { viewport });
+    await page.getByRole('button', { name: 'Open right panel' }).click();
+
+    const panel = document.querySelector<HTMLElement>('.fixed.right-0')!;
+    const scrollArea = panel.firstElementChild as HTMLElement;
+    const content = scrollArea.firstElementChild as HTMLElement;
+    const isPhone = viewport.width < 768;
+    await expect.poll(() => panel.getBoundingClientRect().right).toBeCloseTo(viewport.width);
+    expect(panel.getBoundingClientRect().width).toBe(isPhone ? 256 : 385);
+    expect(getComputedStyle(panel).paddingTop).toBe(isPhone ? '24px' : '48px');
+    expect(getComputedStyle(panel).paddingLeft).toBe(isPhone ? '24px' : '48px');
+    if (isPhone) {
+      expect(content.getBoundingClientRect().width).toBe(180);
+      expect(panel.querySelector('[data-testid="active-users"]')).toBeNull();
+    } else {
+      expect(panel.querySelector('[data-testid="active-users"]')).not.toBeNull();
+    }
+    expect(Array.from(content.children).map((section) => section.getAttribute('data-testid'))).toEqual(
+      isPhone
+        ? ['who-to-follow', 'hot-tags', 'feedback-card']
+        : ['who-to-follow', 'active-users', 'hot-tags', 'feedback-card'],
+    );
+    const tag = content.querySelector<HTMLElement>('[data-testid="tag-0"]')!;
+    const tagName = tag.querySelector<HTMLElement>('[data-testid="tag-name"]')!;
+    const tagCount = tag.querySelector<HTMLElement>('[data-testid="tag-count"]')!;
+    expect(tagName.textContent).toBe('decentralizedsocial');
+    expect(tagCount.textContent).toBe('1234');
+    expect(tag.getBoundingClientRect().right).toBeLessThanOrEqual(content.getBoundingClientRect().right);
+    expect(tagCount.getBoundingClientRect().right).toBeLessThanOrEqual(tag.getBoundingClientRect().right);
+    if (isPhone) {
+      expect(tagName.scrollWidth).toBeGreaterThan(tagName.clientWidth);
+    }
+    await expect.element(page.getByRole('button', { name: 'Explore all' }).last()).toBeVisible();
+    if (viewport.height === 420) {
+      expect(scrollArea.scrollHeight).toBeGreaterThan(scrollArea.clientHeight);
+      scrollArea.scrollTop = scrollArea.scrollHeight;
+      expect(scrollArea.scrollTop).toBeGreaterThan(0);
+      await expect.element(page.getByRole('button', { name: 'What do you think about Pubky?' }).last()).toBeVisible();
+    } else if (isPhone) {
+      await matchVrtFrameScreenshot(`feed-right-drawer-${name}`);
+    }
+
+    await page.elementLocator(document.querySelector<HTMLElement>('.absolute.inset-0.bg-black')!).click({
+      position: { x: 1, y: 1 },
+    });
+    await expect.poll(() => document.querySelector('.fixed.right-0')).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it.each([APP_ROUTES.HOME, `${APP_ROUTES.FEED}/test-feed`])(
+    'closes the phone drawer after selecting a hot tag on %s',
+    async (initialPathname) => {
+      await renderForVRT(<FeedDrawerNavigation initialPathname={initialPathname} />, { viewport: VRT_VIEWPORT_MOBILE });
+      await page.getByRole('textbox', { name: 'Feed draft' }).fill('Keep this draft');
+      await page.getByRole('button', { name: 'Open right panel' }).click();
+      await page.getByTestId('tag-0').last().click();
+
+      expect(mockRouterPush).toHaveBeenCalledWith(`${APP_ROUTES.SEARCH}?tags=decentralizedsocial`);
+      await expect.poll(() => document.querySelector('.fixed.right-0')).toBeNull();
+      expect(document.body.style.overflow).toBe('');
+      await expect.element(page.getByRole('button', { name: 'Open right panel' })).not.toBeInTheDocument();
+      await expect.element(page.getByRole('textbox', { name: 'Feed draft' })).toHaveValue('Keep this draft');
+
+      await page.getByRole('button', { name: 'Return to feed' }).click();
+      expect(document.querySelector('.fixed.right-0')).toBeNull();
+      await page.getByRole('button', { name: 'Open right panel' }).click();
+      await expect.poll(() => document.querySelector('.fixed.right-0')).not.toBeNull();
+      await page.elementLocator(document.querySelector<HTMLElement>('.absolute.inset-0.bg-black')!).click({
+        position: { x: 1, y: 1 },
+      });
+      await expect.poll(() => document.querySelector('.fixed.right-0')).toBeNull();
+      expect(document.body.style.overflow).toBe('');
+    },
+  );
+});
+
+describe('Repost cards — visual regression', () => {
+  const cases = [
+    { layout: 'inline', viewport: VRT_VIEWPORT_DESKTOP, name: 'inline-desktop' },
+    { layout: 'side', viewport: VRT_VIEWPORT_DESKTOP, name: 'side-desktop' },
+    { layout: 'list', viewport: VRT_VIEWPORT_DESKTOP, name: 'list-desktop' },
+    { layout: 'inline', viewport: VRT_VIEWPORT_MOBILE, name: 'inline-mobile' },
+  ] as const;
+
+  it.each(cases)('keeps simple reposts flat and quote context intact ($name)', async ({ layout, viewport, name }) => {
+    const f = await fixtures;
+    await renderForVRT(
+      <PostMainLayoutProvider tagsLayout={layout}>
+        <div className={`mx-auto space-y-6 p-4 ${layout === 'side' ? 'max-w-7xl' : 'max-w-[840px]'}`}>
+          <div data-testid="plain-repost">
+            <PostMain postId={f.plainRepostId} />
+          </div>
+          <div data-testid="quote-repost">
+            <PostMain postId={f.quoteRepostId} />
+          </div>
+        </div>
+      </PostMainLayoutProvider>,
+      { viewport },
+    );
+    const plain = page.getByTestId('plain-repost');
+    const quote = page.getByTestId('quote-repost');
+    await expect.element(plain.getByText('You reposted', { exact: true })).toBeVisible();
+    await expect.element(plain.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+    await expect
+      .element(plain.getByRole('button', { name: `Reply to post (${f.repostOriginal.counts.replies})` }))
+      .toBeVisible();
+    expect(plain.element().querySelector('[data-cy="post-preview-card"]')).toBeNull();
+    expect(quote.element().querySelector('[data-testid="repost-header"]')).toBeNull();
+    if (layout !== 'list') {
+      await expect.element(plain.getByText(f.repostOriginal.details.content)).toBeVisible();
+      await expect.element(quote.getByRole('link', { name: 'View original post' })).toBeVisible();
+    }
+    await matchVrtFrameScreenshot(`repost-cards-${name}`);
+  });
+});
+
+describe('Home — article in feed — visual regression', () => {
+  beforeEach(() => {
+    feedState.mode = 'article';
+  });
+
+  async function renderHomeWithArticle(viewport: { width: number; height: number }) {
+    const f = await fixtures;
+    await preloadImages(['/pubky-logo.svg', f.articleCoverUrl]);
+    const screen = await renderForVRT(<HomeWithLayout />, { viewport });
+    await expect.element(screen.getByText(f.articleTitle)).toBeVisible();
+    await expect.element(screen.getByAltText(f.articleCoverName)).toBeVisible();
+  }
+
+  it('renders an article card at desktop viewport', async () => {
+    await renderHomeWithArticle(VRT_VIEWPORT_DESKTOP);
+    await matchVrtFrameScreenshot('home-feed-article-desktop');
+  });
+
+  it('renders an article card at mobile viewport', async () => {
+    await renderHomeWithArticle(VRT_VIEWPORT_MOBILE);
+    await matchVrtFrameScreenshot('home-feed-article-mobile');
+  });
+});
+
+describe('Home — creating article via feed composer — visual regression', () => {
+  beforeEach(() => {
+    feedState.mode = 'default';
+  });
+
+  async function renderHomeCreatingArticle(viewport: { width: number; height: number }) {
+    const screen = await renderForVRT(<HomeWithLayout />, { viewport });
+    await screen.getByPlaceholder("What's on your mind?").click();
+    await expect.element(screen.getByLabelText('Add article')).toBeVisible();
     await waitForComposerMotion();
+    await screen.getByLabelText('Add article').click();
+    await waitForArticleComposer();
+    await waitForComposerMotion();
+  }
 
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('home-feed-quick-reply-expanded-mobile');
+  it('renders article mode in the feed composer at desktop viewport', async () => {
+    await renderHomeCreatingArticle(VRT_VIEWPORT_DESKTOP);
+    await matchVrtFrameScreenshot('home-feed-create-article-desktop');
+  });
+
+  it('renders article mode in the feed composer at mobile viewport', async () => {
+    await renderHomeCreatingArticle(VRT_VIEWPORT_MOBILE);
+    await matchVrtFrameScreenshot('home-feed-create-article-mobile');
+  });
+});
+
+describe('New article dialog — visual regression', () => {
+  beforeEach(() => {
+    feedState.mode = 'default';
+  });
+
+  async function renderNewArticleDialog(viewport: { width: number; height: number }) {
+    await renderForVRT(<HomeWithFab />, { viewport });
+    await page.getByTestId('new-post-cta').click();
+    await expect.element(page.getByTestId('dialog-content')).toBeVisible();
+    await page.getByLabelText('Add article').click();
+    await waitForArticleComposer();
+    await waitForComposerMotion();
+  }
+
+  it('renders the new article dialog at desktop viewport', async () => {
+    await renderNewArticleDialog(VRT_VIEWPORT_DESKTOP);
+    await matchVrtFrameScreenshot('dialog-new-article-desktop');
+  });
+
+  it('renders the new article dialog at mobile viewport', async () => {
+    await renderNewArticleDialog(VRT_VIEWPORT_MOBILE);
+    await matchVrtFrameScreenshot('dialog-new-article-mobile');
+  });
+
+  it('renders the empty cover slot in the Header tab at desktop viewport', async () => {
+    await renderNewArticleDialog(VRT_VIEWPORT_DESKTOP);
+    await selectArticleComposerTab('Header');
+    await expect.element(page.getByText('Add image')).toBeVisible();
+    await matchVrtFrameScreenshot('dialog-new-article-header-desktop');
+  });
+
+  it('renders the empty cover slot in the Header tab at mobile viewport', async () => {
+    await renderNewArticleDialog(VRT_VIEWPORT_MOBILE);
+    await selectArticleComposerTab('Header');
+    await expect.element(page.getByText('Add image')).toBeVisible();
+    await matchVrtFrameScreenshot('dialog-new-article-header-mobile');
+  });
+
+  it('renders the title in its own tab at mobile viewport', async () => {
+    await renderNewArticleDialog(VRT_VIEWPORT_MOBILE);
+    await selectArticleComposerTab('Title');
+    await expect.element(page.getByPlaceholder('Title')).toBeVisible();
+    await matchVrtFrameScreenshot('dialog-new-article-title-mobile');
+  });
+});
+
+describe('Mobile keyboard navigation visibility', () => {
+  beforeEach(() => {
+    feedState.mode = 'default';
+    feedState.keyboardVisible = false;
+  });
+
+  it.each([false, true])('renders mobile controls with keyboard visibility %s', async (keyboardVisible) => {
+    feedState.keyboardVisible = keyboardVisible;
+    await renderForVRT(<HomeWithFab />, { viewport: VRT_VIEWPORT_MOBILE });
+    if (keyboardVisible) {
+      await expect.element(page.getByTestId('new-post-cta')).not.toBeVisible();
+      await expect.element(page.getByRole('link', { name: 'Home', exact: true })).not.toBeInTheDocument();
+    } else {
+      await expect.element(page.getByTestId('new-post-cta')).toBeVisible();
+      await expect.element(page.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    }
+    feedState.keyboardVisible = false;
+  });
+
+  it('keeps the desktop plus button visible when the visual viewport shrinks', async () => {
+    feedState.keyboardVisible = true;
+    await renderForVRT(<HomeWithFab />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect.element(page.getByTestId('new-post-cta')).toBeVisible();
+    feedState.keyboardVisible = false;
+  });
+});
+
+// The home store mock is a shared snapshot, so a filter swap must be undone
+// after the screenshot or it leaks into every later Home test in this file.
+async function withHomeFilters(filters: Partial<HomeState>, run: () => Promise<void>) {
+  const { useHomeStore } = await import('@/stores/home/home.store');
+  const state = useHomeStore.getState();
+  const previous = { ...state };
+  Object.assign(state, filters);
+  try {
+    await run();
+  } finally {
+    Object.assign(state, previous);
+  }
+}
+
+function withHomeLayout(layout: LayoutType, run: () => Promise<void>) {
+  return withHomeFilters({ layout }, run);
+}
+
+describe('Cards layout — home', () => {
+  it.each([
+    ['desktop', VRT_VIEWPORT_DESKTOP],
+    ['mobile', VRT_VIEWPORT_MOBILE],
+  ] as const)('renders Cards on %s', async (name, viewport) => {
+    feedState.mode = 'default';
+    await withHomeLayout(LAYOUT.CARDS, async () => {
+      await renderForVRT(<HomeWithLayout />, { viewport });
+      await expect.poll(() => document.querySelector('[data-cy="timeline-posts-cards"]')).not.toBeNull();
+      await expect
+        .poll(() => {
+          const feed = document.querySelector<HTMLElement>('[data-cy="timeline-posts-cards"]')!;
+          const cards = Array.from(feed.children).map((card) => card.getBoundingClientRect());
+          expect(cards.length).toBeGreaterThan(1);
+          expect(feed.getBoundingClientRect().bottom).toBeGreaterThanOrEqual(
+            Math.max(...cards.map((card) => card.bottom)) - 1,
+          );
+          for (const [index, card] of cards.entries()) {
+            expect(card.right).toBeLessThanOrEqual(feed.getBoundingClientRect().right + 1);
+            for (const other of cards.slice(index + 1)) {
+              expect(
+                card.left < other.right - 1 &&
+                  card.right > other.left + 1 &&
+                  card.top < other.bottom - 1 &&
+                  card.bottom > other.top + 1,
+              ).toBe(false);
+            }
+          }
+          return true;
+        })
+        .toBe(true);
+      await matchVrtFrameScreenshot(`home-cards-${name}`);
+    });
+  });
+});
+
+// Wide, List and Visual are desktop-only: phones resolve every layout to
+// Columns (`resolveFeedLayout`), which the default Home mobile snapshot covers.
+describe('Wide layout — home', () => {
+  it('renders Wide on desktop', async () => {
+    feedState.mode = 'default';
+    await withHomeLayout(LAYOUT.WIDE, async () => {
+      await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.element(page.getByRole('feed')).toBeVisible();
+      await expect.poll(() => document.querySelectorAll('[data-cy="post-card"]').length).toBeGreaterThan(1);
+      await matchVrtFrameScreenshot('home-wide-desktop');
+    });
+  });
+});
+
+describe('List layout — home', () => {
+  it('renders List on desktop', async () => {
+    feedState.mode = 'default';
+    await withHomeLayout(LAYOUT.LIST, async () => {
+      await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.element(page.getByRole('feed')).toBeVisible();
+      await expect.poll(() => document.querySelectorAll('[data-cy="post-card"]').length).toBeGreaterThan(1);
+      await matchVrtFrameScreenshot('home-list-desktop');
+    });
+  });
+});
+
+describe('Visual layout — home', () => {
+  // Image-only posts: the mosaic is media-first, so the fixture carries no
+  // text content at all.
+  it('renders Visual on desktop', async () => {
+    const f = await fixtures;
+    feedState.mode = 'imageOnly';
+    await withHomeLayout(LAYOUT.VISUAL, async () => {
+      await preloadImages(f.imageOnlyImageUrls);
+      await renderForVRT(<HomeWithLayout />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.element(page.getByRole('button', { name: `Open post ${f.imageOnlyPostIds[0]}` })).toBeVisible();
+      expect(document.querySelector('[data-cy="visual-feed-container"]')).not.toBeNull();
+      expect(document.querySelectorAll('[data-cy="visual-feed-tile"]').length).toBe(f.imageOnlyPostIds.length);
+      await matchVrtFrameScreenshot('home-visual-desktop');
+    });
+  });
+});
+
+// Collections never mix with other kinds under the "All" content filter; they
+// only appear when the Collections content filter is on, as a feed of
+// `CollectionCard`s. The filter is applied through the real home store so the
+// stream id (and the highlighted Content item) come from the app's own logic.
+describe('Home — collections content filter — visual regression', () => {
+  it.each([
+    ['desktop', VRT_VIEWPORT_DESKTOP],
+    ['mobile', VRT_VIEWPORT_MOBILE],
+  ] as const)('renders a feed of collections on %s', async (name, viewport) => {
+    const f = await fixtures;
+    feedState.mode = 'default';
+    await withHomeFilters({ content: CONTENT.COLLECTIONS }, async () => {
+      // Collection covers are CSS `background-image`s; `renderForVRT` only awaits `<img>`.
+      await preloadImages(f.collectionCoverUrls);
+      await renderForVRT(<HomeWithLayout />, { viewport });
+      const firstCard = page.getByRole('link', { name: f.feedCollectionNames[0], exact: true });
+      await expect.element(firstCard).toBeVisible();
+      expect(firstCard.element().getAttribute('data-cy')).toBe('collection-card');
+      expect(firstCard.element().getAttribute('data-presentation')).toBe('landing');
+      const feedItems = Array.from(document.querySelectorAll('[data-cy="post-card"]'));
+      expect(feedItems.length).toBe(f.collectionFeedPostIds.length);
+      expect(feedItems.every((item) => item.querySelector('[data-cy="collection-card"]'))).toBe(true);
+      await matchVrtFrameScreenshot(`home-collections-filter-${name}`);
+    });
   });
 });

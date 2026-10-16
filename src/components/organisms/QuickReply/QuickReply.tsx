@@ -7,14 +7,17 @@ import { PostThreadConnector } from '@/atoms/PostThreadConnector/PostThreadConne
 import { POST_THREAD_CONNECTOR_VARIANTS } from '@/atoms/PostThreadConnector/PostThreadConnector.constants';
 import { Typography } from '@/atoms/Typography/Typography';
 import { POST_MAX_CHARACTER_LENGTH } from '@/config/posts';
+import { useCharacterLimitWarning } from '@/hooks/useCharacterLimitWarning/useCharacterLimitWarning';
 import { useComposerHeightAnimation } from '@/hooks/useComposerHeightAnimation/useComposerHeightAnimation';
 import { useEffectiveTagsLayout } from '@/hooks/useEffectiveTagsLayout/useEffectiveTagsLayout';
 import { useElementHeight } from '@/hooks/useElementHeight/useElementHeight';
 import { useEnterSubmit } from '@/hooks/useEnterSubmit/useEnterSubmit';
 import { usePostInput } from '@/hooks/usePostInput/usePostInput';
 import { usePostInputAuthHandlers } from '@/hooks/usePostInputAuthHandlers/usePostInputAuthHandlers';
-import { canSubmitPost, cn, getCharacterCount } from '@/libs/utils/utils';
+import { canSubmitPost, cn, getEnforcedCharacterCount } from '@/libs/utils/utils';
 import { POST_INPUT_VARIANT } from '@/organisms/PostInput/PostInput.constants';
+import { selectDisplayUserPubky } from '@/stores/auth/auth.selectors';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { QUICK_REPLY_CONNECTOR_HEIGHT_OFFSET, QUICK_REPLY_PROMPTS } from './QuickReply.constants';
 import type { QuickReplyContentProps, QuickReplyProps } from './QuickReply.types';
 import { QuickReplyContent } from './QuickReplyContent';
@@ -37,7 +40,7 @@ export function QuickReply({
     setAttachments,
     isDragging,
     isExpanded,
-    isSubmitting,
+    isSubmitting: isWriting,
     showEmojiPicker,
     setShowEmojiPicker,
     displayPlaceholder,
@@ -62,6 +65,7 @@ export function QuickReply({
     setMentionSelectedIndex,
     handleMentionSelect,
     handleMentionKeyDown,
+    handleSelectionChange,
   } = usePostInput({
     variant: POST_INPUT_VARIANT.REPLY,
     postId: parentPostId,
@@ -71,6 +75,7 @@ export function QuickReply({
   });
 
   const {
+    isWaiting,
     isAuthenticated,
     handleExpandWithAuth,
     handleSubmitWithAuth,
@@ -94,6 +99,9 @@ export function QuickReply({
     handleEmojiSelect,
     handlePaste,
   });
+  const isSubmitting = isWriting || isWaiting;
+  const restoreStatus = useAuthStore((state) => state.restoreStatus);
+  const displayUserPubky = selectDisplayUserPubky({ currentUserPubky, restoreStatus });
 
   const { ref: cardRef, height: cardHeight } = useElementHeight();
   const shouldReduceMotion = useReducedMotion();
@@ -118,10 +126,13 @@ export function QuickReply({
   const connectorHeight = cardHeight ? cardHeight + QUICK_REPLY_CONNECTOR_HEIGHT_OFFSET : undefined;
 
   const effectiveTagsLayout = useEffectiveTagsLayout();
-  const characterLimit = isExpanded ? { count: getCharacterCount(content), max: POST_MAX_CHARACTER_LENGTH } : undefined;
+  const characterLimit = isExpanded
+    ? { count: getEnforcedCharacterCount(content), max: POST_MAX_CHARACTER_LENGTH }
+    : undefined;
+  useCharacterLimitWarning(characterLimit);
 
   const contentProps: QuickReplyContentProps = {
-    currentUserPubky,
+    currentUserPubky: displayUserPubky,
     currentUserDetails,
     textareaRef,
     content,
@@ -131,6 +142,7 @@ export function QuickReply({
     onChange: handleChangeWithAuth,
     onFocus: handleExpandWithAuth,
     onKeyDown: handleKeyDown,
+    onSelect: handleSelectionChange,
     onPaste: handlePasteWithAuth,
     mentionIsOpen,
     mentionUsers,

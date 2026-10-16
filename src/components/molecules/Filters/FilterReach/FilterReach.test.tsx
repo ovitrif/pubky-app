@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
 import { REACH } from '@/stores/home/home.types';
-import { FilterReach, TAGGED_AS_FILTER_KEY } from './FilterReach';
+import { FilterReach } from './FilterReach';
 
 describe('FilterReach', () => {
   it('renders with default selected tab and proper ARIA attributes', () => {
@@ -42,6 +43,36 @@ describe('FilterReach', () => {
       fireEvent.click(element);
       expect(mockOnTabChange).toHaveBeenCalledWith(value);
     });
+  });
+
+  it('renders the given options in their order and reports only those', () => {
+    const mockOnTabChange = vi.fn();
+    render(
+      <FilterReach
+        options={[REACH.ALL, REACH.NETWORK, REACH.FOLLOWING, REACH.FRIENDS]}
+        selectedTab={REACH.ALL}
+        onTabChange={mockOnTabChange}
+      />,
+    );
+
+    expect(screen.getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual([
+      'All',
+      'My network',
+      'Following',
+      'Friends',
+    ]);
+    fireEvent.click(screen.getByLabelText('My network'));
+    expect(mockOnTabChange).toHaveBeenCalledWith(REACH.NETWORK);
+  });
+
+  it('renders All, Following and Friends without options', () => {
+    render(<FilterReach />);
+
+    expect(screen.getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual([
+      'All',
+      'Following',
+      'Friends',
+    ]);
   });
 
   it('renders the standalone Tagged-as Home order', () => {
@@ -117,6 +148,18 @@ describe('FilterReach', () => {
     expect(followingRadio).toHaveAttribute('aria-label', 'Following');
     expect(friendsRadio).toHaveAttribute('aria-label', 'Friends');
   });
+
+  it('preserves data-cy selectors for e2e tests', () => {
+    render(<FilterReach showTaggedAs />);
+
+    expect(screen.getByLabelText('All')).toHaveAttribute('data-cy', 'all-reach-toggle');
+    expect(screen.getByLabelText('Following')).toHaveAttribute('data-cy', 'following-reach-toggle');
+    expect(screen.getByLabelText('Friends')).toHaveAttribute('data-cy', 'friends-reach-toggle');
+    expect(screen.getByLabelText('Me')).toHaveAttribute('data-cy', 'me-reach-toggle');
+    expect(screen.getByLabelText('My network')).toHaveAttribute('data-cy', 'network-reach-toggle');
+    expect(screen.getByLabelText('Tagged as')).toHaveAttribute('data-cy', 'tagged-as-reach-toggle');
+  });
+
   it('renders all items as disabled when disabled prop is true', () => {
     render(<FilterReach disabled />);
 
@@ -405,37 +448,5 @@ describe('FilterReach - Performance', () => {
 
     // Handler reference should be stable due to useCallback
     expect(followingRadio.onclick).toBe(initialOnClick);
-  });
-});
-
-describe('FilterReach - Snapshots', () => {
-  it('matches snapshot with default props (All selected)', () => {
-    const { container } = render(<FilterReach />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with All selected tab', () => {
-    const { container } = render(<FilterReach selectedTab={REACH.ALL} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with Following selected', () => {
-    const { container } = render(<FilterReach selectedTab={REACH.FOLLOWING} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with Friends selected', () => {
-    const { container } = render(<FilterReach selectedTab={REACH.FRIENDS} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot in uncontrolled mode with defaultSelectedTab', () => {
-    const { container } = render(<FilterReach defaultSelectedTab={REACH.FRIENDS} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with disabled state', () => {
-    const { container } = render(<FilterReach disabled />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

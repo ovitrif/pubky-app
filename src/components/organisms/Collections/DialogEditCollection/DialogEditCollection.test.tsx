@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION_LAYOUT, type CollectionLayout } from '@/config/collections';
+import { toast } from '@/molecules/Toaster/toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { mockSession } from '@/test-utils/pubky';
 import { DialogEditCollection } from './DialogEditCollection';
 
 const mocks = vi.hoisted(() => ({
   commitEditCollection: vi.fn(),
   setCollectionCover: vi.fn(),
-  toast: vi.fn(),
   postDetails: null as { content: string } | null,
 }));
 vi.mock('@/controllers/post/post', () => ({
@@ -19,9 +21,7 @@ vi.mock('@/hooks/usePostDetails/usePostDetails', () => ({
   usePostDetails: () => ({ postDetails: mocks.postDetails, isLoading: false }),
 }));
 
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  useToast: () => ({ toast: mocks.toast }),
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/stores/localFiles/localFiles.store', () => ({
   useLocalFilesStore: Object.assign(
@@ -51,6 +51,12 @@ const collectionContent = (overrides?: {
 describe('DialogEditCollection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAuthStore.setState({
+      currentUserPubky: 'account',
+      session: mockSession(),
+      restoreStatus: 'ready',
+      showSignInDialog: false,
+    });
     mocks.postDetails = { content: collectionContent() };
   });
 
@@ -113,12 +119,12 @@ describe('DialogEditCollection', () => {
         expect.objectContaining({
           compositeCollectionId: COMPOSITE_ID,
           name: 'New name',
-          layout: COLLECTION_LAYOUT.GRID,
+          layout: COLLECTION_LAYOUT.CARDS,
         }),
       );
     });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(mocks.toast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       title: 'Collection updated',
     });
   });
@@ -133,7 +139,7 @@ describe('DialogEditCollection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => {
-      expect(mocks.toast).toHaveBeenCalledWith({
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
         variant: 'error',
         description: 'Failed to update collection.',
       });
@@ -164,23 +170,5 @@ describe('DialogEditCollection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-});
-
-describe('DialogEditCollection - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.postDetails = { content: collectionContent() };
-  });
-
-  it('matches snapshot when open with the envelope prefilled', async () => {
-    mocks.postDetails = {
-      content: collectionContent({ name: 'Proof of Work', description: 'Bitcoin essays' }),
-    };
-
-    render(<DialogEditCollection open onOpenChange={vi.fn()} compositeCollectionId={COMPOSITE_ID} />);
-
-    await waitFor(() => expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Proof of Work'));
-    expect(document.body).toMatchSnapshot();
   });
 });

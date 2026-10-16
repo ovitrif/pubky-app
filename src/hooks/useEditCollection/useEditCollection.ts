@@ -13,12 +13,13 @@ import {
   createCollectionFormSchema,
 } from '@/hooks/useCreateCollection/useCreateCollection.types';
 import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
-import { isAppError } from '@/libs/error/error.utils';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { isAppError, requiresLogin } from '@/libs/error/error.utils';
 import { getImageUploadSizeLimitToastMessage } from '@/libs/image/imageUploadSizeLimit';
 import { Logger } from '@/libs/logger/logger';
 import { parseCollectionContent } from '@/libs/post/collectionContent';
 import { resolveCollectionCoverImage } from '@/libs/post/collectionCoverImage';
-import { useToast } from '@/molecules/Toaster/use-toast';
+import { toast } from '@/molecules/Toaster/toast';
 import { FileVariant } from '@/services/nexus/file/file.types';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import type { UseEditCollectionParams } from './useEditCollection.types';
@@ -48,9 +49,11 @@ type UseEditCollectionResult = {
  * strings come from `collections.edit`; shared form labels/validation messages
  * stay in `collections.new`.
  */
-export function useEditCollection({ compositeCollectionId }: UseEditCollectionParams): UseEditCollectionResult {
-  const { toast } = useToast();
-
+export function useEditCollection({
+  compositeCollectionId,
+  active = true,
+}: UseEditCollectionParams): UseEditCollectionResult {
+  const { waitForAuth } = useRequireAuth(active);
   const { postDetails } = usePostDetails(compositeCollectionId);
   const collection = postDetails ? parseCollectionContent(postDetails.content) : null;
 
@@ -115,6 +118,7 @@ export function useEditCollection({ compositeCollectionId }: UseEditCollectionPa
 
     let ok = false;
     await form.handleSubmit(async (data) => {
+      if (!(await waitForAuth())) return;
       const name = data[CREATE_COLLECTION_FORM_FIELDS.NAME];
       const description = data[CREATE_COLLECTION_FORM_FIELDS.DESCRIPTION];
       const layout = data[CREATE_COLLECTION_FORM_FIELDS.LAYOUT];
@@ -154,6 +158,18 @@ export function useEditCollection({ compositeCollectionId }: UseEditCollectionPa
         ok = true;
       } catch (error) {
         Logger.error('[useEditCollection] Failed to edit collection', { error });
+
+        // An unauthenticated write cannot succeed by retrying, so ask for sign-in
+        // rather than showing the generic failure copy (issue #2555). `submit()`
+        // still resolves false, so the dialog stays open with the user's edits.
+        if (isAppError(error) && requiresLogin(error)) {
+          toast({
+            variant: 'error',
+            description: 'Session expired. Please sign in.',
+          });
+          return;
+        }
+
         toast({
           variant: 'error',
           description:

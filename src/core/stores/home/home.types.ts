@@ -1,9 +1,12 @@
+import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
+
 // Home constants
 export const LAYOUT = {
   COLUMNS: 'columns',
   WIDE: 'wide',
   LIST: 'list',
   VISUAL: 'visual',
+  CARDS: 'cards',
 } as const;
 
 export const SORT = {
@@ -39,6 +42,8 @@ export enum CONTENT {
 export type LayoutType = (typeof LAYOUT)[keyof typeof LAYOUT];
 export type SortType = (typeof SORT)[keyof typeof SORT];
 export type ReachType = (typeof REACH)[keyof typeof REACH];
+/** A reach as the filter UI selects it — a stored reach or the Tagged-as sentinel. */
+export type ReachFilterValue = ReachType | typeof TAGGED_AS_FILTER_KEY;
 export type ContentType = (typeof CONTENT)[keyof typeof CONTENT];
 
 export interface HomeState {

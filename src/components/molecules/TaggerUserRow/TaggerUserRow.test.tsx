@@ -29,7 +29,7 @@ vi.mock('@/organisms/UserListItem/UserListItem', () => {
       isStatusLoading?: boolean;
       isCurrentUser?: boolean;
       onUserClick?: (id: string) => void;
-      onFollowClick?: (id: string, isFollowing: boolean, displayName: string) => void;
+      onFollowClick?: (id: string, isFollowing: boolean) => void;
     }) => (
       <div
         data-testid="user-list-item"
@@ -45,10 +45,7 @@ vi.mock('@/organisms/UserListItem/UserListItem', () => {
         <button data-testid="user-click" onClick={() => onUserClick?.(user.id)}>
           View Profile
         </button>
-        <button
-          data-testid="follow-click"
-          onClick={() => onFollowClick?.(user.id, isFollowing ?? false, user.name ?? user.id)}
-        >
+        <button data-testid="follow-click" onClick={() => onFollowClick?.(user.id, isFollowing ?? false)}>
           Follow
         </button>
       </div>
@@ -151,58 +148,6 @@ describe('TaggerUserRow', () => {
     });
     render(<TaggerUserRow {...defaultProps} onFollowClick={onFollowClick} />);
     screen.getByTestId('follow-click').click();
-    expect(onFollowClick).toHaveBeenCalledWith('user-123', true, 'Test User');
-  });
-});
-
-describe('TaggerUserRow - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseIsFollowing.mockReturnValue({
-      isFollowing: false,
-      isLoading: false,
-    });
-  });
-
-  it('matches snapshot with default state', () => {
-    const { container } = render(<TaggerUserRow {...defaultProps} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when loading', () => {
-    const { container } = render(<TaggerUserRow {...defaultProps} isLoading={true} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when current user', () => {
-    const { container } = render(<TaggerUserRow {...defaultProps} isCurrentUser={true} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when following', () => {
-    mockUseIsFollowing.mockReturnValue({
-      isFollowing: true,
-      isLoading: false,
-    });
-    const { container } = render(<TaggerUserRow {...defaultProps} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when status is loading', () => {
-    mockUseIsFollowing.mockReturnValue({
-      isFollowing: false,
-      isLoading: true,
-    });
-    const { container } = render(<TaggerUserRow {...defaultProps} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with tagger without name', () => {
-    const taggerWithoutName: TaggerWithAvatar = {
-      id: 'user-456',
-      avatarUrl: 'https://cdn.example.com/avatar/user-456.jpg',
-    };
-    const { container } = render(<TaggerUserRow {...defaultProps} tagger={taggerWithoutName} />);
-    expect(container.firstChild).toMatchSnapshot();
+    expect(onFollowClick).toHaveBeenCalledWith('user-123', true);
   });
 });

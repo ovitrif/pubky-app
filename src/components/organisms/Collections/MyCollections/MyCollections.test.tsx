@@ -9,6 +9,7 @@ import { useStreamPagination } from '@/hooks/useStreamPagination/useStreamPagina
 import type { Pubky } from '@/models/models.types';
 import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
 import { buildAuthorCollectionsStreamId } from '@/models/stream/post/postStream.types';
+import { toast } from '@/molecules/Toaster/toast';
 import type { NexusUserDetails } from '@/services/nexus/nexus.types';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { MyCollections } from './MyCollections';
@@ -19,6 +20,7 @@ import { MyCollections } from './MyCollections';
 
 let mockLocalAvatarUrl: string | null | undefined = null;
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/test',
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -49,10 +51,7 @@ vi.mock('@/controllers/post/post', () => ({
   },
 }));
 
-const mockToast = vi.fn();
-vi.mock('@/molecules/Toaster/use-toast', () => ({
-  useToast: () => ({ toast: mockToast }),
-}));
+vi.mock('@/molecules/Toaster/toast');
 
 vi.mock('@/stores/localFiles/localFiles.store', () => ({
   useLocalFilesStore: (selector: (state: { profile: string | null | undefined }) => unknown) =>
@@ -97,21 +96,8 @@ vi.mock('@/organisms/Collections/CollectionBookmarkCard/CollectionBookmarkCard',
 }));
 
 vi.mock('@/organisms/Collections/CollectionCard/CollectionCard', () => ({
-  CollectionCard: ({
-    authorPubky,
-    postId,
-    showDeleteAction,
-  }: {
-    authorPubky: string;
-    postId: string;
-    showDeleteAction?: boolean;
-  }) => (
-    <div
-      data-testid="collection-card"
-      data-author-pubky={authorPubky}
-      data-post-id={postId}
-      data-show-delete-action={String(showDeleteAction ?? false)}
-    />
+  CollectionCard: ({ authorPubky, postId }: { authorPubky: string; postId: string }) => (
+    <div data-testid="collection-card" data-author-pubky={authorPubky} data-post-id={postId} />
   ),
 }));
 
@@ -246,10 +232,8 @@ describe('MyCollections', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]).toHaveAttribute('data-author-pubky', AUTHOR_A);
     expect(cards[0]).toHaveAttribute('data-post-id', 'p1');
-    expect(cards[0]).toHaveAttribute('data-show-delete-action', 'true');
     expect(cards[1]).toHaveAttribute('data-author-pubky', AUTHOR_A);
     expect(cards[1]).toHaveAttribute('data-post-id', 'p2');
-    expect(cards[1]).toHaveAttribute('data-show-delete-action', 'true');
     expect(screen.getByTestId('collection-bookmark-card')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New Collection' })).toHaveAttribute(
       'data-cy',
@@ -380,8 +364,8 @@ describe('MyCollections', () => {
       capturedOnError!(new Error('network down'));
     });
 
-    expect(mockToast).toHaveBeenCalledTimes(1);
-    expect(mockToast).toHaveBeenCalledWith({
+    expect(vi.mocked(toast)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Failed to load collections. Please try again.',
     });
@@ -480,33 +464,6 @@ describe('MyCollections', () => {
 
       expect(screen.getByTestId('avatar-with-fallback')).toHaveAttribute('data-avatar-url', 'blob:local-avatar');
       expect(mockGetAvatarUrl).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('MyCollections - Snapshots', () => {
-    it('matches the snapshot for the signed-out fallback state', () => {
-      setup({ currentUserPubky: null });
-
-      const { container } = render(<MyCollections />);
-      expect(container.firstChild).toMatchSnapshot();
-    });
-
-    it('matches the snapshot for the authenticated state with two loaded cards', () => {
-      const ids = [`${AUTHOR_A}:p1`, `${AUTHOR_A}:p2`];
-      setup({
-        currentUserPubky: CURRENT_USER_PUBKY,
-        userDetails: { name: 'Alice', image: null, indexed_at: 0 },
-        pagination: {
-          postIds: ids,
-          loading: false,
-          hasMore: true,
-        },
-      });
-      // Resolved live query, no tombstones → echoes `postIds`.
-      vi.mocked(useLiveQuery).mockReturnValue(ids);
-
-      const { container } = render(<MyCollections />);
-      expect(container.firstChild).toMatchSnapshot();
     });
   });
 });

@@ -8,6 +8,7 @@ import { type BookmarkModelSchema, bookmarkTableSchema } from '@/models/bookmark
 import { type FeedModelSchema, feedTableSchema } from '@/models/feed/feed.schema';
 import { type FileDetailsModelSchema, fileDetailsTableSchema } from '@/models/file/fileDetails.schema';
 import { type HotTagsModelSchema, hotTagsTableSchema } from '@/models/hot/hot.schema';
+import { type LockModelSchema, lockTableSchema } from '@/models/locks/locks.schema';
 import type { Pubky } from '@/models/models.types';
 import { type ModerationModelSchema, moderationTableSchema } from '@/models/moderation/moderation.schema';
 import { notificationTableSchema } from '@/models/notification/notification.schema';
@@ -110,6 +111,7 @@ export class AppDatabase extends Dexie {
   feeds!: Dexie.Table<FeedModelSchema>;
   // Moderation
   moderation!: Dexie.Table<ModerationModelSchema>;
+  locks!: Dexie.Table<LockModelSchema>;
 
   constructor(databaseName: string = DB_NAME) {
     super(databaseName);
@@ -145,6 +147,7 @@ export class AppDatabase extends Dexie {
         feeds: feedTableSchema,
         // Moderation
         moderation: moderationTableSchema,
+        locks: lockTableSchema,
       });
     } catch (error) {
       throw Err.database(DatabaseErrorCode.SCHEMA_ERROR, 'Failed to initialize database schema of indexedDB', {
@@ -288,7 +291,11 @@ export class AppDatabase extends Dexie {
             maxAttempts: DB_INIT_MAX_ATTEMPTS,
           });
           this.close();
-          await delay(DB_INIT_RETRY_BASE_DELAY_MS * attempt);
+          // Backoff grows quadratically (150ms -> 600ms across the two retries
+          // allowed by DB_INIT_MAX_ATTEMPTS = 3): Safari evicts the DB under
+          // storage pressure and needs real time to release the handles, so a
+          // linear 150ms step gave up too early (PUBKY-APP-2Q).
+          await delay(DB_INIT_RETRY_BASE_DELAY_MS * attempt * attempt);
           continue;
         }
 

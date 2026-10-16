@@ -1,19 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from '@/molecules/Toaster/toast';
 import { CopyrightForm } from './CopyrightForm';
 
 // Mock @/molecules
-const { mockToast } = vi.hoisted(() => ({
-  mockToast: vi.fn(),
-}));
-vi.mock('@/molecules/Toaster/use-toast', () => {
-  return {
-    toast: mockToast,
-  };
-});
-
-// Mock @/atoms - provide minimal mocks for snapshot testing
+vi.mock('@/molecules/Toaster/toast');
 
 // Mock fetch
 global.fetch = vi.fn();
@@ -224,7 +216,7 @@ describe('CopyrightForm', () => {
     await user.click(submitButton);
 
     await waitFor(() => {
-      expect(mockToast).toHaveBeenCalledWith({
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
         title: 'Request sent',
       });
     });
@@ -259,7 +251,7 @@ describe('CopyrightForm', () => {
     await user.click(submitButton);
 
     await waitFor(() => {
-      expect(mockToast).toHaveBeenCalledWith({
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
         variant: 'error',
         description: 'Validation failed',
       });
@@ -312,7 +304,7 @@ describe('CopyrightForm', () => {
     await user.click(submitButton);
 
     await waitFor(() => {
-      expect(mockToast).toHaveBeenCalled();
+      expect(vi.mocked(toast)).toHaveBeenCalled();
     });
 
     // Form should be reset
@@ -325,23 +317,5 @@ describe('CopyrightForm', () => {
 
     const form = document.querySelector('form');
     expect(form).toBeInTheDocument();
-  });
-});
-
-describe('CopyrightForm - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // Mock the date to ensure consistent snapshots
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-01-15T12:00:00'));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('matches snapshot for default state', () => {
-    const { container } = render(<CopyrightForm />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

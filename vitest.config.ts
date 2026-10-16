@@ -16,11 +16,6 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       reportOnFailure: true,
     },
-    snapshotFormat: {
-      escapeString: true,
-      printBasicPrototype: false,
-    },
-    resolveSnapshotPath: (testPath, snapExtension) => testPath + snapExtension,
     onConsoleLog(log) {
       if (
         log.includes('WebAssembly.instantiateStreaming') ||
@@ -68,6 +63,12 @@ export default defineConfig({
           name: 'vrt',
           globals: true,
           testTimeout: 30_000,
+          // Vitest's Playwright webkit provider can throw
+          // `route.fulfill: Target page, context or browser has been closed` when
+          // multiple test files run in parallel within a browser context. Running
+          // test files sequentially per browser avoids the race while still letting
+          // chromium, firefox, and webkit run concurrently.
+          fileParallelism: false,
           include: ['**/*.vrt.test.{ts,tsx}'],
           exclude: ['**/node_modules/**', '**/.claude/**'],
           setupFiles: ['./src/test-utils/vrt.setup.ts'],
@@ -87,8 +88,8 @@ export default defineConfig({
                 comparatorOptions: {
                   allowedMismatchedPixelRatio: 0.001,
                 },
-                // Image-heavy suites (Home, Collections) on WebKit/Linux need
-                // extra headroom for layout to settle after fonts/images decode.
+                // Image-heavy suites (Home, Collections) on WebKit need extra
+                // headroom for layout to settle after fonts/images decode.
                 timeout: 15_000,
               },
             },
@@ -106,11 +107,18 @@ export default defineConfig({
                 browser: 'firefox',
                 viewport: VRT_VIEWPORT_DESKTOP,
               },
-              {
-                // `webkit` covers Safari's rendering engine.
-                browser: 'webkit',
-                viewport: VRT_VIEWPORT_DESKTOP,
-              },
+              // `webkit` covers Safari's rendering engine. Nobody browses with
+              // WebKit on Linux, so it runs on macOS only and there are no
+              // `*-webkit-linux.png` baselines; skipping it here keeps a local
+              // Linux run from creating them.
+              ...(process.platform === 'linux'
+                ? []
+                : [
+                    {
+                      browser: 'webkit' as const,
+                      viewport: VRT_VIEWPORT_DESKTOP,
+                    },
+                  ]),
             ],
           },
         },

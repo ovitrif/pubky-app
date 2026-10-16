@@ -6,25 +6,33 @@ import { useCustomStreamId } from '@/hooks/useCustomStreamId/useCustomStreamId';
 import { useFeedLayoutResolution } from '@/hooks/useFeedLayoutResolution/useFeedLayoutResolution';
 import { useHotStreamId } from '@/hooks/useHotStreamId/useHotStreamId';
 import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
+import { useProfilePostsFilter } from '@/hooks/useProfilePostsFilter/useProfilePostsFilter';
+import { useSearchReach } from '@/hooks/useSearchReach/useSearchReach';
 import { useSearchStreamId } from '@/hooks/useSearchStreamId/useSearchStreamId';
 import { useStreamIdFromFilters } from '@/hooks/useStreamIdFromFilters/useStreamIdFromFilters';
 import { useSyncInteractiveVisualContent } from '@/hooks/useSyncInteractiveVisualContent/useSyncInteractiveVisualContent';
 import { parseCollectionContent } from '@/libs/post/collectionContent';
-import { sortPostIdsByCollectionOrder } from '@/libs/post/collectionItemOrder';
+import { collectionItemsToPostIds } from '@/libs/post/collectionItemOrder';
 import { buildCompositeId } from '@/models/models.utils';
 import {
   type AuthorStreamCompositeId,
   buildAuthorCollectionsStreamId,
   buildCollectionItemsStreamId,
+  buildContentSearchStreamId,
   PostStreamTypes,
 } from '@/models/stream/post/postStream.types';
+import { CollectionsEmpty } from '@/molecules/CollectionsEmpty/CollectionsEmpty';
+import { FilterPostsBar } from '@/molecules/FilterPostsBar/FilterPostsBar';
+import { FilterPostsEmpty } from '@/molecules/FilterPostsEmpty/FilterPostsEmpty';
 import { PostsEmpty } from '@/molecules/PostsEmpty/PostsEmpty';
+import { SearchResultsEmpty } from '@/molecules/SearchResultsEmpty/SearchResultsEmpty';
 import { TimelineLoading } from '@/molecules/Timeline/TimelineLoading';
 import { getTagsLayoutForSurfaceLayout } from '@/organisms/PostMain/PostMainLayoutRules';
 import { useProfileContext } from '@/providers/ProfileProvider/ProfileProvider';
 import { StreamSource } from '@/services/nexus/stream/posts/postStream.types';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useHomeStore } from '@/stores/home/home.store';
-import { LAYOUT } from '@/stores/home/home.types';
+import { CONTENT, LAYOUT, REACH } from '@/stores/home/home.types';
 import { TimelineFeedWithStream } from '../TimelineFeedContent/TimelineFeedContent';
 import type { HomeTimelineFeedProps, TimelineFeedProps } from './TimelineFeed.types';
 import { resolveVisualFeedContent } from './TimelineFeedVisual.helpers';
@@ -45,7 +53,11 @@ export function TimelineFeed(props: TimelineFeedProps) {
       return <CustomTimelineFeed>{props.children}</CustomTimelineFeed>;
     case TIMELINE_FEED_VARIANT.BOOKMARKS:
       return (
-        <BookmarksTimelineFeed emptyState={props.emptyState} trailingSlot={props.trailingSlot}>
+        <BookmarksTimelineFeed
+          emptyState={props.emptyState}
+          trailingSlot={props.trailingSlot}
+          requestedLayout={props.requestedLayout}
+        >
           {props.children}
         </BookmarksTimelineFeed>
       );
@@ -126,18 +138,15 @@ function BookmarksTimelineFeed({
   children,
   emptyState,
   trailingSlot,
+  requestedLayout,
 }: {
   children?: TimelineFeedProps['children'];
+  requestedLayout?: Extract<TimelineFeedProps, { variant: typeof TIMELINE_FEED_VARIANT.BOOKMARKS }>['requestedLayout'];
   emptyState?: Extract<TimelineFeedProps, { variant: typeof TIMELINE_FEED_VARIANT.BOOKMARKS }>['emptyState'];
   trailingSlot?: Extract<TimelineFeedProps, { variant: typeof TIMELINE_FEED_VARIANT.BOOKMARKS }>['trailingSlot'];
 }) {
-  // The bookmarks route exposes no filter UI and shows collections in their own
-  // section below, so the feed is always the fixed all-bookmarks stream. It must
-  // not react to the shared home-store content/sort filters. Layout is pinned to
-  // columns (BOOKMARKS is excluded from RICH_LAYOUT_SUPPORTED_FEED_VARIANTS), so
-  // tags are always inline — mirroring the sibling single-collection grid feed.
-  // `layoutResolution` is still required: it carries `isGridActive` for the grid.
-  const layoutResolution = useFeedLayoutResolution(TIMELINE_FEED_VARIANT.BOOKMARKS);
+  // Keep the library independent of Home filters and persisted layout preferences.
+  const layoutResolution = useFeedLayoutResolution(TIMELINE_FEED_VARIANT.BOOKMARKS, requestedLayout ?? LAYOUT.CARDS);
   const streamId = PostStreamTypes.TIMELINE_BOOKMARKS_ALL;
 
   return (
@@ -156,7 +165,15 @@ function BookmarksTimelineFeed({
 
 function ProfileTimelineFeed({ children }: { children?: TimelineFeedProps['children'] }) {
   const { pubky } = useProfileContext();
-  const streamId = pubky ? (`${StreamSource.AUTHOR}:${pubky}` as AuthorStreamCompositeId) : undefined;
+  const { inputValue, onInputChange, activeQuery, validationMessage } = useProfilePostsFilter();
+  // An active query swaps the stream to the author-scoped content search;
+  // the bar stays mounted across the swap (it renders as feed children), so
+  // input focus survives the results changing underneath it.
+  const streamId = !pubky
+    ? undefined
+    : activeQuery
+      ? buildContentSearchStreamId(activeQuery, 'all', { type: 'author', author: pubky })
+      : (`${StreamSource.AUTHOR}:${pubky}` as AuthorStreamCompositeId);
   const layoutResolution = useFeedLayoutResolution(TIMELINE_FEED_VARIANT.PROFILE);
   const tagsLayout = getTagsLayoutForSurfaceLayout(layoutResolution.effectiveLayout);
 
@@ -166,8 +183,9 @@ function ProfileTimelineFeed({ children }: { children?: TimelineFeedProps['child
       variant={TIMELINE_FEED_VARIANT.PROFILE}
       tagsLayout={tagsLayout}
       layoutResolution={layoutResolution}
-      emptyState={<PostsEmpty />}
+      emptyState={activeQuery ? <FilterPostsEmpty /> : <PostsEmpty />}
     >
+      <FilterPostsBar value={inputValue} onValueChange={onInputChange} validationMessage={validationMessage} />
       {children}
     </TimelineFeedWithStream>
   );
@@ -185,6 +203,7 @@ function ProfileCollectionsTimelineFeed({ children }: { children?: TimelineFeedP
       variant={TIMELINE_FEED_VARIANT.PROFILE_COLLECTIONS}
       tagsLayout={tagsLayout}
       layoutResolution={layoutResolution}
+      emptyState={<CollectionsEmpty />}
     >
       {children}
     </TimelineFeedWithStream>
@@ -219,15 +238,22 @@ function CollectionTimelineFeed({
   const postId = params?.postId;
   const streamId = userId && postId ? buildCollectionItemsStreamId(userId, postId) : undefined;
   const collectionId = userId && postId ? buildCompositeId({ pubky: userId, id: postId }) : undefined;
-  const layoutResolution = useFeedLayoutResolution(TIMELINE_FEED_VARIANT.COLLECTION, requestedLayout ?? LAYOUT.COLUMNS);
+  const layoutResolution = useFeedLayoutResolution(TIMELINE_FEED_VARIANT.COLLECTION, requestedLayout ?? LAYOUT.CARDS);
   const tagsLayout = getTagsLayoutForSurfaceLayout(layoutResolution.effectiveLayout);
 
   // The envelope's `items` (a live Dexie query) is the local-first source of
-  // truth for ordering; the Nexus `collection` stream re-indexes asynchronously
-  // and can serve a stale order right after an add/remove/reorder commit.
-  // Sorting the stream's ids by the envelope makes commits render instantly.
-  const { postDetails } = usePostDetails(collectionId);
-  const envelopeItems = postDetails ? parseCollectionContent(postDetails.content)?.items : undefined;
+  // truth for membership and ordering; the Nexus `collection` stream re-indexes
+  // asynchronously and may still be empty right after a local save.
+  const { postDetails, isLoading: isCollectionLoading } = usePostDetails(collectionId);
+  const envelopeItems =
+    postDetails === undefined || isCollectionLoading
+      ? undefined
+      : (parseCollectionContent(postDetails?.content ?? '')?.items ?? []);
+  const membershipPostIds = collectionItemsToPostIds(envelopeItems);
+
+  // Remount per collection and viewer so transient picker/removal state and the
+  // raw pagination never carry over to another collection or account.
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
 
   return (
     <TimelineFeedWithStream
@@ -240,7 +266,8 @@ function CollectionTimelineFeed({
       pullToRefreshContainerRef={pullToRefreshContainerRef}
       trailingSlot={trailingSlot}
       visualHiddenItemsNotice={visualHiddenItemsNotice}
-      transformPostIds={(postIds) => sortPostIdsByCollectionOrder(postIds, envelopeItems)}
+      membershipPostIds={membershipPostIds}
+      key={`${streamId}:${currentUserPubky ?? 'guest'}`}
     >
       {children}
     </TimelineFeedWithStream>
@@ -265,6 +292,7 @@ function HotTimelineFeed({ children }: { children?: TimelineFeedProps['children'
 }
 
 function SearchTimelineFeed({ children }: { children?: TimelineFeedProps['children'] }) {
+  const { reach, currentUserPubky, setReach } = useSearchReach();
   const content = useHomeStore((state) => state.content);
   const layoutResolution = useFeedLayoutResolution(TIMELINE_FEED_VARIANT.SEARCH);
   const resolvedContent = resolveVisualFeedContent({
@@ -277,11 +305,19 @@ function SearchTimelineFeed({ children }: { children?: TimelineFeedProps['childr
   const tagsLayout = getTagsLayoutForSurfaceLayout(layoutResolution.effectiveLayout);
 
   return (
+    // useStreamPagination resets in place on a stream change; the key only covers a viewer swap.
     <TimelineFeedWithStream
+      key={currentUserPubky ?? 'public'}
       streamId={streamId}
       variant={TIMELINE_FEED_VARIANT.SEARCH}
       tagsLayout={tagsLayout}
       layoutResolution={layoutResolution}
+      emptyState={
+        <SearchResultsEmpty
+          isCollections={resolvedContent === CONTENT.COLLECTIONS}
+          onSearchAll={reach === REACH.ALL ? undefined : () => setReach(REACH.ALL)}
+        />
+      }
     >
       {children}
     </TimelineFeedWithStream>
