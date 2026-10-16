@@ -12,14 +12,15 @@ const PUBKY_AUTHORITY = /^[^:@]+$/;
  *
  * The scheme is case-insensitive (`PUBKY://…` is valid); the authority keeps its case.
  * Query and fragment are dropped. A missing authority (`pubky:///…`) or one with
- * userinfo (`@`) or a port (`:`) returns null.
+ * userinfo (`@`) or a port (`:`) returns null, as does a non-string value from
+ * unvalidated remote data (e.g. a Nexus file record without a `uri`).
  *
  * @example
  * parsePubkyUri("pubky://author123/pub/pubky.app/files/file456?v=1")
  * // Returns: { authority: "author123", path: "/pub/pubky.app/files/file456" }
  */
-export function parsePubkyUri(uri: string): { authority: string; path: string } | null {
-  if (uri.slice(0, PUBKY_URI_PREFIX.length).toLowerCase() !== PUBKY_URI_PREFIX) {
+export function parsePubkyUri(uri: unknown): { authority: string; path: string } | null {
+  if (typeof uri !== 'string' || uri.slice(0, PUBKY_URI_PREFIX.length).toLowerCase() !== PUBKY_URI_PREFIX) {
     return null;
   }
   const rest = uri.slice(PUBKY_URI_PREFIX.length).split(/[?#]/, 1)[0];
